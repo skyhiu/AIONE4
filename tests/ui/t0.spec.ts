@@ -38,8 +38,9 @@ test.describe('T0 first window (mocked core)', () => {
     await page.goto('./');
     await expect(page.getByTestId('version')).toContainText(pkg.version);
 
+    await expect(page.getByTestId('readout-pads')).toHaveText('No controller connected');
+    // Like the core: the pad connects before its first press.
     await page.evaluate(() => {
-      window.__aioneMock?.pad('', 'connected', 0);
       window.__aioneMock?.pad('A', 'down');
       window.__aioneMock?.pad('A', 'up');
     });
@@ -66,7 +67,33 @@ test.describe('T0 first window (mocked core)', () => {
     await expect(page.getByTestId('readout-last')).toHaveText('Left click (mouse)');
     await expect(page.getByTestId('readout-presses')).toHaveText('4');
     await expect(page.getByTestId('readout-sources')).toHaveText('Controller 2 · Keyboard 1 · Mouse 1');
+    // Every press and repeat the UI acted on is logged once, with the core's sequence number.
+    const logs = (await page.evaluate(() => window.__aioneMock?.logs)) ?? [];
+    const inputLines = logs.filter((l) => l.startsWith('info: input '));
+    expect(inputLines).toEqual([
+      'info: input down A (controller 1 seq 2) -> presses 1, action confirm',
+      'info: input down DPadDown (controller 1 seq 4) -> presses 2, action down',
+      'info: input repeat DPadDown (controller 1 seq 5) -> presses 2, action down',
+      'info: input repeat DPadDown (controller 1 seq 6) -> presses 2, action down',
+      'info: input down Right (keyboard) -> presses 3, action right',
+      'info: input down Left click (mouse) -> presses 4',
+    ]);
     await shot(page, 't0-readout-after-inputs');
+  });
+
+  test('D-002: a pad connected before the UI listens shows as connected from the start', async ({ page }) => {
+    await page.goto('./?pad=connected');
+    await expect(page.getByTestId('version')).toContainText(pkg.version);
+    // No press, no connect event reached the UI: the state comes from the core's answer.
+    await expect(page.getByTestId('readout-pads')).toHaveText('Controller connected: slot 1');
+    await expect(page.getByTestId('readout-presses')).toHaveText('0');
+    expect(await page.evaluate(() => window.__aioneMock?.padSlotsCalls)).toBe(1);
+    const logs = (await page.evaluate(() => window.__aioneMock?.logs)) ?? [];
+    expect(logs).toContain('info: controller slots at start: [1] (as of seq 1)');
+    await shot(page, 't0-pad-connected-at-start');
+    // Later changes still arrive as events.
+    await page.evaluate(() => window.__aioneMock?.disconnect(0));
+    await expect(page.getByTestId('readout-pads')).toHaveText('No controller connected');
   });
 
   test('blocked browser keys do not reload the page; restart shortcut reaches the core', async ({ page }) => {
@@ -83,30 +110,31 @@ test.describe('T0 first window (mocked core)', () => {
 });
 
 test.describe('T0 copy offer (mocked core)', () => {
-  test('asks once with Copy focused; controller copies; result shows counts', async ({ page }) => {
+  test('asks with Copy focused, plain counts and hints; controller copies; result shows counts', async ({ page }) => {
     await page.goto('./?migration=offer');
     const dialog = page.getByTestId('copy-dialog');
     await expect(dialog).toHaveAttribute('data-phase', 'ask');
     await expect(page.getByTestId('copy-accept')).toHaveClass(/focused/);
     await expect(page.getByTestId('copy-decline')).not.toHaveClass(/focused/);
-    await expect(dialog).toContainText('10 games');
+    await expect(page.getByTestId('copy-offer-counts')).toHaveText('10 games · 0 hidden · 0 favorites · 0 folders');
+    await expect(dialog).toContainText('1 folder skipped: _Removed');
+    await expect(page.getByTestId('copy-hints')).toHaveText('A Select · B Not now');
+    // B-2: the question is no longer "asked only once".
+    await expect(dialog).not.toContainText('only once');
+    await expect(dialog).toContainText('Not now (B) asks again at the next start');
     await expectNoOverflow(page);
     await expectInViewport(page, '[data-testid="copy-dialog"]');
     await shot(page, 't0-copy-offer');
 
-    // B only moves focus; it never declines.
-    await page.evaluate(() => window.__aioneMock?.pad('B'));
+    await page.evaluate(() => window.__aioneMock?.pad('DPadRight'));
     await expect(page.getByTestId('copy-decline')).toHaveClass(/focused/);
-    await expect(dialog).toHaveAttribute('data-phase', 'ask');
     await shot(page, 't0-copy-offer-focus-dont-copy');
-
     await page.evaluate(() => window.__aioneMock?.pad('DPadLeft'));
     await expect(page.getByTestId('copy-accept')).toHaveClass(/focused/);
     await page.evaluate(() => window.__aioneMock?.pad('A'));
-    await expect(dialog).toHaveAttribute('data-phase', /copying|done/);
     await expect(dialog).toHaveAttribute('data-phase', 'done');
-    await expect(page.getByTestId('copy-result-games')).toContainText('10 games (1 hidden, 3 favorites)');
-    await expect(page.getByTestId('copy-result-ignored')).toContainText('_Removed');
+    await expect(page.getByTestId('copy-result-games')).toHaveText('10 games · 0 hidden · 0 favorites · 0 folders');
+    await expect(page.getByTestId('copy-result-ignored')).toHaveText('1 folder skipped: _Removed');
     await expect(page.getByTestId('copy-result-source')).toHaveText('Your previous AIONE folder was not changed.');
     expect(await page.evaluate(() => window.__aioneMock?.decisions)).toEqual([true]);
     await expectInViewport(page, '[data-testid="copy-dialog"]');
@@ -116,11 +144,61 @@ test.describe('T0 copy offer (mocked core)', () => {
     await expect(dialog).toHaveCount(0);
   });
 
-  test('progress is shown while copying', async ({ page }) => {
+  test('B = Not now: closes without deciding (B-2)', async ({ page }) => {
     await page.goto('./?migration=offer');
+    await expect(page.getByTestId('copy-dialog')).toHaveAttribute('data-phase', 'ask');
+    await page.evaluate(() => window.__aioneMock?.pad('B'));
+    await expect(page.getByTestId('copy-dialog')).toHaveCount(0);
+    expect(await page.evaluate(() => window.__aioneMock?.decisions)).toEqual([]);
+    const logs = (await page.evaluate(() => window.__aioneMock?.logs)) ?? [];
+    expect(logs.some((l) => l.includes('user chose Not now'))).toBe(true);
+    await shot(page, 't0-copy-not-now-closed');
+  });
+
+  test('B on "Don\'t copy" is still Not now; A on "Don\'t copy" declines', async ({ page }) => {
+    await page.goto('./?migration=offer');
+    await page.evaluate(() => window.__aioneMock?.pad('DPadRight'));
+    await page.evaluate(() => window.__aioneMock?.pad('B'));
+    await expect(page.getByTestId('copy-dialog')).toHaveCount(0);
+    expect(await page.evaluate(() => window.__aioneMock?.decisions)).toEqual([]);
+
+    await page.goto('./?migration=offer');
+    await page.evaluate(() => window.__aioneMock?.pad('DPadRight'));
+    await expect(page.getByTestId('copy-decline')).toHaveClass(/focused/);
+    await page.evaluate(() => window.__aioneMock?.pad('A'));
+    await expect(page.getByTestId('copy-dialog')).toHaveCount(0);
+    expect(await page.evaluate(() => window.__aioneMock?.decisions)).toEqual([false]);
+  });
+
+  test('D-003: the bar matches the numbers under it after animations settle', async ({ page }) => {
+    // Slow steps (3 s each) so the 25 % state can be measured at rest.
+    await page.goto('./?migration=offer&step=3000');
     await page.keyboard.press('Enter');
-    await expect(page.getByTestId('copy-progress-text')).toContainText('of 1,234 files');
-    // Taken at once: the mocked copy finishes within about 0.6 s.
+    const percent = page.getByTestId('copy-progress-percent');
+    await expect(percent).toHaveText('25 %');
+    const ratio = async () =>
+      page.evaluate(() => {
+        const fill = document.querySelector('[data-testid="copy-progress-fill"]');
+        const track = document.querySelector('[data-testid="copy-progress-track"]');
+        if (!fill || !track) return -1;
+        return fill.getBoundingClientRect().width / track.getBoundingClientRect().width;
+      });
+    // Wait until the bar is at rest (two equal readings), then compare with the text.
+    await expect
+      .poll(async () => {
+        const a = await ratio();
+        await page.waitForTimeout(100);
+        return Math.abs((await ratio()) - a);
+      })
+      .toBeLessThan(0.001);
+    const shown = Number(await percent.getAttribute('data-fraction'));
+    expect(shown).toBeCloseTo(0.25, 5);
+    expect(Math.abs((await ratio()) - shown)).toBeLessThanOrEqual(0.02);
+    // The bar animates by transform only (A7).
+    const prop = await page
+      .getByTestId('copy-progress-fill')
+      .evaluate((el) => getComputedStyle(el).transitionProperty);
+    expect(prop).toBe('transform');
     mkdirSync(SCREENSHOT_DIR, { recursive: true });
     await page.screenshot({ path: path.join(SCREENSHOT_DIR, 't0-copy-progress.png') });
   });

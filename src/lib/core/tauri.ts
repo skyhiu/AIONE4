@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import type { AppInfo, CopyProgress, CopyResult, Core, MigrationStatus, PadEvent } from './types';
+import type { AppInfo, CopyProgress, CopyResult, Core, MigrationStatus, PadEvent, PadSlots } from './types';
 
 /** Event names emitted by the Rust core (src-tauri/src/events.rs). */
 export const EVENTS = {
@@ -25,6 +25,7 @@ export function createTauriCore(): Core {
     migrationDecide: async (accept) => {
       await invoke('migration_decide', { accept });
     },
+    padSlots: () => invoke<PadSlots>('pad_slots'),
     restart: async () => {
       await invoke('restart_app');
     },

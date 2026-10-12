@@ -52,7 +52,12 @@ impl ForegroundReport {
 }
 
 #[cfg(windows)]
-pub use win::{bring_to_front, start_guard, stop_guard};
+pub use win::{bring_to_front, focus_report, start_guard, stop_guard};
+
+#[cfg(not(windows))]
+pub fn focus_report() -> String {
+    "not available on this platform".into()
+}
 
 #[cfg(not(windows))]
 pub fn bring_to_front(_hwnd: isize) -> ForegroundReport {
@@ -87,10 +92,11 @@ mod win {
         VK_LBUTTON, VK_LWIN, VK_MENU, VK_RBUTTON, VK_RWIN,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
-        BringWindowToTop, FlashWindowEx, GetForegroundWindow, GetWindowThreadProcessId, IsIconic,
-        SetForegroundWindow, SetWindowPos, ShowWindow, EVENT_SYSTEM_FOREGROUND, FLASHWINFO,
-        FLASHW_ALL, FLASHW_TIMERNOFG, HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE,
-        SWP_SHOWWINDOW, SW_RESTORE, WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS,
+        BringWindowToTop, FlashWindowEx, GetClassNameW, GetForegroundWindow, GetGUIThreadInfo,
+        GetWindowThreadProcessId, IsIconic, SetForegroundWindow, SetWindowPos, ShowWindow,
+        EVENT_SYSTEM_FOREGROUND, FLASHWINFO, FLASHW_ALL, FLASHW_TIMERNOFG, GUITHREADINFO,
+        HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_RESTORE,
+        WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS,
     };
 
     fn hwnd(raw: isize) -> HWND {
@@ -135,6 +141,44 @@ mod win {
             let path = String::from_utf16_lossy(&buf[..len as usize]);
             path.rsplit('\\').next().unwrap_or(&path).to_string()
         }
+    }
+
+    /// Which window has keyboard focus right now (the foreground thread's focus window):
+    /// its class, its program, and whether it is AIONE's.
+    pub fn focus_report() -> String {
+        let mut info = GUITHREADINFO {
+            cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
+            ..Default::default()
+        };
+        // SAFETY: cbSize is set; 0 = the foreground thread.
+        if unsafe { GetGUIThreadInfo(0, &mut info) }.is_err() {
+            return "unknown (GetGUIThreadInfo failed)".into();
+        }
+        let h = info.hwndFocus;
+        if h.0.is_null() {
+            return format!(
+                "no focus window (active window: {})",
+                describe_window(info.hwndActive)
+            );
+        }
+        let mut buf = [0u16; 128];
+        // SAFETY: buffer slice passed with its length.
+        let n = unsafe { GetClassNameW(h, &mut buf) }.max(0) as usize;
+        let class = String::from_utf16_lossy(&buf[..n]);
+        let mut pid = 0u32;
+        // SAFETY: valid out pointer.
+        unsafe { GetWindowThreadProcessId(h, Some(&mut pid)) };
+        // SAFETY: plain query.
+        let ours = pid == unsafe { GetCurrentProcessId() };
+        format!(
+            "class \"{class}\" in {} ({})",
+            describe_window(h),
+            if ours {
+                "AIONE 4: keys reach AIONE"
+            } else {
+                "another program"
+            }
+        )
     }
 
     pub fn bring_to_front(raw: isize) -> ForegroundReport {

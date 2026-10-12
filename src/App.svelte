@@ -7,11 +7,12 @@
     fromMouseButton,
     fromPadEvent,
     fromWheel,
+    describeInput,
     toAction,
     type InputEvent,
   } from './lib/input/events';
-  import { applyInput, applyPadConnection, initialReadout } from './lib/input/readout';
-  import { choose, flowAction, flowDone, flowProgress, initialFlow, type FlowState } from './lib/migrationFlow';
+  import { applyInput, applyPadConnection, applyPadSlots, initialReadout } from './lib/input/readout';
+  import { choose, flowAction, flowDone, flowProgress, initialFlow, type FlowEffect, type FlowState } from './lib/migrationFlow';
   import { isBlockedBrowserKey, isRestartShortcut } from './lib/input/shortcuts';
   import InputReadout from './lib/components/InputReadout.svelte';
   import CopyDialog from './lib/components/CopyDialog.svelte';
@@ -23,14 +24,24 @@
   /** A7: 'pad' = controller / keyboard (focus ring), 'mouse' = hover only. */
   let inputMode = $state<'pad' | 'mouse'>('pad');
 
+  let firstKeyLogged = false;
+
   function handleInput(ev: InputEvent) {
     readout = applyInput(readout, ev);
     if (ev.kind === 'down') inputMode = ev.source === 'mouse' ? 'mouse' : 'pad';
     const action = toAction(ev);
+    // Every press and repeat the UI acts on is logged with the core's sequence number, so
+    // "one press shows once" can be proven from the PC's log (alpha.1 QA-7).
+    if (ev.kind !== 'up') core?.log('info', describeInput(ev, readout.presses, action));
     if (!action || !core) return;
     const [next, effect] = flowAction(flow, action);
     flow = next;
+    applyEffect(effect);
+  }
+
+  function applyEffect(effect: FlowEffect) {
     if (effect.type === 'decide') decide(effect.accept);
+    if (effect.type === 'notNow') core?.log('info', 'copy offer: user chose Not now (nothing recorded; asked again at the next start)');
   }
 
   function decide(accept: boolean) {
@@ -43,11 +54,18 @@
   function onChoose(accept: boolean) {
     const [next, effect] = choose(flow, accept);
     flow = next;
-    if (effect.type === 'decide') decide(effect.accept);
+    applyEffect(effect);
   }
 
   function onKey(e: KeyboardEvent) {
     if (isBlockedBrowserKey(e)) e.preventDefault();
+    if (!firstKeyLogged && e.type === 'keydown') {
+      firstKeyLogged = true;
+      core?.log(
+        'info',
+        `first keyboard event ${Math.round(performance.now())} ms after the page started (page focused: ${document.hasFocus()})`,
+      );
+    }
     if (e.type === 'keydown' && isRestartShortcut(e) && !e.repeat) {
       e.preventDefault();
       core?.log('info', 'restart requested (Ctrl+Shift+R)');
@@ -81,7 +99,7 @@
       unlisteners.push(
         await c.onPad((ev) => {
           if (ev.kind === 'connected' || ev.kind === 'disconnected') {
-            readout = applyPadConnection(readout, ev.pad + 1, ev.kind === 'connected');
+            readout = applyPadConnection(readout, ev.pad + 1, ev.kind === 'connected', ev.seq);
             return;
           }
           const input = fromPadEvent(ev);
@@ -90,6 +108,15 @@
         await c.onCopyProgress((p) => (flow = flowProgress(flow, p))),
         await c.onCopyDone((r) => (flow = flowDone(flow, r))),
       );
+      // D-002: a pad connected before the UI listened sent its connect event too early, so
+      // ask the core for the current slots (after subscribing, so nothing falls in between).
+      const slots = await c.padSlots();
+      readout = applyPadSlots(
+        readout,
+        slots.slots.map((s) => s + 1),
+        slots.seq,
+      );
+      c.log('info', `controller slots at start: [${slots.slots.map((s) => s + 1).join(', ')}] (as of seq ${slots.seq})`);
       info = await c.appInfo();
       // Show the window only once the first real frame is drawn (no white flash), then
       // the core takes the foreground (L-20).

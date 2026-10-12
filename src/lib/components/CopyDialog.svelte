@@ -1,7 +1,7 @@
 <script lang="ts">
   import { fade, scale } from 'svelte/transition';
   import type { FlowState } from '../migrationFlow';
-  import { BUTTON_COPY, BUTTON_SKIP } from '../migrationFlow';
+  import { BUTTON_COPY, BUTTON_SKIP, copyFraction, describeCounts, describeSkipped } from '../migrationFlow';
   import { formatBytes, plural } from '../format';
 
   let {
@@ -14,11 +14,9 @@
     onClose: () => void;
   } = $props();
 
-  const progressFraction = $derived(
-    flow.phase === 'copying' && flow.progress && flow.progress.bytesTotal > 0
-      ? Math.min(1, flow.progress.bytesDone / flow.progress.bytesTotal)
-      : 0,
-  );
+  // D-003: one value drives both the bar and the percentage shown under it.
+  const fraction = $derived(flow.phase === 'copying' ? copyFraction(flow.progress) : 0);
+  const percent = $derived(Math.round(fraction * 100));
 </script>
 
 <div class="scrim" transition:fade={{ duration: 160 }}></div>
@@ -34,16 +32,17 @@
   {#if flow.phase === 'ask'}
     <h1 id="copy-title">Copy your AIONE data?</h1>
     <p>
-      AIONE 4 found the data of your previous AIONE: {plural(flow.offer.library.games, 'game', 'games')}, {plural(
-        flow.offer.files,
-        'file',
-        'files',
-      )}, {formatBytes(flow.offer.bytes)}.
+      AIONE 4 found the data of your previous AIONE: {plural(flow.offer.files, 'file', 'files')},
+      {formatBytes(flow.offer.bytes)}.
     </p>
+    <p data-testid="copy-offer-counts">{describeCounts(flow.offer.library)}</p>
     <p>
       It can copy everything into AIONE 4's own folder. Your previous AIONE folder is only read and stays exactly as
-      it is. This question is asked only once.
+      it is. Not now (B) asks again at the next start; Copy and Don't copy are final.
     </p>
+    {#each describeSkipped(flow.offer.library.ignored) as line (line)}
+      <p class="muted">{line}</p>
+    {/each}
     <p class="path" title={flow.offer.source}>{flow.offer.source}</p>
     <div class="buttons">
       <button
@@ -59,31 +58,30 @@
         onclick={() => onChoose(false)}>Don't copy</button
       >
     </div>
+    <p class="hints" data-testid="copy-hints">A Select · B Not now</p>
   {:else if flow.phase === 'copying'}
     <h1 id="copy-title">Copying your AIONE data…</h1>
     <p data-testid="copy-progress-text">
       {#if flow.progress}
         {flow.progress.filesDone.toLocaleString('en-US')} of {plural(flow.progress.filesTotal, 'file', 'files')} ·
-        {formatBytes(flow.progress.bytesDone)} of {formatBytes(flow.progress.bytesTotal)}
+        {formatBytes(flow.progress.bytesDone)} of {formatBytes(flow.progress.bytesTotal)} ·
+        <span data-testid="copy-progress-percent" data-fraction={fraction}>{percent} %</span>
       {:else}
         Preparing…
       {/if}
     </p>
-    <div class="bar" aria-hidden="true"><div class="fill" style:transform={`scaleX(${progressFraction})`}></div></div>
+    <div class="bar" aria-hidden="true" data-testid="copy-progress-track">
+      <div class="fill" data-testid="copy-progress-fill" style:transform={`scaleX(${fraction})`}></div>
+    </div>
     <p class="muted">Your previous AIONE folder is only read, never changed.</p>
   {:else}
     {@const r = flow.result}
     <h1 id="copy-title">{r.ok ? 'Your AIONE data was copied' : 'The copy is incomplete'}</h1>
-    <p data-testid="copy-result-games">
-      {plural(r.library.games, 'game', 'games')} ({r.library.hidden} hidden, {r.library.favorites}
-      {r.library.favorites === 1 ? 'favorite' : 'favorites'}) · {plural(r.filesCopied, 'file', 'files')} ·
-      {formatBytes(r.bytesCopied)}
-    </p>
-    {#if r.library.ignored.length > 0}
-      <p class="muted" data-testid="copy-result-ignored">
-        Not games (as in AIONE): {r.library.ignored.map((i) => `${i.name}: ${i.reason}`).join('; ')}
-      </p>
-    {/if}
+    <p data-testid="copy-result-games">{describeCounts(r.library)}</p>
+    <p class="muted">{plural(r.filesCopied, 'file', 'files')} · {formatBytes(r.bytesCopied)}</p>
+    {#each describeSkipped(r.library.ignored) as line (line)}
+      <p class="muted" data-testid="copy-result-ignored">{line}</p>
+    {/each}
     {#if r.filesFailed > 0}
       <p class="warn">{plural(r.filesFailed, 'file', 'files')} could not be copied (listed in aione.log).</p>
     {/if}
@@ -181,6 +179,12 @@
   button:active {
     transform: scale(0.97);
   }
+  .hints {
+    margin: var(--space-4) 0 0;
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+    text-align: right;
+  }
   .bar {
     height: 8px;
     border-radius: 4px;
@@ -192,6 +196,8 @@
     height: 100%;
     background: var(--color-accent);
     transform-origin: left center;
-    transition: transform var(--motion-medium) linear;
+    /* D-003: shorter than the core's ~100 ms progress interval, so the bar settles on each
+       value before the next one arrives (200 ms always trailed the text). */
+    transition: transform 80ms linear;
   }
 </style>

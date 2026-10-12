@@ -9,8 +9,9 @@
 //!   T1 / T2; T0 copies it and keeps it safe.
 //! - The question is asked once: the decision is stored in `<data>\migration.json`. A copy
 //!   that failed completely is offered again at the next start.
-//! - Counts: games, hidden and favourites come from `library::scan_games_dir`, the same rule
-//!   the loader uses (L-17); every entry that is not a game is logged with its reason.
+//! - Counts: games, hidden games, favorites and library folders come from
+//!   `library::scan_library`, the same rule the loader uses (L-17); every entry that is not a
+//!   game is logged with its reason, and where each count was read from.
 
 use crate::library::{self, LibraryCounts};
 use crate::logging;
@@ -285,20 +286,18 @@ pub fn status(data: &Path, source: &Path) -> MigrationStatus {
         };
     }
     let fp = fingerprint(source);
-    let lib = library::scan_games_dir(&source.join(library::GAMES_DIR));
+    let lib = library::scan_library(source);
     logging::info(
         "copy",
         &format!(
-            "offering the copy of {}: {} files, {} bytes, {} games ({} hidden, {} favourites), {} entries not games",
+            "offering the copy of {}: {} files, {} bytes; {}",
             source.display(),
             fp.files(),
             fp.bytes(),
-            lib.games,
-            lib.hidden,
-            lib.favorites,
-            lib.ignored.len()
+            counts_line(&lib)
         ),
     );
+    log_top_level(source);
     MigrationStatus::Offer {
         source: source.display().to_string(),
         files: fp.files(),
@@ -482,8 +481,8 @@ pub fn copy(data: &Path, source: &Path, mut progress: impl FnMut(&CopyProgress))
     }
 
     // Counts from the copy, with the loader's rule (L-17), and from the source for comparison.
-    let lib = library::scan_games_dir(&final_dir.join(library::GAMES_DIR));
-    let lib_src = library::scan_games_dir(&source.join(library::GAMES_DIR));
+    let lib = library::scan_library(&final_dir);
+    let lib_src = library::scan_library(source);
     if lib != lib_src {
         let n = format!(
             "library counts differ between source ({} games) and copy ({} games)",
@@ -524,13 +523,9 @@ pub fn copy(data: &Path, source: &Path, mut progress: impl FnMut(&CopyProgress))
     logging::info(
         "copy",
         &format!(
-            "copy {outcome} in {:.1} s: {files_copied} of {files_total} files, {bytes_copied} bytes, {files_failed} failed; \
-             games {} (hidden {}, favourites {}), entries not games {}",
+            "copy {outcome} in {:.1} s: {files_copied} of {files_total} files, {bytes_copied} bytes, {files_failed} failed; {}",
             started.elapsed().as_secs_f64(),
-            lib.games,
-            lib.hidden,
-            lib.favorites,
-            lib.ignored.len()
+            counts_line(&lib)
         ),
     );
 
@@ -545,6 +540,42 @@ pub fn copy(data: &Path, source: &Path, mut progress: impl FnMut(&CopyProgress))
         source_unchanged,
         notes,
     }
+}
+
+/// "10 games, 0 hidden, 0 favorites, 0 folders; 1 skipped" — one wording for log and dialog.
+pub fn counts_line(c: &LibraryCounts) -> String {
+    format!(
+        "{} games, {} hidden, {} favorites, {} folders; {} skipped",
+        c.games,
+        c.hidden,
+        c.favorites,
+        c.folders,
+        c.ignored.len()
+    )
+}
+
+/// Diagnostics for D-001: the top level of the WPF data folder (names and sizes), so the real
+/// format of hidden games, favorites and folders can be confirmed from the log.
+fn log_top_level(source: &Path) {
+    let mut names: Vec<String> = fs::read_dir(source)
+        .map(|r| {
+            r.flatten()
+                .map(|e| {
+                    let n = e.file_name().to_string_lossy().into_owned();
+                    match e.metadata() {
+                        Ok(m) if m.is_dir() => format!("{n}\\"),
+                        Ok(m) => format!("{n} ({} bytes)", m.len()),
+                        Err(_) => n,
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    names.sort();
+    logging::info(
+        "copy",
+        &format!("WPF data folder top level: {}", names.join(", ")),
+    );
 }
 
 fn is_dir_in(fp: &Fingerprint, rel: &Path) -> bool {
@@ -626,11 +657,16 @@ mod tests {
         assert_eq!(r.bytes_copied, before.bytes());
         // L-17: the reported counts equal what the loader's rule finds in the copy.
         let dest = destination(&data);
-        let loaded = library::scan_games_dir(&dest.join("Games"));
+        let loaded = library::scan_library(&dest);
         assert_eq!(r.library, loaded);
         assert_eq!(
-            (r.library.games, r.library.hidden, r.library.favorites),
-            (3, 1, 2)
+            (
+                r.library.games,
+                r.library.hidden,
+                r.library.favorites,
+                r.library.folders
+            ),
+            (4, 2, 3, 3)
         );
         // Same tree, same sizes, empty folders included.
         let copied = fingerprint(&dest);
@@ -655,7 +691,7 @@ mod tests {
         fs::create_dir_all(&data).unwrap();
         match status(&data, &src) {
             MigrationStatus::Offer { library, files, .. } => {
-                assert_eq!(library.games, 3);
+                assert_eq!(library.games, 4);
                 assert!(files > 0);
             }
             other => panic!("expected offer, got {other:?}"),
@@ -666,6 +702,42 @@ mod tests {
             MigrationStatus::AlreadyHandled {
                 decision: "declined".into()
             }
+        );
+    }
+
+    #[test]
+    fn not_now_asks_again_and_dont_copy_never_does() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = wpf(tmp.path());
+        let data = tmp.path().join("AIONE4");
+        fs::create_dir_all(&data).unwrap();
+        // "Not now" records nothing: the next start (a new status call) offers again.
+        assert!(matches!(status(&data, &src), MigrationStatus::Offer { .. }));
+        assert!(read_state(&data).is_none());
+        assert!(matches!(status(&data, &src), MigrationStatus::Offer { .. }));
+        // "Don't copy" is final: never offered again.
+        record_decision(&data, &src, "declined", None).unwrap();
+        for _ in 0..3 {
+            assert!(matches!(
+                status(&data, &src),
+                MigrationStatus::AlreadyHandled { .. }
+            ));
+        }
+    }
+
+    #[test]
+    fn counts_line_wording() {
+        let c = LibraryCounts {
+            games: 10,
+            ignored: vec![library::IgnoredEntry {
+                name: "_Removed".into(),
+                reason: "x".into(),
+            }],
+            ..Default::default()
+        };
+        assert_eq!(
+            counts_line(&c),
+            "10 games, 0 hidden, 0 favorites, 0 folders; 1 skipped"
         );
     }
 

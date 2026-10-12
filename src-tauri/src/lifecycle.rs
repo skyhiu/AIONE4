@@ -77,6 +77,20 @@ pub fn spawn_restart() -> std::io::Result<u32> {
     Ok(child.id())
 }
 
+/// True when another AIONE 4 is already running (a named mutex this process then keeps).
+/// Used only to log the hand-over: the single-instance plugin does the hand-over itself and
+/// exits this process before the window opens.
+pub fn another_instance_running() -> bool {
+    #[cfg(windows)]
+    {
+        win::another_instance_running()
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
 pub fn exe_path() -> PathBuf {
     std::env::current_exe().unwrap_or_default()
 }
@@ -117,13 +131,26 @@ pub fn log_start(args: &Args) {
 mod win {
     use std::time::{Duration, Instant};
     use windows::core::{w, HSTRING};
-    use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0, WAIT_TIMEOUT};
+    use windows::Win32::Foundation::{
+        CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, WAIT_OBJECT_0, WAIT_TIMEOUT,
+    };
     use windows::Win32::System::Registry::{
         RegDeleteKeyValueW, RegSetKeyValueW, HKEY_CURRENT_USER, REG_SZ,
     };
     use windows::Win32::System::Threading::{
-        OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE,
+        CreateMutexW, OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE,
     };
+
+    pub fn another_instance_running() -> bool {
+        // SAFETY: the handle is intentionally kept open for the life of the process (it marks
+        // this instance as running); last-error is read right after the call.
+        unsafe {
+            match CreateMutexW(None, false, w!("Local\\AIONE4.InstanceProbe")) {
+                Ok(_handle) => GetLastError() == ERROR_ALREADY_EXISTS,
+                Err(_) => false,
+            }
+        }
+    }
 
     pub fn wait_for_pid(pid: u32, timeout: Duration) -> String {
         let started = Instant::now();

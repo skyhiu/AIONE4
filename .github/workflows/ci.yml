@@ -60,6 +60,9 @@ jobs:
       - name: npm ci
         run: npm ci
 
+      - name: Assets (licence files, pinned Material Symbols)
+        run: npm run check:assets
+
       - name: Type check
         run: npm run typecheck
 

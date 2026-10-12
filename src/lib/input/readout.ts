@@ -11,6 +11,9 @@ export interface ReadoutState {
   bySource: Record<InputSource, number>;
   /** Controller slots currently connected (1–4). */
   pads: number[];
+  /** Core sequence number of the connection state shown (D-002: query and events merge in
+   *  order, so an older answer never overwrites a newer event). */
+  padSeq: number;
 }
 
 export function initialReadout(): ReadoutState {
@@ -21,6 +24,7 @@ export function initialReadout(): ReadoutState {
     releases: 0,
     bySource: { controller: 0, keyboard: 0, mouse: 0 },
     pads: [],
+    padSeq: 0,
   };
 }
 
@@ -45,11 +49,20 @@ export function applyInput(state: ReadoutState, ev: InputEvent): ReadoutState {
   }
 }
 
-export function applyPadConnection(state: ReadoutState, slot: number, connected: boolean): ReadoutState {
+/** A connect / disconnect event (slot 1–4) with the core's sequence number. */
+export function applyPadConnection(state: ReadoutState, slot: number, connected: boolean, seq: number): ReadoutState {
+  if (seq <= state.padSeq) return state;
   const set = new Set(state.pads);
   if (connected) set.add(slot);
   else set.delete(slot);
-  return { ...state, pads: [...set].sort((a, b) => a - b) };
+  return { ...state, pads: [...set].sort((a, b) => a - b), padSeq: seq };
+}
+
+/** The core's answer to "which slots are connected?" (slots 1–4), as of sequence `seq`.
+ *  Ignored if an event newer than that answer was already applied. */
+export function applyPadSlots(state: ReadoutState, slots: number[], seq: number): ReadoutState {
+  if (seq < state.padSeq) return state;
+  return { ...state, pads: [...new Set(slots)].sort((a, b) => a - b), padSeq: seq };
 }
 
 export function describeLast(state: ReadoutState): string {

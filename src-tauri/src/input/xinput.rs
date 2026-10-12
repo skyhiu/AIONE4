@@ -2,7 +2,7 @@
 //! xinput1_3.dll, then xinput9_1_0.dll). Uses `XInputGetStateEx` (ordinal 100) when present,
 //! because only it reports the Guide button; otherwise `XInputGetState`.
 
-use super::mapping::{PadTracker, RawPad, CONTROLS};
+use super::mapping::{Kind, PadOut, PadTracker, RawPad, CONTROLS};
 use super::{next_seq, PadEvent};
 use crate::logging;
 use std::time::{Duration, Instant};
@@ -101,21 +101,39 @@ fn run(get_state: GetStateFn, emit: impl Fn(PadEvent)) {
     let mut trackers: [PadTracker; 4] = Default::default();
     let mut connected = [false; 4];
     let mut last_probe = [None::<Instant>; 4];
-    let send = |kind: &'static str, control: &'static str, pad: u32| {
+    let send = |kind: &'static str, control: &'static str, pad: u32, detail: &str| {
         let ev = PadEvent {
             kind,
             control,
             pad,
             seq: next_seq(),
         };
-        // T0 evidence for "one press shows once": presses and releases are logged.
+        if kind == "connected" || kind == "disconnected" {
+            super::record_connection(pad, kind == "connected", ev.seq);
+        }
+        // T0 evidence for "one press shows once": presses and releases are logged; a release
+        // also says how long it was held and how many repeats it gave.
         if kind == "down" || kind == "up" {
             logging::info(
                 "input",
-                &format!("pad {} {} {} (seq {})", pad + 1, kind, control, ev.seq),
+                &format!(
+                    "pad {} {} {} (seq {}){detail}",
+                    pad + 1,
+                    kind,
+                    control,
+                    ev.seq
+                ),
             );
         }
         emit(ev);
+    };
+    let out = |e: &PadOut, slot: u32| {
+        let detail = if e.kind == Kind::Up {
+            format!(", held {} ms, {} repeats", e.held.as_millis(), e.repeats)
+        } else {
+            String::new()
+        };
+        send(e.kind.as_str(), CONTROLS[e.index], slot, &detail);
     };
 
     loop {
@@ -137,7 +155,7 @@ fn run(get_state: GetStateFn, emit: impl Fn(PadEvent)) {
                         "input",
                         &format!("controller connected in slot {}", slot + 1),
                     );
-                    send("connected", "", slot);
+                    send("connected", "", slot, "");
                 }
                 let g = st.state.gamepad;
                 let raw = RawPad {
@@ -150,21 +168,21 @@ fn run(get_state: GetStateFn, emit: impl Fn(PadEvent)) {
                     ry: g.thumb_ry,
                 };
                 // Every poll runs the tracker, changed or not (repeats need the clock).
-                for (kind, idx) in trackers[i].update(&raw, now) {
-                    send(kind.as_str(), CONTROLS[idx], slot);
+                for e in trackers[i].update(&raw, now) {
+                    out(&e, slot);
                 }
             } else {
                 last_probe[i] = Some(now);
                 if connected[i] {
                     connected[i] = false;
-                    for (kind, idx) in trackers[i].release_all() {
-                        send(kind.as_str(), CONTROLS[idx], slot);
+                    for e in trackers[i].release_all(now) {
+                        out(&e, slot);
                     }
                     logging::info(
                         "input",
                         &format!("controller disconnected from slot {} (code {rc})", slot + 1),
                     );
-                    send("disconnected", "", slot);
+                    send("disconnected", "", slot, "");
                 }
             }
         }

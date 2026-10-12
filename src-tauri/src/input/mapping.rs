@@ -112,6 +112,16 @@ impl Kind {
     }
 }
 
+/// One output event of the tracker. For `Up`, `held` and `repeats` describe the hold that
+/// just ended (logged as "held N ms, R repeats").
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PadOut {
+    pub kind: Kind,
+    pub index: usize,
+    pub held: Duration,
+    pub repeats: u32,
+}
+
 /// Only navigation directions repeat while held; buttons never do (one press, one action).
 pub fn repeats(index: usize) -> bool {
     (13..=20).contains(&index)
@@ -122,6 +132,8 @@ pub struct PadTracker {
     pub tuning: Tuning,
     held: u32,
     next_repeat: [Option<Instant>; 25],
+    down_at: [Option<Instant>; 25],
+    repeat_count: [u32; 25],
 }
 
 impl Default for PadTracker {
@@ -136,6 +148,8 @@ impl PadTracker {
             tuning,
             held: 0,
             next_repeat: [None; 25],
+            down_at: [None; 25],
+            repeat_count: [0; 25],
         }
     }
 
@@ -198,8 +212,8 @@ impl PadTracker {
         1 << (base + dir)
     }
 
-    /// Applies one poll. Returns (kind, control index) events in a stable order.
-    pub fn update(&mut self, raw: &RawPad, now: Instant) -> Vec<(Kind, usize)> {
+    /// Applies one poll. Returns events in a stable order (control index order).
+    pub fn update(&mut self, raw: &RawPad, now: Instant) -> Vec<PadOut> {
         let target = self.target(raw);
         let mut out = Vec::new();
         for i in 0..CONTROLS.len() {
@@ -207,19 +221,23 @@ impl PadTracker {
             let is = target & (1 << i) != 0;
             match (was, is) {
                 (false, true) => {
-                    out.push((Kind::Down, i));
+                    out.push(self.event(Kind::Down, i, now));
+                    self.down_at[i] = Some(now);
+                    self.repeat_count[i] = 0;
                     if repeats(i) {
                         self.next_repeat[i] = Some(now + self.tuning.repeat_delay);
                     }
                 }
                 (true, false) => {
-                    out.push((Kind::Up, i));
+                    out.push(self.event(Kind::Up, i, now));
                     self.next_repeat[i] = None;
+                    self.down_at[i] = None;
                 }
                 (true, true) => {
                     if let Some(at) = self.next_repeat[i] {
                         if now >= at {
-                            out.push((Kind::Repeat, i));
+                            self.repeat_count[i] += 1;
+                            out.push(self.event(Kind::Repeat, i, now));
                             // Never burst to catch up after a stall: one repeat per poll.
                             let next = at + self.tuning.repeat_interval;
                             self.next_repeat[i] = Some(if next <= now {
@@ -237,14 +255,26 @@ impl PadTracker {
         out
     }
 
+    fn event(&self, kind: Kind, index: usize, now: Instant) -> PadOut {
+        PadOut {
+            kind,
+            index,
+            held: self.down_at[index]
+                .map(|t| now.saturating_duration_since(t))
+                .unwrap_or_default(),
+            repeats: self.repeat_count[index],
+        }
+    }
+
     /// Releases everything (pad disconnected): an Up for every held control.
-    pub fn release_all(&mut self) -> Vec<(Kind, usize)> {
+    pub fn release_all(&mut self, now: Instant) -> Vec<PadOut> {
         let out = (0..CONTROLS.len())
             .filter(|i| self.is_held(*i))
-            .map(|i| (Kind::Up, i))
+            .map(|i| self.event(Kind::Up, i, now))
             .collect();
         self.held = 0;
         self.next_repeat = [None; 25];
+        self.down_at = [None; 25];
         out
     }
 }
@@ -253,9 +283,9 @@ impl PadTracker {
 mod tests {
     use super::*;
 
-    fn names(ev: &[(Kind, usize)]) -> Vec<String> {
+    fn names(ev: &[PadOut]) -> Vec<String> {
         ev.iter()
-            .map(|(k, i)| format!("{} {}", k.as_str(), CONTROLS[*i]))
+            .map(|e| format!("{} {}", e.kind.as_str(), CONTROLS[e.index]))
             .collect()
     }
 
@@ -417,6 +447,48 @@ mod tests {
     }
 
     #[test]
+    fn release_reports_hold_length_and_repeats() {
+        let mut t = PadTracker::default();
+        let t0 = Instant::now();
+        let down = RawPad {
+            buttons: 0x0008,
+            ..Default::default()
+        };
+        t.update(&down, t0);
+        for ms in [400u64, 490, 580] {
+            t.update(&down, t0 + Duration::from_millis(ms));
+        }
+        let up = t.update(&RawPad::default(), t0 + Duration::from_millis(600));
+        assert_eq!(up.len(), 1);
+        assert_eq!(
+            (up[0].kind, up[0].held, up[0].repeats),
+            (Kind::Up, Duration::from_millis(600), 3)
+        );
+        // A new press starts counting from zero; buttons report 0 repeats.
+        let a = RawPad {
+            buttons: 0x1000,
+            ..Default::default()
+        };
+        t.update(&a, t0 + Duration::from_secs(1));
+        let up = t.update(&RawPad::default(), t0 + Duration::from_secs(3));
+        assert_eq!((up[0].held, up[0].repeats), (Duration::from_secs(2), 0));
+    }
+
+    #[test]
+    fn right_stick_never_repeats() {
+        let mut t = PadTracker::default();
+        let t0 = Instant::now();
+        let r = RawPad {
+            rx: 30_000,
+            ..Default::default()
+        };
+        assert_eq!(names(&t.update(&r, t0)), ["down RStickRight"]);
+        for ms in (8..3000).step_by(8) {
+            assert!(t.update(&r, t0 + Duration::from_millis(ms)).is_empty());
+        }
+    }
+
+    #[test]
     fn release_all_on_disconnect() {
         let mut t = PadTracker::default();
         t.update(
@@ -426,7 +498,8 @@ mod tests {
             },
             Instant::now(),
         );
-        assert_eq!(names(&t.release_all()), ["up A", "up DPadUp"]);
-        assert!(t.release_all().is_empty());
+        let now = Instant::now();
+        assert_eq!(names(&t.release_all(now)), ["up A", "up DPadUp"]);
+        assert!(t.release_all(now).is_empty());
     }
 }

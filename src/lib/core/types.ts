@@ -26,7 +26,19 @@ export interface LibraryCounts {
   games: number;
   hidden: number;
   favorites: number;
+  /** Library folders (groups of games), not file-system directories. */
+  folders: number;
+  /** Entries in Games that are not games, each with its reason. */
   ignored: IgnoredEntry[];
+  /** Where the hidden / favorites / folders counts were read from (for the log). */
+  sources: string[];
+}
+
+/** D-002: the connected controller slots (0–3) and the sequence number of the last
+ *  connect / disconnect event, so a query and the event stream can be merged in order. */
+export interface PadSlots {
+  slots: number[];
+  seq: number;
 }
 
 export interface IgnoredEntry {
@@ -76,8 +88,11 @@ export interface Core {
   uiReady(): Promise<void>;
   log(level: 'info' | 'warn' | 'error', message: string): void;
   migrationStatus(): Promise<MigrationStatus>;
-  /** accept = true copies the WPF data folder; false records "declined" (asked only once). */
+  /** accept = true copies the WPF data folder; false records "declined" (final, B-2).
+   *  "Not now" never calls this: nothing is recorded, so the question returns next start. */
   migrationDecide(accept: boolean): Promise<void>;
+  /** D-002: the controller slots connected right now. */
+  padSlots(): Promise<PadSlots>;
   restart(): Promise<void>;
   onPad(handler: (event: PadEvent) => void): Promise<Unlisten>;
   onCopyProgress(handler: (progress: CopyProgress) => void): Promise<Unlisten>;

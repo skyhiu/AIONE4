@@ -1,13 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import type { CopyResult, MigrationStatus } from '../../src/lib/core/types';
-import { BUTTON_COPY, BUTTON_SKIP, choose, flowAction, flowDone, flowProgress, initialFlow } from '../../src/lib/migrationFlow';
+import {
+  BUTTON_COPY,
+  BUTTON_SKIP,
+  choose,
+  copyFraction,
+  describeCounts,
+  describeSkipped,
+  flowAction,
+  flowDone,
+  flowProgress,
+  initialFlow,
+} from '../../src/lib/migrationFlow';
 
 const offer: MigrationStatus = {
   state: 'offer',
   source: 'C:\\AIONE',
   files: 10,
   bytes: 1000,
-  library: { games: 2, hidden: 0, favorites: 1, ignored: [] },
+  library: { games: 2, hidden: 0, favorites: 1, folders: 0, ignored: [], sources: [] },
 };
 
 const result: CopyResult = {
@@ -17,7 +28,7 @@ const result: CopyResult = {
   filesCopied: 10,
   filesFailed: 0,
   bytesCopied: 1000,
-  library: { games: 2, hidden: 0, favorites: 1, ignored: [] },
+  library: { games: 2, hidden: 0, favorites: 1, folders: 0, ignored: [], sources: [] },
   sourceUnchanged: true,
   notes: [],
 };
@@ -39,10 +50,22 @@ describe('copy offer flow', () => {
     expect(s.phase === 'ask' && s.focus).toBe(BUTTON_SKIP);
   });
 
-  it('B never declines by itself; it only moves focus to "Don\'t copy"', () => {
+  it('B = Not now: closes without deciding (B-2)', () => {
     const [s, effect] = flowAction(initialFlow(offer), 'back');
-    expect(effect.type).toBe('none');
-    expect(s.phase === 'ask' && s.focus).toBe(BUTTON_SKIP);
+    expect(effect.type).toBe('notNow');
+    expect(s.phase).toBe('hidden');
+    // From "Don't copy" too: B never declines.
+    const [onSkip] = flowAction(initialFlow(offer), 'right');
+    const [, effect2] = flowAction(onSkip, 'back');
+    expect(effect2.type).toBe('notNow');
+  });
+
+  it('"Don\'t copy" needs A (confirm) on it', () => {
+    const [onSkip] = flowAction(initialFlow(offer), 'right');
+    expect(onSkip.phase === 'ask' && onSkip.focus).toBe(BUTTON_SKIP);
+    const [s, effect] = flowAction(onSkip, 'confirm');
+    expect(effect).toEqual({ type: 'decide', accept: false });
+    expect(s.phase).toBe('hidden');
   });
 
   it('confirm on Copy starts the copy; progress and result follow', () => {
@@ -66,5 +89,34 @@ describe('copy offer flow', () => {
     expect(effect).toEqual({ type: 'decide', accept: false });
     const [, again] = choose(s, false);
     expect(again.type).toBe('none');
+  });
+});
+
+describe('copy progress and wording', () => {
+  it('one value for bar and text: bytes done / bytes total (D-003)', () => {
+    expect(copyFraction(null)).toBe(0);
+    expect(copyFraction({ filesDone: 1, filesTotal: 4, bytesDone: 50, bytesTotal: 200 })).toBe(0.25);
+    expect(copyFraction({ filesDone: 3, filesTotal: 4, bytesDone: 0, bytesTotal: 0 })).toBe(0.75);
+    expect(copyFraction({ filesDone: 9, filesTotal: 4, bytesDone: 900, bytesTotal: 200 })).toBe(1);
+  });
+
+  it('plain wording for skipped entries (B-2)', () => {
+    expect(describeSkipped([{ name: '_Removed', reason: 'skipped by name (starts with "_")' }])).toEqual([
+      '1 folder skipped: _Removed',
+    ]);
+    expect(
+      describeSkipped([
+        { name: '_A', reason: 'skipped by name (starts with "_")' },
+        { name: '.b', reason: 'skipped by name (starts with ".")' },
+        { name: 'X', reason: 'no game.json' },
+      ]),
+    ).toEqual(['2 folders skipped: _A, .b', 'Skipped: X (no game.json)']);
+  });
+
+  it('counts read the same as the log, "favorites" spelled one way', () => {
+    expect(describeCounts({ games: 10, hidden: 0, favorites: 0, folders: 0 })).toBe(
+      '10 games · 0 hidden · 0 favorites · 0 folders',
+    );
+    expect(describeCounts({ games: 1, hidden: 1, favorites: 1, folders: 1 })).toBe('1 game · 1 hidden · 1 favorite · 1 folder');
   });
 });

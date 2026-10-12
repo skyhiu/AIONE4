@@ -1,5 +1,11 @@
-// Mocked core for UI tests and `vite --mode mock`. Scenarios come from the URL:
+// Mocked core for UI tests and `vite --mode mock`. It behaves like the real core (A10):
+// a pad connects before it sends presses, and a pad can already be connected before the UI
+// starts listening (D-002), in which case the UI only learns about it by asking (padSlots).
+//
+// Scenarios come from the URL:
 //   ?migration=offer | none | handled | copy-fails
+//   &pad=connected     a pad is in slot 1 before the UI subscribes (its connect event is lost)
+//   &step=<ms>         time between copy progress steps (default 150)
 // Tests drive input through `window.__aioneMock` (see MockControl below).
 import pkg from '../../../package.json';
 import type {
@@ -10,16 +16,21 @@ import type {
   MigrationStatus,
   PadEvent,
   PadEventKind,
+  PadSlots,
 } from './types';
 
 type Handler<T> = (value: T) => void;
 
 export interface MockControl {
+  /** A press / release / repeat; connects the pad first if it is not connected (like XInput). */
   pad(control: string, kind?: PadEventKind, pad?: number): void;
+  connect(pad?: number): void;
+  disconnect(pad?: number): void;
   decisions: boolean[];
   logs: string[];
   restarts: number;
   uiReadyCalls: number;
+  padSlotsCalls: number;
 }
 
 declare global {
@@ -28,32 +39,61 @@ declare global {
   }
 }
 
-const SAMPLE_LIBRARY: LibraryCounts = {
+export const SAMPLE_LIBRARY: LibraryCounts = {
   games: 10,
-  hidden: 1,
-  favorites: 3,
-  ignored: [{ name: '_Removed', reason: 'ignored by name (starts with "_")' }],
+  hidden: 0,
+  favorites: 0,
+  folders: 0,
+  ignored: [{ name: '_Removed', reason: 'skipped by name (starts with "_")' }],
+  sources: [],
 };
 
 export function createMockCore(search: string = globalThis.location?.search ?? ''): Core {
+  return createMock(search).core;
+}
+
+export function createMock(search: string): { core: Core; control: MockControl } {
   const params = new URLSearchParams(search);
   const scenario = params.get('migration') ?? 'none';
+  const stepMs = Number(params.get('step') ?? '150');
   const padHandlers = new Set<Handler<PadEvent>>();
   const progressHandlers = new Set<Handler<CopyProgress>>();
   const doneHandlers = new Set<Handler<CopyResult>>();
   let seq = 0;
+  let lastConnectionSeq = 0;
+  const connected = new Set<number>();
   let handled = scenario === 'handled';
+
+  const emit = (kind: PadEventKind, control: string, pad: number) => {
+    seq += 1;
+    if (kind === 'connected' || kind === 'disconnected') {
+      if (kind === 'connected') connected.add(pad);
+      else connected.delete(pad);
+      lastConnectionSeq = seq;
+    }
+    const ev: PadEvent = { kind, control, pad, seq };
+    padHandlers.forEach((h) => h(ev));
+  };
+
+  // D-002 race: the pad was connected before anyone listened; the event goes nowhere.
+  if (params.get('pad') === 'connected') emit('connected', '', 0);
 
   const control: MockControl = {
     pad(name, kind = 'down', pad = 0) {
-      seq += 1;
-      const ev: PadEvent = { kind, control: name, pad, seq };
-      padHandlers.forEach((h) => h(ev));
+      if (!connected.has(pad)) emit('connected', '', pad);
+      emit(kind, name, pad);
+    },
+    connect(pad = 0) {
+      if (!connected.has(pad)) emit('connected', '', pad);
+    },
+    disconnect(pad = 0) {
+      if (connected.has(pad)) emit('disconnected', '', pad);
     },
     decisions: [],
     logs: [],
     restarts: 0,
     uiReadyCalls: 0,
+    padSlotsCalls: 0,
   };
   if (typeof window !== 'undefined') window.__aioneMock = control;
 
@@ -64,7 +104,7 @@ export function createMockCore(search: string = globalThis.location?.search ?? '
     });
   };
 
-  return {
+  const core: Core = {
     kind: 'mock',
     appInfo: () =>
       Promise.resolve({
@@ -80,6 +120,10 @@ export function createMockCore(search: string = globalThis.location?.search ?? '
     },
     log(level, message) {
       control.logs.push(`${level}: ${message}`);
+    },
+    padSlots(): Promise<PadSlots> {
+      control.padSlotsCalls += 1;
+      return Promise.resolve({ slots: [...connected].sort((a, b) => a - b), seq: lastConnectionSeq });
     },
     migrationStatus(): Promise<MigrationStatus> {
       if (handled) return Promise.resolve({ state: 'alreadyHandled', decision: 'copied' });
@@ -100,34 +144,37 @@ export function createMockCore(search: string = globalThis.location?.search ?? '
       if (!accept) return Promise.resolve();
       const total = 1234;
       const bytesTotal = 4_512_000_000;
-      // Simulated progress in four steps, then the result.
+      // Progress in four steps (bytes and files move together here), then the result.
       const steps = [0.25, 0.5, 0.75, 1];
       steps.forEach((f, i) => {
-        setTimeout(() => {
-          progressHandlers.forEach((h) =>
-            h({
-              filesDone: Math.round(total * f),
-              filesTotal: total,
-              bytesDone: Math.round(bytesTotal * f),
-              bytesTotal,
-            }),
-          );
-          if (i === steps.length - 1) {
-            const fails = scenario === 'copy-fails';
-            const result: CopyResult = {
-              ok: !fails,
-              outcome: fails ? 'partial' : 'copied',
-              destination: 'C:\\Users\\Player\\AppData\\Local\\AIONE4\\Imported\\AIONE-WPF',
-              filesCopied: fails ? total - 2 : total,
-              filesFailed: fails ? 2 : 0,
-              bytesCopied: bytesTotal,
-              library: SAMPLE_LIBRARY,
-              sourceUnchanged: true,
-              notes: fails ? ['2 files could not be read (in use by another program).'] : [],
-            };
-            doneHandlers.forEach((h) => h(result));
-          }
-        }, 150 * (i + 1));
+        setTimeout(
+          () => {
+            progressHandlers.forEach((h) =>
+              h({
+                filesDone: Math.round(total * f),
+                filesTotal: total,
+                bytesDone: Math.round(bytesTotal * f),
+                bytesTotal,
+              }),
+            );
+            if (i === steps.length - 1) {
+              const fails = scenario === 'copy-fails';
+              const result: CopyResult = {
+                ok: !fails,
+                outcome: fails ? 'partial' : 'copied',
+                destination: 'C:\\Users\\Player\\AppData\\Local\\AIONE4\\Imported\\AIONE-WPF',
+                filesCopied: fails ? total - 2 : total,
+                filesFailed: fails ? 2 : 0,
+                bytesCopied: bytesTotal,
+                library: SAMPLE_LIBRARY,
+                sourceUnchanged: true,
+                notes: fails ? ['2 files could not be read (in use by another program).'] : [],
+              };
+              setTimeout(() => doneHandlers.forEach((h) => h(result)), stepMs);
+            }
+          },
+          stepMs * (i + 1),
+        );
       });
       return Promise.resolve();
     },
@@ -139,4 +186,5 @@ export function createMockCore(search: string = globalThis.location?.search ?? '
     onCopyProgress: (h) => sub(progressHandlers, h),
     onCopyDone: (h) => sub(doneHandlers, h),
   };
+  return { core, control };
 }

@@ -1,7 +1,7 @@
 {
   "name": "aione4",
   "private": true,
-  "version": "4.0.0-alpha.1",
+  "version": "4.0.0-alpha.2",
   "description": "AIONE 4: a fullscreen, controller-first game launcher for Windows (personal use).",
   "type": "module",
   "engines": {
@@ -17,7 +17,8 @@
     "test": "vitest run",
     "test:ui": "playwright test",
     "check:version": "node scripts/check-version.mjs",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "check:assets": "node scripts/check-assets.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "2.12.0"
@@ -32,6 +33,7 @@
     "eslint": "10.11.0",
     "eslint-plugin-svelte": "3.23.0",
     "globals": "17.12.0",
+    "material-symbols": "0.47.5",
     "svelte": "5.57.1",
     "svelte-check": "4.7.6",
     "typescript": "6.0.3",

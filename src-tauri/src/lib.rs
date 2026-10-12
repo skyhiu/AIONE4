@@ -127,6 +127,12 @@ fn migration_decide(app: AppHandle, accept: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// D-002: the connected controller slots right now, for the UI at start.
+#[tauri::command]
+fn pad_slots() -> input::PadSlots {
+    input::pad_slots()
+}
+
 #[tauri::command]
 fn restart_app(app: AppHandle) -> Result<(), String> {
     match lifecycle::spawn_restart() {
@@ -185,6 +191,29 @@ fn show_and_focus(app: &AppHandle, reason: &'static str) {
                 report.summary()
             ),
         );
+        logging::lifecycle(
+            Level::Info,
+            &format!(
+                "keyboard focus after the foreground step: {}",
+                foreground::focus_report()
+            ),
+        );
+        if first {
+            // WebView2 moves focus into the page asynchronously; check once more shortly after.
+            let later = handle.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(500));
+                let _ = later.run_on_main_thread(|| {
+                    logging::lifecycle(
+                        Level::Info,
+                        &format!(
+                            "keyboard focus 500 ms later: {}",
+                            foreground::focus_report()
+                        ),
+                    );
+                });
+            });
+        }
         #[cfg(windows)]
         if first {
             if let Ok(h) = window.hwnd() {
@@ -273,6 +302,13 @@ pub fn run() {
         logging::lifecycle(Level::Info, &format!("restart: {msg}"));
     }
 
+    if lifecycle::another_instance_running() {
+        logging::lifecycle(
+            Level::Info,
+            "second instance: AIONE 4 is already running; handing over to it (it comes to the front) and exiting",
+        );
+    }
+
     let state = AppState {
         data_dir,
         wpf_dir: paths::wpf_data_dir(),
@@ -300,6 +336,7 @@ pub fn run() {
             log_ui,
             migration_status,
             migration_decide,
+            pad_slots,
             restart_app
         ])
         .setup(|app| {

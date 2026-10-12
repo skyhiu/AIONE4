@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { fromKeyboard, fromMouseButton, fromPadEvent, fromWheel, keyName, toAction } from '../../src/lib/input/events';
-import { applyInput, applyPadConnection, describeLast, initialReadout } from '../../src/lib/input/readout';
+import { describeInput, fromKeyboard, fromMouseButton, fromPadEvent, fromWheel, keyName, toAction } from '../../src/lib/input/events';
+import { applyInput, applyPadConnection, applyPadSlots, describeLast, initialReadout } from '../../src/lib/input/readout';
 import { isBlockedBrowserKey, isRestartShortcut } from '../../src/lib/input/shortcuts';
 
 describe('input readout (T0)', () => {
@@ -26,10 +26,27 @@ describe('input readout (T0)', () => {
 
   it('tracks connected controller slots', () => {
     let s = initialReadout();
-    s = applyPadConnection(s, 2, true);
-    s = applyPadConnection(s, 1, true);
-    s = applyPadConnection(s, 2, false);
+    s = applyPadConnection(s, 2, true, 1);
+    s = applyPadConnection(s, 1, true, 2);
+    s = applyPadConnection(s, 2, false, 3);
     expect(s.pads).toEqual([1]);
+  });
+
+  it('D-002: the slots query shows a pad connected before the UI listened', () => {
+    const s = applyPadSlots(initialReadout(), [1], 7);
+    expect(s.pads).toEqual([1]);
+    expect(s.padSeq).toBe(7);
+  });
+
+  it('D-002: an older query answer never overwrites a newer event', () => {
+    // Event (seq 9: slot 1 disconnected) arrives before the answer computed at seq 7.
+    let s = applyPadSlots(initialReadout(), [1], 7);
+    s = applyPadConnection(s, 1, false, 9);
+    s = applyPadSlots(s, [1], 7);
+    expect(s.pads).toEqual([]);
+    // A duplicate or older event is ignored too.
+    s = applyPadConnection(s, 1, true, 8);
+    expect(s.pads).toEqual([]);
   });
 
   it('starts empty', () => {
@@ -44,6 +61,7 @@ describe('input events', () => {
       kind: 'down',
       control: 'B',
       pad: 1,
+      seq: 1,
     });
     expect(fromPadEvent({ kind: 'connected', control: '', pad: 0, seq: 2 })).toBeNull();
   });
@@ -79,6 +97,17 @@ describe('input events', () => {
     expect(toAction({ source: 'controller', kind: 'up', control: 'A', pad: 1 })).toBeNull();
     expect(toAction({ source: 'controller', kind: 'repeat', control: 'A', pad: 1 })).toBeNull();
     expect(toAction({ source: 'keyboard', kind: 'repeat', control: 'Esc' })).toBeNull();
+  });
+});
+
+describe('input log line', () => {
+  it('carries the core sequence number, the press count and the action', () => {
+    expect(describeInput({ source: 'controller', kind: 'down', control: 'A', pad: 1, seq: 57 }, 12, 'confirm')).toBe(
+      'input down A (controller 1 seq 57) -> presses 12, action confirm',
+    );
+    expect(describeInput({ source: 'keyboard', kind: 'repeat', control: 'Down' }, 3, null)).toBe(
+      'input repeat Down (keyboard) -> presses 3',
+    );
   });
 });
 
