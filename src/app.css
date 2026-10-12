@@ -1,0 +1,76 @@
+/* AIONE 4 design tokens (T0 skeleton). One statement per topic lives in
+   docs/AIONE_DESIGN_SYSTEM.md; themes will override these custom properties (A3, A8). */
+:root {
+  /* Colour: T0 neutral dark. Plain, flat background: no gradients or bands (L-09). */
+  --color-bg: #0f1013;
+  --color-surface: #1b1d22;
+  --color-surface-raised: #24272d;
+  --color-text: #eceef1;
+  --color-text-muted: #a4aab4;
+  --color-divider: #30343b;
+  --color-accent: #4fc3e8;
+  --color-ring: #4fc3e8;
+  --color-ok: #6fd39a;
+  --color-warn: #f2c56b;
+
+  /* Type: system UI font, bundled fonts come with the themes. */
+  --font-ui: 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+  --font-display: 'Segoe UI Variable Display', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial,
+    sans-serif;
+  --text-xs: 0.875rem; /* 14 px */
+  --text-sm: 1rem; /* 16 px */
+  --text-md: 1.25rem; /* 20 px */
+  --text-lg: 1.75rem; /* 28 px */
+  --text-display: clamp(3.5rem, 7vw, 7.5rem);
+
+  /* Spacing (4 px grid) and radii. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+  --ring-width: 3px;
+
+  /* Motion: only transform and opacity are animated (A7). */
+  --motion-fast: 120ms;
+  --motion-medium: 200ms;
+  --motion-slow: 320ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-ui);
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  cursor: default;
+}
+
+#app {
+  height: 100%;
+}
+
+/* Pad / keyboard mode shows the focus ring; mouse mode shows hover only (A7). */
+[data-input='mouse'] .focusable.focused {
+  outline: none;
+}

@@ -1,0 +1,5 @@
+# Pinned Rust toolchain (A3: pinned versions). CI and local builds use exactly this version.
+[toolchain]
+channel = "1.91.1"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

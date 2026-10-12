@@ -1,0 +1,48 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "AIONE 4",
+  "mainBinaryName": "AIONE4",
+  "version": "../package.json",
+  "identifier": "io.github.skyhiu.aione4",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "AIONE 4",
+        "fullscreen": true,
+        "decorations": false,
+        "resizable": false,
+        "visible": false,
+        "focus": true,
+        "alwaysOnTop": false,
+        "skipTaskbar": false,
+        "dragDropEnabled": false,
+        "backgroundColor": "#0f1013",
+        "width": 1280,
+        "height": 720
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; media-src 'self'; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+    }
+  },
+  "bundle": {
+    "active": false,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "copyright": "Personal use",
+    "category": "Game",
+    "shortDescription": "Controller-first game launcher"
+  }
+}

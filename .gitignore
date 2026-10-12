@@ -1,0 +1,12 @@
+node_modules/
+dist/
+dist-mock/
+test-results/
+playwright-report/
+ui-screenshots/
+release/
+src-tauri/target/
+src-tauri/gen/schemas/
+*.log
+.DS_Store
+Thumbs.db

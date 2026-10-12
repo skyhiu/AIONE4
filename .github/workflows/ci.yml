@@ -1,0 +1,204 @@
+# AIONE 4 CI (Master Prompt A10 / A11). Every action is pinned to a full commit SHA (the
+# release tag is in the comment); Node, npm, Rust and Playwright versions are pinned too.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '22.22.2'
+  NPM_VERSION: '11.21.0'
+  RUST_TOOLCHAIN: '1.91.1' # also in rust-toolchain.toml
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build and test (Windows)
+    runs-on: windows-2022
+    timeout-minutes: 60
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Pin npm
+        # npm 10 (bundled with Node 22) fails to resolve this dependency tree ("edgesOut").
+        run: npm install -g npm@${{ env.NPM_VERSION }}
+
+      - name: Rust toolchain (pinned by rust-toolchain.toml)
+        run: |
+          rustup toolchain install ${{ env.RUST_TOOLCHAIN }} --profile minimal --component rustfmt,clippy
+          rustc --version
+          cargo --version
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri
+
+      - name: Version
+        id: version
+        shell: bash
+        run: |
+          node scripts/check-version.mjs
+          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: npm ci
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests (Vitest)
+        run: npm test
+
+      - name: Frontend build
+        run: npm run build
+
+      - name: Rust format
+        working-directory: src-tauri
+        run: cargo fmt --check
+
+      - name: Rust lint (clippy)
+        working-directory: src-tauri
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Rust tests
+        working-directory: src-tauri
+        run: cargo test --locked
+
+      - name: Playwright browser
+        run: npx playwright install chromium
+
+      - name: UI tests (Playwright, mocked core)
+        run: npm run test:ui
+
+      - name: Upload ui-screenshots
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ui-screenshots
+          path: ui-screenshots/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
+
+      - name: Windows build (Tauri, no installer)
+        run: npx tauri build --ci --no-bundle
+
+      - name: Package portable zip
+        shell: pwsh
+        run: ./scripts/package-windows.ps1 -Version '${{ steps.version.outputs.version }}'
+
+      - name: Upload Windows build
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-build
+          path: release/AIONE4-${{ steps.version.outputs.version }}-windows.zip
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Pre-release
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: windows-build
+          path: dist-release
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ui-screenshots
+          path: ui-screenshots
+
+      - name: Zip the screenshots
+        run: |
+          cd ui-screenshots
+          zip -r "../dist-release/AIONE4-${{ needs.build.outputs.version }}-ui-screenshots.zip" .
+
+      - name: Publish the pre-release
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        with:
+          script: |
+            const fs = require('node:fs');
+            const path = require('node:path');
+            const version = process.env.VERSION;
+            const tag = `v${version}`;
+            const { owner, repo } = context.repo;
+
+            // Same version pushed again: replace the release and move the tag to this commit,
+            // so the release always matches the latest green build of that version.
+            try {
+              const existing = await github.rest.repos.getReleaseByTag({ owner, repo, tag });
+              core.warning(`Release ${tag} already exists; replacing it (bump the version for a new release).`);
+              await github.rest.repos.deleteRelease({ owner, repo, release_id: existing.data.id });
+            } catch (e) {
+              if (e.status !== 404) throw e;
+            }
+            try {
+              await github.rest.git.deleteRef({ owner, repo, ref: `tags/${tag}` });
+            } catch (e) {
+              if (e.status !== 422 && e.status !== 404) throw e;
+            }
+
+            const release = await github.rest.repos.createRelease({
+              owner,
+              repo,
+              tag_name: tag,
+              target_commitish: context.sha,
+              name: `AIONE 4 ${version}`,
+              prerelease: true,
+              body: [
+                `AIONE 4 ${version} (commit ${context.sha.substring(0, 7)}).`,
+                '',
+                `Download **AIONE4-${version}-windows.zip**, unzip it anywhere and run **AIONE4.exe**.`,
+                `UI test screenshots: **AIONE4-${version}-ui-screenshots.zip** (also the \`ui-screenshots\` artifact of the CI run).`,
+              ].join('\n'),
+            });
+
+            for (const file of fs.readdirSync('dist-release')) {
+              const full = path.join('dist-release', file);
+              await github.rest.repos.uploadReleaseAsset({
+                owner,
+                repo,
+                release_id: release.data.id,
+                name: file,
+                data: fs.readFileSync(full),
+                headers: { 'content-type': 'application/zip', 'content-length': fs.statSync(full).size },
+              });
+              core.info(`uploaded ${file}`);
+            }
+            core.notice(`Published ${release.data.html_url}`);
