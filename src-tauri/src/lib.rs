@@ -191,11 +191,16 @@ fn show_and_focus(app: &AppHandle, reason: &'static str) {
                 report.summary()
             ),
         );
+        // D-005: judged against AIONE's own main window.
+        #[cfg(windows)]
+        let own_raw: isize = window.hwnd().map(|h| h.0 as isize).unwrap_or(0);
+        #[cfg(not(windows))]
+        let own_raw: isize = 0;
         logging::lifecycle(
             Level::Info,
             &format!(
                 "keyboard focus after the foreground step: {}",
-                foreground::focus_report()
+                foreground::focus_report(own_raw)
             ),
         );
         if first {
@@ -203,12 +208,12 @@ fn show_and_focus(app: &AppHandle, reason: &'static str) {
             let later = handle.clone();
             std::thread::spawn(move || {
                 std::thread::sleep(Duration::from_millis(500));
-                let _ = later.run_on_main_thread(|| {
+                let _ = later.run_on_main_thread(move || {
                     logging::lifecycle(
                         Level::Info,
                         &format!(
                             "keyboard focus 500 ms later: {}",
-                            foreground::focus_report()
+                            foreground::focus_report(own_raw)
                         ),
                     );
                 });
@@ -284,29 +289,16 @@ pub fn run() {
     lifecycle::log_start(&args);
     logging::info("data", &format!("data folder: {}", data_dir.display()));
 
-    // 2. One-shot command line actions.
-    if let Some(enable) = args.autostart {
-        let msg = lifecycle::set_autostart(enable).unwrap_or_else(|e| e);
-        logging::lifecycle(Level::Info, &format!("--autostart: {msg}"));
-        message_box(&msg);
-        return;
-    }
-
-    // 3. Restart: wait for the previous instance before claiming the single instance.
-    if let Some(pid) = args.wait_for_pid {
-        logging::lifecycle(
-            Level::Info,
-            &format!("restart: waiting for pid {pid} to exit"),
-        );
-        let msg = lifecycle::wait_for_previous(pid);
-        logging::lifecycle(Level::Info, &format!("restart: {msg}"));
-    }
-
-    if lifecycle::another_instance_running() {
-        logging::lifecycle(
-            Level::Info,
-            "second instance: AIONE 4 is already running; handing over to it (it comes to the front) and exiting",
-        );
+    // 2.–4. The start steps before Tauri, in their required order (tested in lifecycle.rs):
+    // --autostart (then exit), the restart wait, then the "already running" check. The
+    // single-instance plugin is registered only after this returns (below), so a restarted
+    // instance never takes the old one for a second start.
+    match lifecycle::pre_start(&args, &mut lifecycle::RealOps) {
+        lifecycle::PreStart::Exit { message } => {
+            message_box(&message);
+            return;
+        }
+        lifecycle::PreStart::Continue { .. } => {}
     }
 
     let state = AppState {

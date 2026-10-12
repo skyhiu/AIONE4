@@ -1,0 +1,201 @@
+{
+ "timeline": [
+  [
+   0.0,
+   "black screen (A9: black from the first frame)"
+  ],
+  [
+   0.4,
+   "the mark appears (fades in and grows from 92 % to 100 %, 0.6 s)"
+  ],
+  [
+   1.4,
+   "the name AIONE follows (fades in and rises 8 px, 0.5 s)"
+  ],
+  [
+   2.4,
+   "both settle: a soft brightening of the mark (0.5 s)"
+  ],
+  [
+   4.2,
+   "everything fades out (0.8 s)"
+  ],
+  [
+   5.0,
+   "Home"
+  ]
+ ],
+ "variants": {
+  "A": {
+   "uses": [
+    "MI_SFX 48.wav",
+    "MI_SFX 44.wav",
+    "MI_SFX 43.wav",
+    "MI_SFX 09.wav"
+   ],
+   "changes": [
+    "#48 (swell) 5 dB down, starting 0.12 s before the mark so it peaks with it",
+    "#44 (rising sparkle) at the mark (0.40 s)",
+    "#43 (C7 chime) 2 dB down at the name (1.40 s)",
+    "#09 (C5 blip) three times at the settle (2.40 s): as is, +4 and +7 semitones, 120 ms apart, 8 dB down",
+    "#43 an octave lower (-12 semitones, C6), 9 dB down, closing the arpeggio",
+    "stereo echo (230 / 310 ms, feedback 0.50, wet 0.30, darkened above 4 kHz) for the long tail",
+    "cut to exactly 5.0 s with a 0.6 s fade-out; 60 Hz high-pass; loudness matched to the pack with gentle limiting"
+   ],
+   "description": "A soft swell blooms into a sparkle with the logo, a bright chime greets the name, and a gentle do-mi-sol settles it.",
+   "measurements": {
+    "length_s": 5.0,
+    "active_s": 3.515,
+    "peak_dbfs": -2.4,
+    "lufs": -22.9,
+    "loudest_100ms_lufs": -10.5,
+    "attack_ms": 155,
+    "decay20_ms": 115,
+    "tail_db": -228.3,
+    "centroid_hz": 4703,
+    "pitch_start": "B4",
+    "pitch_end": "E5",
+    "pitch_start_hz": 495.3,
+    "pitch_end_hz": 667.5,
+    "contour": "rising",
+    "tonal_share": 0.42
+   },
+   "peak_4x_dbfs": -2.36,
+   "limiter_reduction_db": -0.0,
+   "clipped_samples": 0,
+   "length_s": 5.0,
+   "peaks_s_lufs": [
+    [
+     0.41,
+     -10.5
+    ],
+    [
+     1.45,
+     -15.3
+    ],
+    [
+     2.41,
+     -22.2
+    ],
+    [
+     2.82,
+     -21.3
+    ]
+   ]
+  },
+  "B": {
+   "uses": [
+    "MI_SFX 09.wav",
+    "MI_SFX 43.wav",
+    "MI_SFX 16.wav"
+   ],
+   "changes": [
+    "#09 (C5 blip) as four rising notes C5-E5-G5-C6 (0, +4, +7, +12 semitones), 180 ms apart from the mark (0.40 s), 2\u20133 dB down",
+    "#43 (C7 chime) at the name (1.40 s)",
+    "at the settle (2.40 s), a soft C major chord: #16 moved down 4 semitones to C4 and softened above 3 kHz (6 dB down), #43 an octave lower (C6, 6 dB down), #09 at G5 (10 dB down)",
+    "stereo echo (200 / 280 ms, feedback 0.45, wet 0.28, darkened above 4.5 kHz)",
+    "cut to exactly 5.0 s with a 0.6 s fade-out; 60 Hz high-pass; loudness matched to the pack with gentle limiting"
+   ],
+   "description": "Four clear rising notes draw the logo in, a bright chime names it, and a warm chord settles everything: the most melodic of the three.",
+   "measurements": {
+    "length_s": 5.0,
+    "active_s": 2.94,
+    "peak_dbfs": -1.3,
+    "lufs": -19.5,
+    "loudest_100ms_lufs": -11.2,
+    "attack_ms": 5,
+    "decay20_ms": 45,
+    "tail_db": -231.5,
+    "centroid_hz": 4807,
+    "pitch_start": "C5",
+    "pitch_end": "E4",
+    "pitch_start_hz": 516.8,
+    "pitch_end_hz": 323.0,
+    "contour": "falling",
+    "tonal_share": 0.43
+   },
+   "peak_4x_dbfs": -1.01,
+   "limiter_reduction_db": 1.4,
+   "clipped_samples": 0,
+   "length_s": 5.0,
+   "peaks_s_lufs": [
+    [
+     0.45,
+     -13.5
+    ],
+    [
+     0.81,
+     -14.2
+    ],
+    [
+     1.45,
+     -11.2
+    ],
+    [
+     2.45,
+     -12.1
+    ]
+   ]
+  },
+  "C": {
+   "uses": [
+    "MI_SFX 31.wav",
+    "MI_SFX 44.wav",
+    "MI_SFX 43.wav",
+    "MI_SFX 16.wav",
+    "MI_SFX 09.wav"
+   ],
+   "changes": [
+    "#31 (rising zip) 6 dB down, 0.10 s before the mark, leading into #44 (rising sparkle) at the mark (0.40 s)",
+    "#43 (C7 chime) at the name (1.40 s), with a copy 5 semitones lower (G6) 90 ms later, 8 dB down",
+    "at the settle (2.40 s), a layered C major chord: #16 moved down 4 semitones to C4 (softened, 4 dB down), #09 at C5, E5 and G5 (7\u20139 dB down), and #44 again, 9 dB down",
+    "stereo echo (250 / 340 ms, feedback 0.55, wet 0.33, darkened above 3.8 kHz): the longest tail",
+    "cut to exactly 5.0 s with a 0.6 s fade-out; 60 Hz high-pass; loudness matched to the pack with gentle limiting"
+   ],
+   "description": "A quick upward sweep lifts the logo in with a sparkle, a bright double chime names it, and a full chord rings out: the grandest of the three.",
+   "measurements": {
+    "length_s": 5.0,
+    "active_s": 3.835,
+    "peak_dbfs": -1.3,
+    "lufs": -21.5,
+    "loudest_100ms_lufs": -11.4,
+    "attack_ms": 1135,
+    "decay20_ms": 200,
+    "tail_db": -230.4,
+    "centroid_hz": 4628,
+    "pitch_start": "A5",
+    "pitch_end": "C4",
+    "pitch_start_hz": 861.3,
+    "pitch_end_hz": 258.4,
+    "contour": "falling",
+    "tonal_share": 0.34
+   },
+   "peak_4x_dbfs": -1.01,
+   "limiter_reduction_db": 3.5,
+   "clipped_samples": 0,
+   "length_s": 5.0,
+   "peaks_s_lufs": [
+    [
+     0.45,
+     -12.4
+    ],
+    [
+     1.45,
+     -11.5
+    ],
+    [
+     1.73,
+     -23.3
+    ],
+    [
+     2.45,
+     -13.2
+    ],
+    [
+     2.7,
+     -22.3
+    ]
+   ]
+  }
+ }
+}

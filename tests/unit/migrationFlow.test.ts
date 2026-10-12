@@ -19,6 +19,7 @@ const offer: MigrationStatus = {
   files: 10,
   bytes: 1000,
   library: { games: 2, hidden: 0, favorites: 1, folders: 0, ignored: [], sources: [] },
+  notice: null,
 };
 
 const result: CopyResult = {
@@ -37,7 +38,7 @@ describe('copy offer flow', () => {
   it('shows the question only when the core offers it', () => {
     expect(initialFlow(offer).phase).toBe('ask');
     expect(initialFlow({ state: 'noSource', source: 'x' }).phase).toBe('hidden');
-    expect(initialFlow({ state: 'alreadyHandled', decision: 'declined' }).phase).toBe('hidden');
+    expect(initialFlow({ state: 'alreadyHandled', decision: 'declined', notice: null }).phase).toBe('hidden');
   });
 
   it('starts on Copy and stops at the ends', () => {
@@ -100,17 +101,40 @@ describe('copy progress and wording', () => {
     expect(copyFraction({ filesDone: 9, filesTotal: 4, bytesDone: 900, bytesTotal: 200 })).toBe(1);
   });
 
-  it('plain wording for skipped entries (B-2)', () => {
+  it('plain wording for skipped entries (B-2 rev. d)', () => {
     expect(describeSkipped([{ name: '_Removed', reason: 'skipped by name (starts with "_")' }])).toEqual([
-      '1 folder skipped: _Removed',
+      'Skipped: _Removed (not a game)',
     ]);
     expect(
       describeSkipped([
-        { name: '_A', reason: 'skipped by name (starts with "_")' },
         { name: '.b', reason: 'skipped by name (starts with ".")' },
         { name: 'X', reason: 'no game.json' },
+        { name: 'notes.txt', reason: 'not a folder' },
+        { name: 'Y', reason: 'game.json could not be read: EOF' },
+        // alpha.1 records used "ignored by name".
+        { name: '_Old', reason: 'ignored by name (starts with "_")' },
       ]),
-    ).toEqual(['2 folders skipped: _A, .b', 'Skipped: X (no game.json)']);
+    ).toEqual([
+      'Skipped: .b (not a game)',
+      'Skipped: X (no game.json)',
+      'Skipped: notes.txt (not a game folder)',
+      "Skipped: Y (its game.json could not be read)",
+      'Skipped: _Old (not a game)',
+    ]);
+  });
+
+  it('result dialogs: A or B closes (B-2 rev. d)', () => {
+    for (const action of ['confirm', 'back'] as const) {
+      const [s] = flowAction({ phase: 'done', result }, action);
+      expect(s.phase).toBe('hidden');
+    }
+  });
+
+  it('a notice from the core shows once and A or B closes it (B-6)', () => {
+    const s = initialFlow({ state: 'alreadyHandled', decision: 'copied', notice: 'could not read' });
+    expect(s).toEqual({ phase: 'notice', message: 'could not read' });
+    expect(flowAction(s, 'back')[0].phase).toBe('hidden');
+    expect(flowAction(s, 'left')[0]).toEqual(s);
   });
 
   it('counts read the same as the log, "favorites" spelled one way', () => {

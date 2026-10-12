@@ -104,25 +104,46 @@ pub fn get() -> Option<&'static Logger> {
     LOGGER.get()
 }
 
+/// Tests: every line written through the functions below is also kept here, so a test can
+/// prove that a promised log line is really written (alpha.2 QA-3).
+#[cfg(test)]
+static CAPTURE: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+#[cfg(test)]
+pub fn captured() -> Vec<String> {
+    CAPTURE.lock().map(|c| c.clone()).unwrap_or_default()
+}
+
+fn capture(_level: Level, _area: &str, _message: &str) {
+    #[cfg(test)]
+    if let Ok(mut c) = CAPTURE.lock() {
+        c.push(format!("[{}] [{_area}] {_message}", _level.as_str()));
+    }
+}
+
 pub fn info(area: &str, message: &str) {
+    capture(Level::Info, area, message);
     if let Some(l) = get() {
         l.write(Level::Info, area, message);
     }
 }
 
 pub fn warn(area: &str, message: &str) {
+    capture(Level::Warn, area, message);
     if let Some(l) = get() {
         l.write(Level::Warn, area, message);
     }
 }
 
 pub fn error(area: &str, message: &str) {
+    capture(Level::Error, area, message);
     if let Some(l) = get() {
         l.write(Level::Error, area, message);
     }
 }
 
 pub fn lifecycle(level: Level, message: &str) {
+    capture(level, "lifecycle", message);
     if let Some(l) = get() {
         l.write_lifecycle(level, message);
     }

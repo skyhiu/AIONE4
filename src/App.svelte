@@ -3,7 +3,7 @@
   import { loadCore } from './lib/core';
   import type { AppInfo, Core, Unlisten } from './lib/core/types';
   import {
-    fromKeyboard,
+    fromKey,
     fromMouseButton,
     fromPadEvent,
     fromWheel,
@@ -14,6 +14,7 @@
   import { applyInput, applyPadConnection, applyPadSlots, initialReadout } from './lib/input/readout';
   import { choose, flowAction, flowDone, flowProgress, initialFlow, type FlowEffect, type FlowState } from './lib/migrationFlow';
   import { isBlockedBrowserKey, isRestartShortcut } from './lib/input/shortcuts';
+  import { KeyRepeater } from './lib/input/keyRepeat';
   import InputReadout from './lib/components/InputReadout.svelte';
   import CopyDialog from './lib/components/CopyDialog.svelte';
 
@@ -25,6 +26,8 @@
   let inputMode = $state<'pad' | 'mouse'>('pad');
 
   let firstKeyLogged = false;
+  // D-006: AIONE times key repeats itself (400 / 90 ms); Windows' repeats are ignored.
+  const keys = new KeyRepeater((e, phase) => handleInput(fromKey(e, phase)));
 
   function handleInput(ev: InputEvent) {
     readout = applyInput(readout, ev);
@@ -51,7 +54,9 @@
     });
   }
 
+  /** A click on a dialog button: logged with the action it activated (alpha.2 QA-5). */
   function onChoose(accept: boolean) {
+    core?.log('info', `input click "${accept ? 'Copy' : "Don't copy"}" (mouse) -> action ${accept ? 'copy' : 'dont-copy'}`);
     const [next, effect] = choose(flow, accept);
     flow = next;
     applyEffect(effect);
@@ -72,7 +77,8 @@
       core?.restart().catch((err: unknown) => core?.log('error', `restart failed: ${String(err)}`));
       return;
     }
-    handleInput(fromKeyboard(e, e.type === 'keyup' ? 'keyup' : 'keydown'));
+    if (e.type === 'keyup') keys.keyup(e);
+    else keys.keydown(e);
   }
 
   function onMouse(e: MouseEvent) {
@@ -147,6 +153,7 @@
   onwheel={onWheel}
   onmousemove={onMouseMove}
   oncontextmenu={(e) => e.preventDefault()}
+  onblur={() => keys.releaseAll()}
 />
 
 <main data-input={inputMode} data-testid="screen">
@@ -161,7 +168,14 @@
   </div>
 
   {#if flow.phase !== 'hidden'}
-    <CopyDialog {flow} {onChoose} onClose={() => (flow = { phase: 'hidden' })} />
+    <CopyDialog
+      {flow}
+      {onChoose}
+      onClose={() => {
+        core?.log('info', 'input click "OK" (mouse) -> action close');
+        flow = { phase: 'hidden' };
+      }}
+    />
   {/if}
 </main>
 

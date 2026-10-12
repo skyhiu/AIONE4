@@ -29,8 +29,18 @@
   data-phase={flow.phase}
   transition:scale={{ duration: 200, start: 0.96 }}
 >
-  {#if flow.phase === 'ask'}
+  {#if flow.phase === 'notice'}
+    <h1 id="copy-title">About your earlier copy answer</h1>
+    <p data-testid="copy-notice">{flow.message}</p>
+    <div class="buttons">
+      <button class="focusable focused" data-testid="copy-ok" onclick={onClose}>OK</button>
+    </div>
+    <p class="hints" data-testid="copy-result-hints">A OK</p>
+  {:else if flow.phase === 'ask'}
     <h1 id="copy-title">Copy your AIONE data?</h1>
+    {#if flow.offer.notice}
+      <p class="warn" data-testid="copy-notice">{flow.offer.notice}</p>
+    {/if}
     <p>
       AIONE 4 found the data of your previous AIONE: {plural(flow.offer.files, 'file', 'files')},
       {formatBytes(flow.offer.bytes)}.
@@ -96,6 +106,7 @@
     <div class="buttons">
       <button class="focusable focused" data-testid="copy-ok" onclick={onClose}>OK</button>
     </div>
+    <p class="hints" data-testid="copy-result-hints">A OK</p>
   {/if}
 </div>
 

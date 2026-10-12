@@ -48,13 +48,15 @@ export interface IgnoredEntry {
 
 export type MigrationStatus =
   | { state: 'noSource'; source: string }
-  | { state: 'alreadyHandled'; decision: string }
+  /** `notice`: a plain message for the user (B-6: e.g. the record could not be read), or null. */
+  | { state: 'alreadyHandled'; decision: string; notice: string | null }
   | {
       state: 'offer';
       source: string;
       files: number;
       bytes: number;
       library: LibraryCounts;
+      notice: string | null;
     };
 
 export interface CopyProgress {

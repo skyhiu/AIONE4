@@ -8,8 +8,10 @@ file is present and that Material Symbols matches its pinned npm package.
 | Asset | Source | Licence | Files in the repository | Changes |
 |---|---|---|---|---|
 | **Kenney Input Prompts 1.5** (Kenney, www.kenney.nl) | the user's download `kenney_input-prompts_1.5.zip` | CC0 1.0 (`License.txt`) | `assets/glyphs/kenney-input-prompts/`: the `Vector` (SVG) folders of Xbox Series (99), PlayStation Series (136), Generic (36), Keyboard & Mouse (257) | none; set folders renamed only |
-| **50 Menu Interface SFX** by **ColorAlpha** | https://coloralpha.itch.io/50-menu-interface-sfx (user's download) | **CC BY 4.0** as reported by the user. The download has **no licence file**; the itch.io page is the authority (`CREDIT.txt`). | `assets/sounds/50-menu-interface-sfx/`: the 50 WAV files | none (FLAC, MP3 and Ableton `.asd` files not added) |
-| **Startup-sound variants A, B, C** (adaptations of 50 Menu Interface SFX) | made by `tools/sound/make_startup.py` from the pack | CC BY 4.0, **modified** | not in the repository yet (delivered for listening; the chosen one is added in T1) | See below and `docs/sound/SOUND_MAPPING.md` |
+| **50 Menu Interface SFX** by **ColorAlpha** | https://coloralpha.itch.io/50-menu-interface-sfx (user's download) | **CC BY 4.0**. The download has no licence file; the credit is the itch.io address with "CC BY 4.0" (the user's decision, B-1 rev. d; `CREDIT.txt`). | `assets/sounds/50-menu-interface-sfx/`: the 50 WAV files | none (FLAC, MP3 and Ableton `.asd` files not added) |
+| **Startup-sound variants A, B, C** (adaptations of 50 Menu Interface SFX) | made by `tools/sound/make_startup.py` from the pack | CC BY 4.0, **modified** | not in the repository; **not chosen** (alpha.2), superseded by the Boot Up variants (B-5) | See below and `docs/sound/SOUND_MAPPING.md` |
+| **Boot Up sound variants A (Bloom), B (Steps), C (Sweep)** (adaptations of 50 Menu Interface SFX), 5 s each | made by `tools/sound/make_bootup.py` from the pack | CC BY 4.0, **modified** | not in the repository (delivered for listening; the chosen one is added in T1) | See below and `docs/sound/BOOTUP_SOUNDS.md` |
+| **AIONE logo proposals** (the name as outlines) | `tools/brand/make_logos.py`, glyph outlines of Quicksand, Figtree and Nunito from `assets/fonts` | marks: the project's own; name outlines: SIL OFL 1.1 fonts, used as artwork (allowed by the OFL) | not in the repository (proposals delivered with the handoff) | `docs/brand/LOGO_PROPOSALS.md` |
 | **Material Symbols Rounded** (Google) | npm `material-symbols` **0.47.5** (published 2026-09-22, pinned in `package.json`) | Apache-2.0 (`LICENSE`) | `assets/icons/material-symbols-rounded/`: `material-symbols-rounded.woff2`, `rounded.css` | none |
 | **Nunito** | Google Fonts download attached by the user | SIL OFL 1.1 (`OFL.txt`) | `assets/fonts/nunito/`: variable upright and italic | none |
 | **Inter** | same | SIL OFL 1.1 | `assets/fonts/inter/`: variable upright and italic | none |
@@ -20,7 +22,21 @@ file is present and that Material Symbols matches its pinned npm package.
 
 Not used: "Cute, Cozy & Magical UI SFX" (B-1, may return in T8); the WPF startup `e.wav`.
 
-## Startup-sound variants: credit and changes
+## Boot Up sound variants: credit and changes
+"AIONE 4 Boot Up sound (variant A / B / C)" is adapted from **"50 Menu Interface SFX" by
+ColorAlpha** (https://coloralpha.itch.io/50-menu-interface-sfx), licensed **CC BY 4.0**
+(https://creativecommons.org/licenses/by/4.0/). **Modified:**
+- **A, Bloom:** from `MI_SFX 48`, `44`, `43`, `09`. Sequenced to a 5 s timeline; #09 pitched
+  +4 / +7 semitones; #43 pitched −12; stereo echo; cut to 5 s with a fade; high-pass; loudness
+  matched.
+- **B, Steps:** from `MI_SFX 09`, `43`, `16`. #09 pitched to C5-E5-G5-C6; #16 pitched −4 and
+  softened; #43 pitched −12; sequenced and layered; stereo echo; cut, fade, high-pass, loudness.
+- **C, Sweep:** from `MI_SFX 31`, `44`, `43`, `16`, `09`. Sequenced and layered; #43 pitched −5;
+  #16 −4 and softened; #09 to C5, E5, G5; stereo echo; cut, fade, high-pass, loudness, limiting.
+
+Details: `docs/sound/BOOTUP_SOUNDS.md`.
+
+## Startup-sound variants (alpha.2, not chosen): credit and changes
 "AIONE 4 startup sound (variant A / B / C)" is adapted from **"50 Menu Interface SFX" by
 ColorAlpha** (https://coloralpha.itch.io/50-menu-interface-sfx), licensed **CC BY 4.0**
 (https://creativecommons.org/licenses/by/4.0/). **Modified:**

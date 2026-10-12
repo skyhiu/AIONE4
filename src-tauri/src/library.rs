@@ -29,14 +29,15 @@ use std::fs;
 use std::path::Path;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct IgnoredEntry {
     pub name: String,
     pub reason: String,
 }
 
+/// B-6: every field has a default (alpha.1 records have no `folders` or `sources`).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct LibraryCounts {
     pub games: u32,
     pub hidden: u32,
@@ -53,6 +54,10 @@ pub struct LibraryCounts {
 
 pub const GAMES_DIR: &str = "Games";
 pub const GAME_FILE: &str = "game.json";
+
+/// D-001: where WPF keeps its settings, not read until the user's real files arrive (T2).
+pub const NOT_YET_READ: &str =
+    "not yet read: Config\\ (WPF's settings folder; its format is built from the real files in T2)";
 
 const HIDDEN_FIELDS: [&str; 2] = ["hidden", "ishidden"];
 const FAVORITE_FIELDS: [&str; 4] = ["favorite", "isfavorite", "favourite", "isfavourite"];
@@ -165,6 +170,7 @@ pub fn scan_library(root: &Path) -> LibraryCounts {
 
     // 2. Lists in top-level .json files of the data folder.
     let mut unmatched: Vec<String> = Vec::new();
+    let mut json_files: Vec<String> = Vec::new();
     let mut files: Vec<_> = fs::read_dir(root)
         .map(|r| r.flatten().map(|e| e.path()).collect())
         .unwrap_or_default();
@@ -182,6 +188,7 @@ pub fn scan_library(root: &Path) -> LibraryCounts {
             .unwrap_or_default()
             .to_string_lossy()
             .into_owned();
+        json_files.push(file_name.clone());
         let stem = norm(&path.file_stem().unwrap_or_default().to_string_lossy());
         let Ok(value) = fs::read(&path).map_err(|e| e.to_string()).and_then(|b| {
             serde_json::from_slice::<serde_json::Value>(strip_bom(&b)).map_err(|e| e.to_string())
@@ -256,21 +263,35 @@ pub fn scan_library(root: &Path) -> LibraryCounts {
     counts.hidden = hidden.len() as u32;
     counts.favorites = favorites.len() as u32;
     counts.folders = folders.len() as u32;
+    let fields = |cat: &str| match cat {
+        "hidden" => "Hidden, IsHidden",
+        "favorites" => "Favorite, IsFavorite, Favourite",
+        _ => "Folder, Folders, FolderName",
+    };
+    let lists = if json_files.is_empty() {
+        "top-level .json lists (no .json files at the top level)".to_string()
+    } else {
+        format!("top-level .json lists ({})", json_files.join(", "))
+    };
     for cat in ["hidden", "favorites", "folders"] {
         let n = match cat {
             "hidden" => counts.hidden,
             "favorites" => counts.favorites,
             _ => counts.folders,
         };
-        match found.get(cat) {
-            Some(places) => counts.sources.push(format!(
-                "{cat}: {n}, read from {}",
+        let looked = format!(
+            "game.json fields ({}) in {} games; {lists}",
+            fields(cat),
+            counts.games
+        );
+        let head = match found.get(cat) {
+            Some(places) => format!(
+                "{cat}: {n}, read from {}; looked in: {looked}",
                 places.iter().cloned().collect::<Vec<_>>().join(", ")
-            )),
-            None => counts.sources.push(format!(
-                "{cat}: 0, no {cat} data found in game.json fields or top-level .json lists"
-            )),
-        }
+            ),
+            None => format!("{cat}: none found, looked in: {looked}"),
+        };
+        counts.sources.push(format!("{head}; {NOT_YET_READ}"));
     }
     counts.sources.extend(unmatched);
     counts
@@ -411,7 +432,12 @@ pub(crate) mod tests {
         assert!(c
             .sources
             .iter()
-            .any(|s| s.starts_with("folders: 0, no folders data found")));
+            .any(|s| s.starts_with("folders: none found, looked in: game.json fields")));
+        assert_eq!(c.sources.len(), 3);
+        assert!(c
+            .sources
+            .iter()
+            .all(|s| s.contains("not yet read: Config\\")));
     }
 
     #[test]
@@ -434,6 +460,10 @@ pub(crate) mod tests {
             .sources
             .iter()
             .any(|s| s.starts_with("hidden: 2, read from") && s.contains("HiddenGames")));
+        assert!(c
+            .sources
+            .iter()
+            .any(|s| s.contains("top-level .json lists (library.json, settings.json)")));
     }
 
     #[test]

@@ -6,8 +6,14 @@
 //   ?migration=offer | none | handled | copy-fails
 //   &pad=connected     a pad is in slot 1 before the UI subscribes (its connect event is lost)
 //   &step=<ms>         time between copy progress steps (default 150)
+//   &record=alpha1 | alpha2 | unreadable   a stored copy record (B-6 fixtures from
+//                      tests/fixtures/migration/), read with the core's rule: a readable record
+//                      with a decision other than "failed" means "already handled"
+//   &copy=finished     Imported\\AIONE-WPF exists (used with record=unreadable)
 // Tests drive input through `window.__aioneMock` (see MockControl below).
 import pkg from '../../../package.json';
+import alpha1Record from '../../../tests/fixtures/migration/alpha1.migration.json?raw';
+import alpha2Record from '../../../tests/fixtures/migration/alpha2.migration.json?raw';
 import type {
   CopyProgress,
   CopyResult,
@@ -28,6 +34,8 @@ export interface MockControl {
   disconnect(pad?: number): void;
   decisions: boolean[];
   logs: string[];
+  /** performance.now() of each log line (same index as logs). */
+  logTimes: number[];
   restarts: number;
   uiReadyCalls: number;
   padSlotsCalls: number;
@@ -45,7 +53,9 @@ export const SAMPLE_LIBRARY: LibraryCounts = {
   favorites: 0,
   folders: 0,
   ignored: [{ name: '_Removed', reason: 'skipped by name (starts with "_")' }],
-  sources: [],
+  sources: [
+    'hidden: none found, looked in: game.json fields (Hidden, IsHidden) in 10 games; top-level .json lists (no .json files at the top level); not yet read: Config\\',
+  ],
 };
 
 export function createMockCore(search: string = globalThis.location?.search ?? ''): Core {
@@ -63,6 +73,23 @@ export function createMock(search: string): { core: Core; control: MockControl }
   let lastConnectionSeq = 0;
   const connected = new Set<number>();
   let handled = scenario === 'handled';
+  const records: Record<string, string> = { alpha1: alpha1Record, alpha2: alpha2Record, unreadable: '{ not json' };
+  const recordText = records[params.get('record') ?? ''];
+  const finishedCopy = params.get('copy') === 'finished';
+  let notice: string | null = null;
+  let recordDecision: string | null = null;
+  if (recordText !== undefined) {
+    try {
+      const parsed = JSON.parse(recordText) as { decision?: unknown };
+      if (typeof parsed.decision !== 'string') throw new Error('missing field decision');
+      recordDecision = parsed.decision;
+    } catch {
+      notice = finishedCopy
+        ? `AIONE 4 could not read its note of your earlier copy answer. Your copied data is complete, so nothing changes and you are not asked again. The note was kept as C:\\Users\\Player\\AppData\\Local\\AIONE4\\migration.json.unreadable-20261013-120000 (details in aione.log).`
+        : `AIONE 4 could not read its note of your earlier answer to this question, and no finished copy exists, so it asks again. The note was kept as C:\\Users\\Player\\AppData\\Local\\AIONE4\\migration.json.unreadable-20261013-120000 (details in aione.log).`;
+      if (finishedCopy) recordDecision = 'copied';
+    }
+  }
 
   const emit = (kind: PadEventKind, control: string, pad: number) => {
     seq += 1;
@@ -91,6 +118,7 @@ export function createMock(search: string): { core: Core; control: MockControl }
     },
     decisions: [],
     logs: [],
+    logTimes: [],
     restarts: 0,
     uiReadyCalls: 0,
     padSlotsCalls: 0,
@@ -120,20 +148,25 @@ export function createMock(search: string): { core: Core; control: MockControl }
     },
     log(level, message) {
       control.logs.push(`${level}: ${message}`);
+      control.logTimes.push(typeof performance === 'undefined' ? 0 : performance.now());
     },
     padSlots(): Promise<PadSlots> {
       control.padSlotsCalls += 1;
       return Promise.resolve({ slots: [...connected].sort((a, b) => a - b), seq: lastConnectionSeq });
     },
     migrationStatus(): Promise<MigrationStatus> {
-      if (handled) return Promise.resolve({ state: 'alreadyHandled', decision: 'copied' });
-      if (scenario === 'offer' || scenario === 'copy-fails') {
+      if (recordDecision !== null && recordDecision !== 'failed') {
+        return Promise.resolve({ state: 'alreadyHandled', decision: recordDecision, notice });
+      }
+      if (handled) return Promise.resolve({ state: 'alreadyHandled', decision: 'copied', notice: null });
+      if (scenario === 'offer' || scenario === 'copy-fails' || notice !== null) {
         return Promise.resolve({
           state: 'offer',
           source: 'C:\\Users\\Player\\AppData\\Local\\AIONE',
           files: 1234,
           bytes: 4_512_000_000,
           library: SAMPLE_LIBRARY,
+          notice,
         });
       }
       return Promise.resolve({ state: 'noSource', source: 'C:\\Users\\Player\\AppData\\Local\\AIONE' });

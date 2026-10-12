@@ -1,6 +1,6 @@
 # AIONE 4 — Architecture
 
-Current as of **4.0.0-alpha.2 (T0)**. Rules: Master Prompt Part A (A3 technology, A4 input, A5 window and lifecycle, A9 data).
+Current as of **4.0.0-alpha.3 (T0)**. Rules: Master Prompt Part A (A3 technology, A4 input, A5 window and lifecycle, A9 data).
 
 ## Overview
 
@@ -45,13 +45,30 @@ The core owns everything that touches the system; the UI owns everything the use
 ## Start-up sequence
 
 1. Parse arguments. Create `%LOCALAPPDATA%\AIONE4\Logs\`; open the logs; log `start`.
-2. `--autostart=on|off`: write / remove `HKCU\…\Run\AIONE 4`, show a message, exit.
-3. `--wait-for-pid N` (restart): wait for the old instance to exit (≤ 15 s, logged) **before** anything else.
-4. Tauri starts; the **single-instance plugin** is the first plugin: a second start exits there and the running instance logs it and takes the foreground.
-5. The window is created **hidden** (fullscreen, borderless, background `#0f1013`). The XInput thread starts.
-6. The UI mounts, draws two frames, calls `ui_ready`. The core shows the window and runs the foreground chain (`foreground.rs`), logging the result. If the UI never reports ready, the window is shown after 4 s anyway (bounded black wait, reference A9).
-7. The **start-up foreground guard** listens to foreground changes for 8 s (WinEvent hook, no polling) and takes the foreground back from other programs at most 3 times, unless the user is switching (Alt / Win / mouse button held). T1 ties this to Boot Up.
-8. The UI asks `migration_status`; on the first start with WPF data present it shows the copy question.
+2. **`lifecycle::pre_start`**: the steps before Tauri, in this order (unit-tested with a fake
+   that records the order):
+   1. `--autostart=on|off`: write or remove `HKCU\…\Run\AIONE 4`, show a message, exit;
+   2. `--wait-for-pid N` (restart): wait for the old instance to exit (≤ 15 s, logged);
+   3. only then, the named-mutex "already running" check (a second start logs the hand-over).
+3. Tauri starts. The **single-instance plugin** is registered only after `pre_start` returns, as
+   the first plugin. A second start exits there, and the running instance logs it and takes
+   the foreground. A restarted instance has already waited, so it is never taken for a second
+   start.
+4. The window is created **hidden** (fullscreen, borderless, background `#0f1013`). The XInput
+   thread starts.
+5. The UI mounts, subscribes to pad events, asks `pad_slots` (D-002), draws two frames, and
+   calls `ui_ready`.
+6. The core shows the window and runs the foreground chain (`foreground.rs`), logging the
+   result. It then logs which window has keyboard focus, judged by **window ownership** (D-005):
+   - "AIONE 4's web view: keys reach AIONE" when the focus window's top-level ancestor is
+     AIONE's main window (WebView2 draws the page in its own `msedgewebview2.exe` process);
+   - otherwise "another program has the keys: …".
+
+   It logs this again 500 ms later. If the UI never reports ready, the window is shown after
+   4 s anyway.
+7. The **start-up foreground guard** listens to foreground changes for 8 s and takes the
+   foreground back from other programs (at most 3 times) unless the user is switching.
+8. The UI asks `migration_status`: the copy question, a notice, or nothing (see "Stored files").
 
 ## Input path (A4)
 
@@ -86,6 +103,14 @@ the core:
 Keyboard and mouse are handled in the UI (`lib/input/events.ts`) and mapped to the same actions
 (`toAction`). The browser Gamepad API is not used (one source per press).
 
+**Key repeat (D-006, B-3):** `lib/input/keyRepeat.ts`.
+- AIONE times key repeats itself: 400 ms, then every 90 ms, like the pad.
+- It ignores the browser's / Windows' own repeated keydown events, so Windows' keyboard settings never change the speed.
+- Modifier keys (Alt, Ctrl, Shift, Windows) never repeat.
+- Only the most recently pressed key repeats.
+- Losing window focus releases all held keys.
+- One `setTimeout` chain runs only while a key is held (owner: `KeyRepeater`).
+
 ## Logging (evidence lines)
 
 | Line | Where | Shows |
@@ -95,9 +120,12 @@ Keyboard and mouse are handled in the UI (`lib/input/events.ts`) and mapped to t
 | `controller slots at start: [1] (as of seq N)` | `aione.log` [ui] | D-002 state at start |
 | `second instance: AIONE 4 is already running; handing over …` | `lifecycle.log` | the second start's own line before it exits |
 | `foreground (start, … ms after start): OK via …` | `lifecycle.log` | L-20 result and fallback |
-| `keyboard focus after the foreground step: class "…" in … (AIONE 4: keys reach AIONE)` and `… 500 ms later` | `lifecycle.log` | which window gets the keys |
+| `keyboard focus after the foreground step: AIONE 4's web view: keys reach AIONE (…)` (or `another program has the keys: …`) and `… 500 ms later` | `lifecycle.log` | which window gets the keys (D-005) |
+| `input repeat Right (keyboard) -> …` | `aione.log` [ui] | AIONE-timed key repeats (first after 400 ms, then every 90 ms; never for modifiers) |
+| `input click "Copy" (mouse) -> action copy` | `aione.log` [ui] | a click and the action it activated |
+| `copy record read: decision "copied" (written by AIONE 4 … at …); not asking again` | `aione.log` [copy] | B-6: the record from an earlier version was read |
 | `first keyboard event N ms after the page started (page focused: …)` | `aione.log` [ui] | when the first key reached the UI |
-| `copy …; 10 games, 0 hidden, 0 favorites, 0 folders; 1 skipped`, `skipped in Games: …`, `library hidden: …, read from …`, `WPF data folder top level: …` | `aione.log` [copy] | L-17 counts with their sources |
+| `copy …; 10 games, 0 hidden, 0 favorites, 0 folders; 1 skipped`, `skipped in Games: …`, `library hidden: …`, `library favorites: …`, `library folders: …` (always; "none found, looked in: …; not yet read: Config\"), `WPF data folder top level: …` | `aione.log` [copy] | L-17 counts with their sources (a log-capture test checks these are written) |
 
 ## Data folder (A9)
 
@@ -112,12 +140,49 @@ The WPF folder `%LOCALAPPDATA%\AIONE\` is **only read**. `library::scan_library`
 games, hidden games, favorites and library folders (the hidden / favorites / folders format is
 a hypothesis until confirmed from the user's data; see the module's comment). The copy fingerprints it before and after (paths, sizes, times) and reports whether it stayed unchanged. `library::scan_games_dir` is the single rule for what counts as a game; the loader in T1 must use it so copy counts equal loaded counts (L-17).
 
+## Stored files (B-6: data from earlier versions is always read)
+
+Every file AIONE 4 writes must stay readable by every later version.
+
+**1. Fields.** New fields are **optional with a default** (`#[serde(default)]`), never required.
+A change that can't be expressed that way raises the file's `schema` number, and the reader
+migrates older schemas step by step. A file from a **newer** version is read for what this
+version understands and never overwritten (A9).
+
+**2. Unreadable files.** An unreadable file is **backed up next to itself**
+(`<name>.unreadable-<time>`, once per distinct content) and **reported**: a WARN line in the
+log, and a plain notice to the user in the app. It is **never** treated as "nothing stored".
+
+**3. Fixtures.** Each released version's files are kept as **fixtures** in `tests/fixtures/`, with
+personal paths replaced, and unit tests read them. Fixtures are never edited to make a test pass.
+
+**Today: the copy record `migration.json`.** Only `decision` is required. Its fixtures are
+`tests/fixtures/migration/alpha1.migration.json` and `alpha2.migration.json`. If
+`Imported\AIONE-WPF\` holds a finished copy, the question is never asked again; when the
+record is missing or unreadable, a new one is written.
+
+**Coming:**
+- **The library (T1):** `game.json` stays the WPF format (A9). AIONE 4's own additions go
+  into new optional fields (or a separate file per game) with defaults. The loader skips and
+  logs an unreadable `game.json`, and never rewrites it. The first released library files
+  become fixtures.
+- **Settings and profiles (T2):** one file with a `schema` number. Every setting has a default,
+  so a missing setting is filled and a removed one is ignored. Migrations run per schema step
+  after a backup (A9: the last 5). An unreadable settings file is backed up and reported, and
+  the defaults are used without overwriting the bad file until the user is told. The first
+  released settings file becomes a fixture.
+
 ## Assets and tools
 
 - `assets/`: bundled third-party assets with their licences (A3; `assets/README.md`); not used
   by the UI before T1.
-- `tools/sound/`: Python scripts that measure the menu-sound pack and build the startup-sound
-  variants (`docs/sound/SOUND_MAPPING.md`). Developer tools only; not part of the app or CI.
+- `tools/sound/`: Python scripts that measure the menu-sound pack (`analyse.py`) and build the
+  sound proposals: the startup variants of alpha.2 (`make_startup.py`) and the 5 s Boot Up variants
+  (`make_bootup.py`; `docs/sound/BOOTUP_SOUNDS.md`).
+- `tools/brand/`: the logo proposals (`make_logos.py`) and the Boot Up preview
+  (`make_preview.py`; `docs/brand/LOGO_PROPOSALS.md`).
+- All of these are developer tools only, not part of the app or CI. They need Python with numpy, scipy,
+  pyloudnorm 0.1.1, fonttools 4.59.0 and matplotlib, plus ffmpeg.
 
 ## Build and test
 

@@ -55,8 +55,21 @@ impl ForegroundReport {
 pub use win::{bring_to_front, focus_report, start_guard, stop_guard};
 
 #[cfg(not(windows))]
-pub fn focus_report() -> String {
+pub fn focus_report(_own: isize) -> String {
     "not available on this platform".into()
+}
+
+/// D-005: the wording of the keyboard-focus line. `inside_aione`: the focus window's top-level
+/// ancestor is AIONE's main window (judged by window ownership, not by process: WebView2's
+/// window belongs to its own `msedgewebview2.exe` process).
+pub fn focus_wording(inside_aione: bool, class: &str, program: &str) -> String {
+    let web_view =
+        class.starts_with("Chrome_") || program.eq_ignore_ascii_case("msedgewebview2.exe");
+    match (inside_aione, web_view) {
+        (true, true) => format!("AIONE 4's web view: keys reach AIONE (window class \"{class}\" in {program})"),
+        (true, false) => format!("AIONE 4's window: keys reach AIONE (window class \"{class}\" in {program})"),
+        (false, _) => format!("another program has the keys: {program}, window class \"{class}\" (keys do NOT reach AIONE)"),
+    }
 }
 
 #[cfg(not(windows))]
@@ -92,11 +105,11 @@ mod win {
         VK_LBUTTON, VK_LWIN, VK_MENU, VK_RBUTTON, VK_RWIN,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
-        BringWindowToTop, FlashWindowEx, GetClassNameW, GetForegroundWindow, GetGUIThreadInfo,
-        GetWindowThreadProcessId, IsIconic, SetForegroundWindow, SetWindowPos, ShowWindow,
-        EVENT_SYSTEM_FOREGROUND, FLASHWINFO, FLASHW_ALL, FLASHW_TIMERNOFG, GUITHREADINFO,
-        HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_RESTORE,
-        WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS,
+        BringWindowToTop, FlashWindowEx, GetAncestor, GetClassNameW, GetForegroundWindow,
+        GetGUIThreadInfo, GetWindowThreadProcessId, IsIconic, SetForegroundWindow, SetWindowPos,
+        ShowWindow, EVENT_SYSTEM_FOREGROUND, FLASHWINFO, FLASHW_ALL, FLASHW_TIMERNOFG, GA_ROOT,
+        GUITHREADINFO, HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW,
+        SW_RESTORE, WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS,
     };
 
     fn hwnd(raw: isize) -> HWND {
@@ -143,9 +156,9 @@ mod win {
         }
     }
 
-    /// Which window has keyboard focus right now (the foreground thread's focus window):
-    /// its class, its program, and whether it is AIONE's.
-    pub fn focus_report() -> String {
+    /// Which window has keyboard focus right now (the foreground thread's focus window), and
+    /// whether it is inside AIONE's main window `own` (D-005: by window ownership).
+    pub fn focus_report(own: isize) -> String {
         let mut info = GUITHREADINFO {
             cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
             ..Default::default()
@@ -157,7 +170,7 @@ mod win {
         let h = info.hwndFocus;
         if h.0.is_null() {
             return format!(
-                "no focus window (active window: {})",
+                "no window has keyboard focus (the active window is {})",
                 describe_window(info.hwndActive)
             );
         }
@@ -165,20 +178,14 @@ mod win {
         // SAFETY: buffer slice passed with its length.
         let n = unsafe { GetClassNameW(h, &mut buf) }.max(0) as usize;
         let class = String::from_utf16_lossy(&buf[..n]);
+        // SAFETY: plain query; GA_ROOT walks up the parent chain to the top-level window.
+        let root = unsafe { GetAncestor(h, GA_ROOT) };
+        let inside_aione = !root.0.is_null() && root == hwnd(own);
         let mut pid = 0u32;
         // SAFETY: valid out pointer.
         unsafe { GetWindowThreadProcessId(h, Some(&mut pid)) };
-        // SAFETY: plain query.
-        let ours = pid == unsafe { GetCurrentProcessId() };
-        format!(
-            "class \"{class}\" in {} ({})",
-            describe_window(h),
-            if ours {
-                "AIONE 4: keys reach AIONE"
-            } else {
-                "another program"
-            }
-        )
+        let program = format!("{} (pid {pid})", process_name(pid));
+        super::focus_wording(inside_aione, &class, &program)
     }
 
     pub fn bring_to_front(raw: isize) -> ForegroundReport {
@@ -407,5 +414,33 @@ mod win {
                 &format!("foreground (guard): {}", report.summary()),
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::focus_wording;
+
+    #[test]
+    fn web_view_inside_aione_reaches_aione() {
+        let l = focus_wording(true, "Chrome_WidgetWin_1", "msedgewebview2.exe (pid 4280)");
+        assert!(l.starts_with("AIONE 4's web view: keys reach AIONE"), "{l}");
+    }
+
+    #[test]
+    fn another_app_in_front_is_named() {
+        let l = focus_wording(false, "Notepad", "notepad.exe (pid 99)");
+        assert_eq!(l, "another program has the keys: notepad.exe (pid 99), window class \"Notepad\" (keys do NOT reach AIONE)");
+        // Another app's web view is not AIONE's either.
+        assert!(
+            focus_wording(false, "Chrome_WidgetWin_1", "msedge.exe (pid 7)")
+                .starts_with("another program")
+        );
+    }
+
+    #[test]
+    fn aione_own_window_without_web_view() {
+        assert!(focus_wording(true, "Tauri Window", "AIONE4.exe (pid 1)")
+            .starts_with("AIONE 4's window: keys reach AIONE"));
     }
 }

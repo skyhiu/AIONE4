@@ -6,6 +6,8 @@ export type OfferStatus = Extract<MigrationStatus, { state: 'offer' }>;
 
 export type FlowState =
   | { phase: 'hidden' }
+  /** B-6: a plain message (e.g. the copy record could not be read); A OK, B closes. */
+  | { phase: 'notice'; message: string }
   | { phase: 'ask'; offer: OfferStatus; focus: 0 | 1 }
   | { phase: 'copying'; offer: OfferStatus; progress: CopyProgress | null }
   | { phase: 'done'; result: CopyResult };
@@ -18,7 +20,9 @@ export const BUTTON_COPY = 0;
 export const BUTTON_SKIP = 1;
 
 export function initialFlow(status: MigrationStatus): FlowState {
-  return status.state === 'offer' ? { phase: 'ask', offer: status, focus: BUTTON_COPY } : { phase: 'hidden' };
+  if (status.state === 'offer') return { phase: 'ask', offer: status, focus: BUTTON_COPY };
+  if (status.state === 'alreadyHandled' && status.notice) return { phase: 'notice', message: status.notice };
+  return { phase: 'hidden' };
 }
 
 export function flowAction(state: FlowState, action: UiAction): [FlowState, FlowEffect] {
@@ -40,6 +44,8 @@ export function flowAction(state: FlowState, action: UiAction): [FlowState, Flow
           return [state, { type: 'none' }];
       }
     case 'done':
+    case 'notice':
+      // Nothing is left to decide: A or B closes (B-2 rev. d).
       return action === 'confirm' || action === 'back' ? [{ phase: 'hidden' }, { type: 'none' }] : [state, { type: 'none' }];
     case 'copying':
     case 'hidden':
@@ -63,16 +69,16 @@ export function copyFraction(progress: CopyProgress | null): number {
   return 0;
 }
 
-/** Plain wording for skipped entries (A13, B-2): "1 folder skipped: _Removed". */
+/** Plain wording for skipped entries (A13, B-2 rev. d): "Skipped: _Removed (not a game)". */
 export function describeSkipped(ignored: { name: string; reason: string }[]): string[] {
-  const byName = ignored.filter((i) => i.reason.startsWith('skipped by name'));
-  const other = ignored.filter((i) => !i.reason.startsWith('skipped by name'));
-  const lines: string[] = [];
-  if (byName.length > 0) {
-    lines.push(`${byName.length} ${byName.length === 1 ? 'folder' : 'folders'} skipped: ${byName.map((i) => i.name).join(', ')}`);
-  }
-  for (const i of other) lines.push(`Skipped: ${i.name} (${i.reason})`);
-  return lines;
+  return ignored.map((i) => `Skipped: ${i.name} (${plainReason(i.reason)})`);
+}
+
+function plainReason(reason: string): string {
+  if (reason.startsWith('skipped by name') || reason.startsWith('ignored by name')) return 'not a game';
+  if (reason === 'not a folder') return 'not a game folder';
+  if (reason.startsWith('game.json could not be read')) return 'its game.json could not be read';
+  return reason;
 }
 
 /** "10 games · 0 hidden · 0 favorites · 0 folders" (same words as the log). */

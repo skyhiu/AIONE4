@@ -45,6 +45,11 @@ export function fromKeyboard(e: { key: string; code: string; repeat: boolean }, 
   return { source: 'keyboard', kind, control: keyName(e) };
 }
 
+/** A key event from AIONE's own key repeater (D-006): down, AIONE-timed repeat, or up. */
+export function fromKey(e: { key: string; code: string }, phase: InputKind): InputEvent {
+  return { source: 'keyboard', kind: phase, control: keyName(e) };
+}
+
 const MOUSE_BUTTONS = ['Left click', 'Middle click', 'Right click', 'Back button', 'Forward button'];
 
 export function fromMouseButton(button: number, type: 'mousedown' | 'mouseup'): InputEvent {

@@ -31,14 +31,19 @@ const STATE_SCHEMA: u32 = 1;
 pub enum MigrationStatus {
     #[serde(rename_all = "camelCase")]
     NoSource { source: String },
+    /// `notice`: a plain message for the user (e.g. the record could not be read), or null.
     #[serde(rename_all = "camelCase")]
-    AlreadyHandled { decision: String },
+    AlreadyHandled {
+        decision: String,
+        notice: Option<String>,
+    },
     #[serde(rename_all = "camelCase")]
     Offer {
         source: String,
         files: u64,
         bytes: u64,
         library: LibraryCounts,
+        notice: Option<String>,
     },
 }
 
@@ -51,8 +56,10 @@ pub struct CopyProgress {
     pub bytes_total: u64,
 }
 
+/// B-6: every field has a default, so records written by earlier versions (with fewer
+/// fields) always read. Never add a required field here; migrate by `schema` instead.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct CopyResult {
     pub ok: bool,
     /// "copied" | "partial" | "failed"
@@ -61,22 +68,32 @@ pub struct CopyResult {
     pub files_copied: u64,
     pub files_failed: u64,
     pub bytes_copied: u64,
-    #[serde(default)]
     pub library: LibraryCounts,
     pub source_unchanged: bool,
     pub notes: Vec<String>,
 }
 
+/// The copy record (`migration.json`). B-6: only `decision` is required; everything else has
+/// a default so every earlier version's record reads (fixtures in `tests/fixtures/migration/`).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct MigrationState {
+    #[serde(default = "schema_one")]
     pub schema: u32,
     /// "copied" | "partial" | "failed" | "declined"
     pub decision: String,
+    #[serde(default)]
     pub at: String,
+    #[serde(default)]
     pub app_version: String,
+    #[serde(default)]
     pub source: String,
+    #[serde(default)]
     pub result: Option<CopyResult>,
+}
+
+fn schema_one() -> u32 {
+    1
 }
 
 // ---------------------------------------------------------------------------------------
@@ -204,26 +221,92 @@ pub fn state_path(data: &Path) -> PathBuf {
     data.join(STATE_FILE)
 }
 
-pub fn read_state(data: &Path) -> Option<MigrationState> {
-    let bytes = fs::read(state_path(data)).ok()?;
-    match serde_json::from_slice::<MigrationState>(&bytes) {
-        Ok(s) if s.schema <= STATE_SCHEMA => Some(s),
-        Ok(s) => {
-            // A newer AIONE 4 wrote this: treat as handled, never overwrite it (A9).
-            logging::warn(
-                "copy",
-                &format!("migration.json has newer schema {} (this build knows {STATE_SCHEMA}); not offering", s.schema),
-            );
-            Some(s)
-        }
+/// What reading the copy record found.
+#[derive(Debug, Clone, PartialEq)]
+pub enum RecordRead {
+    Missing,
+    Ok(Box<MigrationState>),
+    /// The file exists but cannot be read; `backup` is where a copy of it was saved.
+    Unreadable {
+        error: String,
+        backup: Option<PathBuf>,
+    },
+}
+
+/// Reads `migration.json` (B-6). Never treats an unreadable record as "not handled": it is
+/// backed up next to itself (once per distinct content) and reported.
+pub fn read_record(data: &Path) -> RecordRead {
+    let path = state_path(data);
+    let bytes = match fs::read(&path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return RecordRead::Missing,
         Err(e) => {
-            logging::warn(
-                "copy",
-                &format!("migration.json unreadable ({e}); treating as not handled"),
-            );
-            None
+            return RecordRead::Unreadable {
+                error: e.to_string(),
+                backup: None,
+            }
+        }
+    };
+    let bytes_no_bom = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(&bytes);
+    match serde_json::from_slice::<MigrationState>(bytes_no_bom) {
+        Ok(s) => {
+            if s.schema > STATE_SCHEMA {
+                // A newer AIONE 4 wrote this: it is handled; never overwrite it (A9).
+                logging::warn(
+                    "copy",
+                    &format!(
+                        "migration.json was written by a newer AIONE 4 (schema {}, this build knows {STATE_SCHEMA}); reading only its decision",
+                        s.schema
+                    ),
+                );
+            }
+            RecordRead::Ok(Box::new(s))
+        }
+        Err(e) => RecordRead::Unreadable {
+            error: e.to_string(),
+            backup: back_up_once(&path, &bytes),
+        },
+    }
+}
+
+/// Saves `migration.json.unreadable-<time>` next to the record, unless an identical backup
+/// already exists (so a record that stays unreadable is not backed up at every start).
+fn back_up_once(path: &Path, bytes: &[u8]) -> Option<PathBuf> {
+    let dir = path.parent()?;
+    let prefix = format!("{STATE_FILE}.unreadable-");
+    if let Ok(read) = fs::read_dir(dir) {
+        for e in read.flatten() {
+            if e.file_name().to_string_lossy().starts_with(&prefix)
+                && fs::read(e.path()).ok().as_deref() == Some(bytes)
+            {
+                return Some(e.path());
+            }
         }
     }
+    let backup = dir.join(format!(
+        "{prefix}{}",
+        chrono::Local::now().format("%Y%m%d-%H%M%S")
+    ));
+    fs::write(&backup, bytes).ok().map(|_| backup)
+}
+
+/// The decision, if the record says one (compatibility helper for callers and tests).
+pub fn read_state(data: &Path) -> Option<MigrationState> {
+    match read_record(data) {
+        RecordRead::Ok(s) => Some(*s),
+        _ => None,
+    }
+}
+
+/// A finished copy exists: `Imported\AIONE-WPF\` is a non-empty folder. The copy is staged in
+/// `AIONE-WPF.partial` and renamed only after every file was copied, so the final folder only
+/// exists when a copy ran to its end.
+pub fn finished_copy_exists(data: &Path) -> bool {
+    let dest = destination(data);
+    dest.is_dir()
+        && fs::read_dir(&dest)
+            .map(|mut r| r.next().is_some())
+            .unwrap_or(false)
 }
 
 fn write_state(data: &Path, state: &MigrationState) -> std::io::Result<()> {
@@ -259,16 +342,90 @@ pub fn record_decision(
 // Status
 
 pub fn status(data: &Path, source: &Path) -> MigrationStatus {
-    if let Some(s) = read_state(data) {
-        if s.decision != "failed" {
+    let finished = finished_copy_exists(data);
+    let mut notice: Option<String> = None;
+    match read_record(data) {
+        RecordRead::Ok(s) if s.decision != "failed" => {
+            logging::info(
+                "copy",
+                &format!(
+                    "copy record read: decision \"{}\" (written by AIONE 4 {} at {}); not asking again",
+                    s.decision,
+                    if s.app_version.is_empty() { "?" } else { &s.app_version },
+                    if s.at.is_empty() { "?" } else { &s.at }
+                ),
+            );
             return MigrationStatus::AlreadyHandled {
                 decision: s.decision,
+                notice: None,
             };
         }
-        logging::info(
-            "copy",
-            "the previous copy failed completely; offering it again",
-        );
+        RecordRead::Ok(_) => {
+            if finished {
+                logging::info("copy", "copy record says the last copy failed, but a finished copy exists; not asking again");
+                rewrite_record(
+                    data,
+                    source,
+                    "copied (found a finished copy after a failed record)",
+                );
+                return MigrationStatus::AlreadyHandled {
+                    decision: "copied".into(),
+                    notice: None,
+                };
+            }
+            logging::info(
+                "copy",
+                "the previous copy failed completely; offering it again",
+            );
+        }
+        RecordRead::Missing => {
+            if finished {
+                logging::info(
+                    "copy",
+                    &format!(
+                        "no copy record, but a finished copy exists in {}; not asking again (record written)",
+                        destination(data).display()
+                    ),
+                );
+                rewrite_record(
+                    data,
+                    source,
+                    "copied (record was missing; a finished copy exists)",
+                );
+                return MigrationStatus::AlreadyHandled {
+                    decision: "copied".into(),
+                    notice: None,
+                };
+            }
+        }
+        RecordRead::Unreadable { error, backup } => {
+            let saved = backup
+                .as_ref()
+                .map(|b| format!("a copy of it was saved as {}", b.display()))
+                .unwrap_or_else(|| "it could not be backed up".into());
+            logging::warn(
+                "copy",
+                &format!("the copy record migration.json could not be read ({error}); {saved}"),
+            );
+            if finished {
+                rewrite_record(
+                    data,
+                    source,
+                    "copied (record was unreadable; a finished copy exists)",
+                );
+                return MigrationStatus::AlreadyHandled {
+                    decision: "copied".into(),
+                    notice: Some(format!(
+                        "AIONE 4 could not read its note of your earlier copy answer. Your copied data is complete, so nothing changes and you are not asked again. The note was kept as {} (details in aione.log).",
+                        backup.map(|b| b.display().to_string()).unwrap_or_else(|| "(not saved)".into())
+                    )),
+                };
+            }
+            notice = Some(format!(
+                "AIONE 4 could not read its note of your earlier answer to this question, and no finished copy exists, so it asks again. The note was kept as {} (details in aione.log).",
+                backup.map(|b| b.display().to_string()).unwrap_or_else(|| "(not saved)".into())
+            ));
+        }
     }
     let has_content = fs::read_dir(source)
         .map(|mut r| r.next().is_some())
@@ -297,12 +454,36 @@ pub fn status(data: &Path, source: &Path) -> MigrationStatus {
             counts_line(&lib)
         ),
     );
+    log_library(&lib);
     log_top_level(source);
     MigrationStatus::Offer {
         source: source.display().to_string(),
         files: fp.files(),
         bytes: fp.bytes(),
         library: lib,
+        notice,
+    }
+}
+
+/// Writes a fresh record for a finished copy found without a readable record (B-6).
+fn rewrite_record(data: &Path, source: &Path, why: &str) {
+    match record_decision(data, source, "copied", None) {
+        Ok(()) => logging::info("copy", &format!("copy record written: {why}")),
+        Err(e) => logging::error("copy", &format!("could not write migration.json: {e}")),
+    }
+}
+
+/// The L-17 evidence lines: every skipped entry, and where each count was read from. Always
+/// written, also when nothing was found (D-001).
+pub fn log_library(lib: &LibraryCounts) {
+    for i in &lib.ignored {
+        logging::info(
+            "copy",
+            &format!("skipped in Games: {} ({})", i.name, i.reason),
+        );
+    }
+    for line in &lib.sources {
+        logging::info("copy", &format!("library {line}"));
     }
 }
 
@@ -491,12 +672,7 @@ pub fn copy(data: &Path, source: &Path, mut progress: impl FnMut(&CopyProgress))
         logging::warn("copy", &n);
         notes.push(n);
     }
-    for i in &lib.ignored {
-        logging::info(
-            "copy",
-            &format!("library entry not a game: {} ({})", i.name, i.reason),
-        );
-    }
+    log_library(&lib);
     if let Some(n) = external_games_folder_note(source) {
         logging::warn("copy", &n);
         notes.push(n);
@@ -700,7 +876,8 @@ mod tests {
         assert_eq!(
             status(&data, &src),
             MigrationStatus::AlreadyHandled {
-                decision: "declined".into()
+                decision: "declined".into(),
+                notice: None
             }
         );
     }
@@ -723,6 +900,162 @@ mod tests {
                 MigrationStatus::AlreadyHandled { .. }
             ));
         }
+    }
+
+    const ALPHA1: &str = include_str!("../../tests/fixtures/migration/alpha1.migration.json");
+    const ALPHA2: &str = include_str!("../../tests/fixtures/migration/alpha2.migration.json");
+
+    fn data_with_record(record: &str) -> (tempfile::TempDir, PathBuf, PathBuf) {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = wpf(tmp.path());
+        let data = tmp.path().join("AIONE4");
+        fs::create_dir_all(&data).unwrap();
+        fs::write(state_path(&data), record).unwrap();
+        (tmp, data, src)
+    }
+
+    fn entries(dir: &Path) -> Vec<String> {
+        let mut v: Vec<String> = fs::read_dir(dir)
+            .map(|r| {
+                r.flatten()
+                    .map(|e| e.file_name().to_string_lossy().into_owned())
+                    .collect()
+            })
+            .unwrap_or_default();
+        v.sort();
+        v
+    }
+
+    #[test]
+    fn b6_every_released_record_reads_as_copied() {
+        for (name, record) in [("alpha.1", ALPHA1), ("alpha.2", ALPHA2)] {
+            let (_tmp, data, src) = data_with_record(record);
+            match read_record(&data) {
+                RecordRead::Ok(s) => {
+                    assert_eq!(s.decision, "copied", "{name}");
+                    let r = s.result.unwrap();
+                    assert_eq!((r.files_copied, r.library.games), (2857, 10), "{name}");
+                }
+                other => panic!("{name} record did not read: {other:?}"),
+            }
+            assert_eq!(
+                status(&data, &src),
+                MigrationStatus::AlreadyHandled {
+                    decision: "copied".into(),
+                    notice: None
+                },
+                "{name}"
+            );
+            // Nothing was backed up, rewritten or moved aside.
+            assert_eq!(entries(&data), vec!["migration.json".to_string()], "{name}");
+            assert_eq!(
+                fs::read_to_string(state_path(&data)).unwrap(),
+                record,
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn alpha1_record_has_no_folders_field() {
+        // The fixture really is the alpha.1 shape that alpha.2 could not read.
+        assert!(!ALPHA1.contains("folders"));
+        assert_eq!(ALPHA1.lines().nth(23), Some("    },"));
+    }
+
+    #[test]
+    fn unreadable_record_with_a_finished_copy_is_backed_up_reported_and_not_asked() {
+        let (_tmp, data, src) = data_with_record("{ not json");
+        fs::create_dir_all(destination(&data).join("Games")).unwrap();
+        match status(&data, &src) {
+            MigrationStatus::AlreadyHandled { decision, notice } => {
+                assert_eq!(decision, "copied");
+                assert!(notice.unwrap().contains("could not read"));
+            }
+            other => panic!("expected handled, got {other:?}"),
+        }
+        let backups: Vec<_> = entries(&data)
+            .into_iter()
+            .filter(|n| n.starts_with("migration.json.unreadable-"))
+            .collect();
+        assert_eq!(backups.len(), 1);
+        assert_eq!(
+            fs::read_to_string(data.join(&backups[0])).unwrap(),
+            "{ not json"
+        );
+        // A new, readable record was written; the next start reads it quietly.
+        assert!(matches!(read_record(&data), RecordRead::Ok(_)));
+        assert_eq!(
+            status(&data, &src),
+            MigrationStatus::AlreadyHandled {
+                decision: "copied".into(),
+                notice: None
+            }
+        );
+    }
+
+    #[test]
+    fn unreadable_record_without_a_copy_asks_with_a_notice_and_backs_up_once() {
+        let (_tmp, data, src) = data_with_record("{\"schema\":1}");
+        for _ in 0..3 {
+            match status(&data, &src) {
+                MigrationStatus::Offer { notice, .. } => {
+                    assert!(notice.unwrap().contains("asks again"))
+                }
+                other => panic!("expected offer, got {other:?}"),
+            }
+        }
+        let backups = entries(&data)
+            .into_iter()
+            .filter(|n| n.starts_with("migration.json.unreadable-"))
+            .count();
+        assert_eq!(backups, 1);
+    }
+
+    #[test]
+    fn missing_record_with_a_finished_copy_is_not_asked_and_record_is_written() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = wpf(tmp.path());
+        let data = tmp.path().join("AIONE4");
+        fs::create_dir_all(destination(&data).join("Games")).unwrap();
+        assert!(matches!(
+            status(&data, &src),
+            MigrationStatus::AlreadyHandled { .. }
+        ));
+        assert!(matches!(read_record(&data), RecordRead::Ok(s) if s.decision == "copied"));
+    }
+
+    #[test]
+    fn an_interrupted_copy_is_not_a_finished_copy() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = wpf(tmp.path());
+        let data = tmp.path().join("AIONE4");
+        fs::create_dir_all(
+            data.join(IMPORT_DIR)
+                .join("AIONE-WPF.partial")
+                .join("Games"),
+        )
+        .unwrap();
+        assert!(!finished_copy_exists(&data));
+        assert!(matches!(status(&data, &src), MigrationStatus::Offer { .. }));
+    }
+
+    #[test]
+    fn copy_writes_every_promised_log_line() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = wpf(tmp.path());
+        let data = tmp.path().join("AIONE4");
+        let r = copy(&data, &src, |_| {});
+        assert!(r.ok);
+        let log = logging::captured();
+        let has = |needle: &str| log.iter().any(|l| l.contains(needle));
+        assert!(has("skipped in Games: _Removed (skipped by name"));
+        assert!(has("library hidden: 2, read from"));
+        assert!(has("library favorites: 3, read from"));
+        assert!(has("library folders: 3, read from"));
+        assert!(has("not yet read: Config\\"));
+        assert!(has("WPF data folder top level") || has("source check:"));
+        assert!(has("4 games, 2 hidden, 3 favorites, 3 folders; 5 skipped"));
     }
 
     #[test]

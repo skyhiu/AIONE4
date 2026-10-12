@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "decision": "copied",
+  "at": "2026-10-12 23:14:55",
+  "appVersion": "4.0.0-alpha.1",
+  "source": "C:\\Users\\Player\\AppData\\Local\\AIONE",
+  "result": {
+    "ok": true,
+    "outcome": "copied",
+    "destination": "C:\\Users\\Player\\AppData\\Local\\AIONE4\\Imported\\AIONE-WPF",
+    "filesCopied": 2857,
+    "filesFailed": 0,
+    "bytesCopied": 322786338,
+    "library": {
+      "games": 10,
+      "hidden": 0,
+      "favorites": 0,
+      "ignored": [
+        {
+          "name": "_Removed",
+          "reason": "ignored by name (starts with \"_\")"
+        }
+      ]
+    },
+    "sourceUnchanged": true,
+    "notes": []
+  }
+}

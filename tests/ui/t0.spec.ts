@@ -96,6 +96,60 @@ test.describe('T0 first window (mocked core)', () => {
     await expect(page.getByTestId('readout-pads')).toHaveText('No controller connected');
   });
 
+  test('D-006: an arrow key repeats at 400 ms then every 90 ms; Alt never repeats', async ({ page }) => {
+    await page.goto('./');
+    await expect(page.getByTestId('version')).toContainText(pkg.version);
+    // Hold ArrowRight for 2 s while sending Windows-style repeated keydowns every 33 ms
+    // (Playwright marks a keydown of a held key as repeat: true).
+    const t0 = await page.evaluate(() => performance.now());
+    await page.keyboard.down('ArrowRight');
+    for (let i = 0; i < 55; i++) {
+      await page.waitForTimeout(33);
+      await page.keyboard.down('ArrowRight');
+    }
+    const held = await page.evaluate(() => performance.now());
+    await page.waitForTimeout(Math.max(0, 2000 - (held - t0)));
+    const released = await page.evaluate(() => performance.now());
+    await page.keyboard.up('ArrowRight');
+    const { logs, times } = await page.evaluate(() => ({
+      logs: window.__aioneMock?.logs ?? [],
+      times: window.__aioneMock?.logTimes ?? [],
+    }));
+    const at = (needle: string) => logs.flatMap((l, i) => (l.includes(needle) ? [times[i] ?? 0] : []));
+    const down = at('input down Right (keyboard)');
+    const reps = at('input repeat Right (keyboard)');
+    expect(down).toHaveLength(1);
+    const first = (reps[0] ?? 0) - (down[0] ?? 0);
+    const gaps = reps.slice(1).map((t, i) => t - (reps[i] ?? 0));
+    const mean = gaps.reduce((a, b) => a + b, 0) / Math.max(1, gaps.length);
+    console.warn(
+      `D-006 arrow: first repeat ${first.toFixed(0)} ms, ${reps.length} repeats, mean gap ${mean.toFixed(1)} ms`,
+    );
+    expect(first).toBeGreaterThan(380);
+    // Bounds allow for coarser Windows timers on the CI runner (about 15.6 ms steps).
+    expect(first).toBeLessThan(480);
+    expect(mean).toBeGreaterThan(84);
+    expect(mean).toBeLessThan(110);
+    // As many repeats as AIONE's timing gives for the real hold time (not one per Windows
+    // repeat: 55 were sent).
+    const holdMs = released - (down[0] ?? 0);
+    const expected = Math.floor((holdMs - 400) / 90) + 1;
+    expect(Math.abs(reps.length - expected)).toBeLessThanOrEqual(2);
+    expect(reps.length).toBeLessThan(55);
+
+    // Alt held 2 s with Windows-style repeats: one down, no repeats.
+    await page.keyboard.down('Alt');
+    for (let i = 0; i < 55; i++) {
+      await page.waitForTimeout(33);
+      await page.keyboard.down('Alt');
+    }
+    await page.keyboard.up('Alt');
+    const after = (await page.evaluate(() => window.__aioneMock?.logs)) ?? [];
+    expect(after.filter((l) => l.includes('input down Alt (keyboard)'))).toHaveLength(1);
+    expect(after.filter((l) => l.includes('input repeat Alt'))).toHaveLength(0);
+    await shot(page, 't0-readout-after-key-holds');
+  });
+
   test('blocked browser keys do not reload the page; restart shortcut reaches the core', async ({ page }) => {
     await page.goto('./');
     await expect(page.getByTestId('version')).toContainText(pkg.version);
@@ -117,7 +171,7 @@ test.describe('T0 copy offer (mocked core)', () => {
     await expect(page.getByTestId('copy-accept')).toHaveClass(/focused/);
     await expect(page.getByTestId('copy-decline')).not.toHaveClass(/focused/);
     await expect(page.getByTestId('copy-offer-counts')).toHaveText('10 games · 0 hidden · 0 favorites · 0 folders');
-    await expect(dialog).toContainText('1 folder skipped: _Removed');
+    await expect(dialog).toContainText('Skipped: _Removed (not a game)');
     await expect(page.getByTestId('copy-hints')).toHaveText('A Select · B Not now');
     // B-2: the question is no longer "asked only once".
     await expect(dialog).not.toContainText('only once');
@@ -134,7 +188,8 @@ test.describe('T0 copy offer (mocked core)', () => {
     await page.evaluate(() => window.__aioneMock?.pad('A'));
     await expect(dialog).toHaveAttribute('data-phase', 'done');
     await expect(page.getByTestId('copy-result-games')).toHaveText('10 games · 0 hidden · 0 favorites · 0 folders');
-    await expect(page.getByTestId('copy-result-ignored')).toHaveText('1 folder skipped: _Removed');
+    await expect(page.getByTestId('copy-result-ignored')).toHaveText('Skipped: _Removed (not a game)');
+    await expect(page.getByTestId('copy-result-hints')).toHaveText('A OK');
     await expect(page.getByTestId('copy-result-source')).toHaveText('Your previous AIONE folder was not changed.');
     expect(await page.evaluate(() => window.__aioneMock?.decisions)).toEqual([true]);
     await expectInViewport(page, '[data-testid="copy-dialog"]');
@@ -157,12 +212,14 @@ test.describe('T0 copy offer (mocked core)', () => {
 
   test('B on "Don\'t copy" is still Not now; A on "Don\'t copy" declines', async ({ page }) => {
     await page.goto('./?migration=offer');
+    await expect(page.getByTestId('copy-dialog')).toHaveAttribute('data-phase', 'ask');
     await page.evaluate(() => window.__aioneMock?.pad('DPadRight'));
     await page.evaluate(() => window.__aioneMock?.pad('B'));
     await expect(page.getByTestId('copy-dialog')).toHaveCount(0);
     expect(await page.evaluate(() => window.__aioneMock?.decisions)).toEqual([]);
 
     await page.goto('./?migration=offer');
+    await expect(page.getByTestId('copy-dialog')).toHaveAttribute('data-phase', 'ask');
     await page.evaluate(() => window.__aioneMock?.pad('DPadRight'));
     await expect(page.getByTestId('copy-decline')).toHaveClass(/focused/);
     await page.evaluate(() => window.__aioneMock?.pad('A'));
@@ -173,6 +230,7 @@ test.describe('T0 copy offer (mocked core)', () => {
   test('D-003: the bar matches the numbers under it after animations settle', async ({ page }) => {
     // Slow steps (3 s each) so the 25 % state can be measured at rest.
     await page.goto('./?migration=offer&step=3000');
+    await expect(page.getByTestId('copy-dialog')).toHaveAttribute('data-phase', 'ask');
     await page.keyboard.press('Enter');
     const percent = page.getByTestId('copy-progress-percent');
     await expect(percent).toHaveText('25 %');
@@ -205,6 +263,7 @@ test.describe('T0 copy offer (mocked core)', () => {
 
   test('mouse: Don\'t copy declines once; no focus ring in mouse mode', async ({ page }) => {
     await page.goto('./?migration=offer');
+    await expect(page.getByTestId('copy-dialog')).toHaveAttribute('data-phase', 'ask');
     await page.mouse.move(10, 10);
     await expect(page.getByTestId('screen')).toHaveAttribute('data-input', 'mouse');
     const outline = await page.getByTestId('copy-accept').evaluate((el) => getComputedStyle(el).outlineColor);
@@ -213,15 +272,48 @@ test.describe('T0 copy offer (mocked core)', () => {
     await page.getByTestId('copy-decline').click();
     await expect(page.getByTestId('copy-dialog')).toHaveCount(0);
     expect(await page.evaluate(() => window.__aioneMock?.decisions)).toEqual([false]);
+    // QA-5: the click line names the action it activated.
+    const logs = (await page.evaluate(() => window.__aioneMock?.logs)) ?? [];
+    expect(logs).toContain('info: input click "Don\'t copy" (mouse) -> action dont-copy');
   });
 
   test('a partial copy says so', async ({ page }) => {
     await page.goto('./?migration=copy-fails');
+    await expect(page.getByTestId('copy-dialog')).toHaveAttribute('data-phase', 'ask');
     await page.getByTestId('copy-accept').click();
     await expect(page.getByTestId('copy-dialog')).toHaveAttribute('data-phase', 'done');
     await expect(page.getByTestId('copy-dialog')).toContainText('The copy is incomplete');
     await expect(page.getByTestId('copy-dialog')).toContainText('2 files could not be copied');
+    await expect(page.getByTestId('copy-result-hints')).toHaveText('A OK');
     await shot(page, 't0-copy-partial');
+    // B closes a result dialog too (nothing is left to decide).
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('copy-dialog')).toHaveCount(0);
+    const logs = (await page.evaluate(() => window.__aioneMock?.logs)) ?? [];
+    expect(logs).toContain('info: input click "Copy" (mouse) -> action copy');
+  });
+
+  for (const record of ['alpha1', 'alpha2']) {
+    test(`B-6: started over the ${record} record, no question appears`, async ({ page }) => {
+      await page.goto(`./?migration=offer&record=${record}`);
+      await expect(page.getByTestId('version')).toContainText(pkg.version);
+      // Give the startup query time to answer, then make sure nothing appeared.
+      await page.waitForTimeout(500);
+      await expect(page.getByTestId('copy-dialog')).toHaveCount(0);
+    });
+  }
+
+  test('B-6: an unreadable record with a finished copy is reported, not asked', async ({ page }) => {
+    await page.goto('./?migration=offer&record=unreadable&copy=finished');
+    const dialog = page.getByTestId('copy-dialog');
+    await expect(dialog).toHaveAttribute('data-phase', 'notice');
+    await expect(page.getByTestId('copy-notice')).toContainText('could not read its note');
+    await expect(page.getByTestId('copy-result-hints')).toHaveText('A OK');
+    await expect(page.getByTestId('copy-accept')).toHaveCount(0);
+    await expectInViewport(page, '[data-testid="copy-dialog"]');
+    await shot(page, 't0-copy-record-unreadable-notice');
+    await page.evaluate(() => window.__aioneMock?.pad('A'));
+    await expect(dialog).toHaveCount(0);
   });
 
   test('no dialog when the data was handled before', async ({ page }) => {

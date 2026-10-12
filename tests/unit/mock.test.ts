@@ -25,3 +25,21 @@ describe('mocked core', () => {
     expect(await core.padSlots()).toEqual({ slots: [], seq: 4 });
   });
 });
+
+describe('mocked core: stored records (B-6 fixtures)', () => {
+  it.each(['alpha1', 'alpha2'])('the %s record reads as copied: no question', async (record) => {
+    const status = await createMockCore(`?migration=offer&record=${record}`).migrationStatus();
+    expect(status).toEqual({ state: 'alreadyHandled', decision: 'copied', notice: null });
+  });
+
+  it('an unreadable record with a finished copy: no question, a notice', async () => {
+    const status = await createMockCore('?migration=offer&record=unreadable&copy=finished').migrationStatus();
+    expect(status.state).toBe('alreadyHandled');
+    expect(status.state === 'alreadyHandled' && status.notice).toContain('could not read');
+  });
+
+  it('an unreadable record without a copy: the question with a notice', async () => {
+    const status = await createMockCore('?record=unreadable').migrationStatus();
+    expect(status.state === 'offer' && status.notice).toContain('asks again');
+  });
+});

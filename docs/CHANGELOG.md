@@ -1,5 +1,31 @@
 # Changelog
 
+## 4.0.0-alpha.3 — T0 fixes, logo and Boot Up sound proposals
+
+- **D-004 (B-6):** the copy record reads from every earlier version. Fields are optional with
+  defaults; an unreadable record is backed up and reported (log and a notice with "A OK"); a
+  finished copy means the question never returns. alpha.1's and alpha.2's records are kept as
+  test fixtures (`tests/fixtures/migration/`).
+- **Restart order:** the start steps (`--autostart`, the restart wait, the "already running"
+  check) are one tested function, `lifecycle::pre_start`. The wait comes before the check, as it
+  already did in alpha.2 (confirmed from the code).
+- **D-005:** the keyboard-focus line is judged by window ownership: "AIONE 4's web view: keys
+  reach AIONE".
+- **D-006:** AIONE times key repeats itself (400 / 90 ms) and ignores Windows' repeats;
+  modifier keys never repeat.
+- **D-001:** the "library hidden / favorites / folders" lines are always logged, including "none
+  found, looked in: …", with `Config\` named as not yet read.
+- **Copy dialogs (B-2 rev. d):** "Skipped: _Removed (not a game)"; result dialogs show "A OK",
+  and B closes them; clicks are logged with the action they activated.
+- **Tests:**
+  - a log-capture test checks that every promised copy log line is written;
+  - a timing race in three UI tests was fixed (they now wait for the dialog before acting).
+- **Boot Up proposals (B-5, not used by the app):**
+  - three logo designs (`tools/brand/make_logos.py`);
+  - three 5 s Boot Up sounds from the pack (`tools/sound/make_bootup.py`, `docs/sound/BOOTUP_SOUNDS.md`);
+  - an HTML preview of the timeline (`tools/brand/make_preview.py`).
+- Version 4.0.0-alpha.3.
+
 ## 4.0.0-alpha.2 — T0 fixes and assets
 
 - **D-002:** the UI asks the core which controller slots are connected at start; a pad

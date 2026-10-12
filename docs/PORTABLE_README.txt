@@ -7,7 +7,8 @@ Run AIONE4.exe. No installation is needed; keep the exe wherever you like.
 - Needs the Microsoft Edge WebView2 Runtime (included in Windows 10 and 11).
 - On the first start AIONE 4 offers to copy your previous AIONE data
   (%LOCALAPPDATA%\AIONE\). That folder is only read and never changed.
-  B = Not now (asked again next start); "Don't copy" is final.
+  B = Not now (asked again next start); "Don't copy" is final. After a copy (or a
+  "Don't copy") updates never ask again.
 
 T0 test build:
 - Ctrl+Shift+R restarts AIONE 4. Alt+F4 closes it.
@@ -15,7 +16,7 @@ T0 test build:
 
 Credits (details in THIRD_PARTY_ASSETS.md):
 - "50 Menu Interface SFX" by ColorAlpha, https://coloralpha.itch.io/50-menu-interface-sfx,
-  CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). The startup sound will be an
+  CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). The Boot Up sound will be an
   adaptation of this pack (modified: sounds combined, pitched, echoed, faded, loudness
   matched). Not yet used by this build.
 - Kenney Input Prompts by Kenney (www.kenney.nl), CC0.

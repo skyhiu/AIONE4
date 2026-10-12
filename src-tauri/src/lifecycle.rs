@@ -108,6 +108,67 @@ pub fn set_autostart(enable: bool) -> Result<String, String> {
     }
 }
 
+/// The OS actions the start steps need; a fake records their order in tests.
+pub trait StartOps {
+    fn set_autostart(&mut self, enable: bool) -> String;
+    fn wait_for_previous(&mut self, pid: u32) -> String;
+    fn another_instance_running(&mut self) -> bool;
+}
+
+/// The real OS actions.
+pub struct RealOps;
+
+impl StartOps for RealOps {
+    fn set_autostart(&mut self, enable: bool) -> String {
+        set_autostart(enable).unwrap_or_else(|e| e)
+    }
+    fn wait_for_previous(&mut self, pid: u32) -> String {
+        wait_for_previous(pid)
+    }
+    fn another_instance_running(&mut self) -> bool {
+        another_instance_running()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PreStart {
+    /// A one-shot action ran (`--autostart`); show the message and exit.
+    Exit { message: String },
+    /// Start the app. `second_instance`: another AIONE 4 still runs; the single-instance
+    /// plugin will hand over to it and exit this process.
+    Continue { second_instance: bool },
+}
+
+/// The start steps before Tauri, in their required order (A5, restart risk of alpha.2):
+/// 1. `--autostart=on|off`: do it and exit;
+/// 2. `--wait-for-pid N` (restart): wait until the old instance has exited;
+/// 3. only then the named-mutex "already running" check (logging the hand-over).
+///
+/// The caller registers the single-instance plugin after this returns.
+pub fn pre_start(args: &Args, ops: &mut dyn StartOps) -> PreStart {
+    if let Some(enable) = args.autostart {
+        let message = ops.set_autostart(enable);
+        logging::lifecycle(Level::Info, &format!("--autostart: {message}"));
+        return PreStart::Exit { message };
+    }
+    if let Some(pid) = args.wait_for_pid {
+        logging::lifecycle(
+            Level::Info,
+            &format!("restart: waiting for pid {pid} to exit"),
+        );
+        let msg = ops.wait_for_previous(pid);
+        logging::lifecycle(Level::Info, &format!("restart: {msg}"));
+    }
+    let second_instance = ops.another_instance_running();
+    if second_instance {
+        logging::lifecycle(
+            Level::Info,
+            "second instance: AIONE 4 is already running; handing over to it (it comes to the front) and exiting",
+        );
+    }
+    PreStart::Continue { second_instance }
+}
+
 pub fn log_start(args: &Args) {
     logging::lifecycle(
         Level::Info,
@@ -241,6 +302,70 @@ mod tests {
             a.unknown,
             vec!["--wait-for-pid", "--autostart=maybe", "--selftest"]
         );
+    }
+
+    /// Records the order of the OS actions; `running_after_wait` is what the mutex check finds.
+    struct Fake {
+        calls: Vec<String>,
+        running_after_wait: bool,
+    }
+
+    impl StartOps for Fake {
+        fn set_autostart(&mut self, enable: bool) -> String {
+            self.calls.push(format!("autostart {enable}"));
+            "ok".into()
+        }
+        fn wait_for_previous(&mut self, pid: u32) -> String {
+            self.calls.push(format!("wait {pid}"));
+            "exited".into()
+        }
+        fn another_instance_running(&mut self) -> bool {
+            self.calls.push("mutex check".into());
+            self.running_after_wait
+        }
+    }
+
+    #[test]
+    fn restart_waits_for_the_old_instance_before_the_already_running_check() {
+        let mut f = Fake {
+            calls: vec![],
+            running_after_wait: false,
+        };
+        let r = pre_start(&p(&["--wait-for-pid", "4242"]), &mut f);
+        assert_eq!(f.calls, vec!["wait 4242", "mutex check"]);
+        // The old instance is gone, so the restarted one is not a second instance.
+        assert_eq!(
+            r,
+            PreStart::Continue {
+                second_instance: false
+            }
+        );
+    }
+
+    #[test]
+    fn a_plain_second_start_checks_without_waiting() {
+        let mut f = Fake {
+            calls: vec![],
+            running_after_wait: true,
+        };
+        assert_eq!(
+            pre_start(&p(&[]), &mut f),
+            PreStart::Continue {
+                second_instance: true
+            }
+        );
+        assert_eq!(f.calls, vec!["mutex check"]);
+    }
+
+    #[test]
+    fn autostart_runs_alone_and_exits() {
+        let mut f = Fake {
+            calls: vec![],
+            running_after_wait: true,
+        };
+        let r = pre_start(&p(&["--autostart=on", "--wait-for-pid", "1"]), &mut f);
+        assert_eq!(f.calls, vec!["autostart true"]);
+        assert!(matches!(r, PreStart::Exit { .. }));
     }
 
     #[cfg(not(windows))]
