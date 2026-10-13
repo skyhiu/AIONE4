@@ -1,6 +1,6 @@
 # AIONE 4 — Architecture
 
-Current as of **4.0.0-alpha.4 (T1.1)**. Rules: Master Prompt Part A (A3 technology, A4 input, A5 window and lifecycle, A9 data).
+Current as of **4.0.0-alpha.5 (T1.1 fixes)**. Rules: Master Prompt Part A (A3 technology, A4 input, A5 window and lifecycle, A9 data).
 
 ## Overview
 
@@ -14,7 +14,8 @@ Current as of **4.0.0-alpha.4 (T1.1)**. Rules: Master Prompt Part A (A3 technolo
 │ foreground.rs foreground, guard, closing      │ lib/frame    header, footer,    │
 │ input/        XInput thread, B-7 gate (gate)  │              glyphs, marquee    │
 │ library.rs    what counts as a game (scan)    │ lib/input    events, keys, pads │
-│ games.rs      conversion, loading, media      │ lib/audio    menu sounds        │
+│ games.rs      conversion, loading, media      │
+│ tiles.rs      tile and icon copies (D-007)    │                                 │ lib/audio    menu sounds        │
 │ status.rs     battery and network             │ lib/perf     perf log           │
 │ migration.rs  one-time copy of WPF data       │ components/  copy dialog        │
 │ lib.rs        commands, media protocol, setup │ app.css      design tokens      │
@@ -232,4 +233,22 @@ of frame sampling). Core: XInput polling (8 ms with a pad, 250 ms without), the 
 **Lifecycle.** `--from-autostart` marks sign-in starts. Exit (close requested or exit requested)
 calls `foreground::closing`, which stops the guard first (T0 QA-5). `--interface-scale=N` sets
 `--scale` for one run.
+
+## 4.0.0-alpha.5 additions
+
+**Pictures (D-007, B-8).** `tiles.rs` makes, once, a 640 × 640 JPEG of each tile picture and a
+≤ 128 px PNG of each icon in `<data>\Cache\Tiles\`, keyed by the source's size and time (a
+changed picture is made again; old copies removed). `library_load` makes them (logged
+"tile pictures: N made, M reused, F failed, in X ms; made from: … W×H"). Each game carries `tile`
+and `icon` keys; the media protocol serves `/<id>/tile` and `/<id>/icon` (with `?v=<key>`).
+Picture slots holding videos are skipped. The UI decodes every tile and icon before Home takes
+input (logged "tile pictures ready: N decoded ahead in X ms").
+
+**Timing evidence (D-007, D-008).** Pad events carry `atMs` (when the core read them); each pad
+input line logs "core → UI N ms"; the perf line adds the longest frame, frames over 33 ms,
+"JANKY" and the longest input delay. Each long task gets a line with the last action and the
+pictures loaded or decoded around it.
+
+**Input (B-10).** The first pad or key press after mouse use only switches back to pad mode and
+shows the ring ("ring back on tile N (after mouse)").
 

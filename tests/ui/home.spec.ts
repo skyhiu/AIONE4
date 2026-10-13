@@ -57,57 +57,76 @@ test.describe('T1.1 Home (mocked core)', () => {
     { w: 2560, h: 1440 },
   ]) {
     for (const scale of [100, 150]) {
-      test(`Home at ${vp.w}x${vp.h}, ${scale} %`, async ({ page }) => {
-        await page.setViewportSize({ width: vp.w, height: vp.h });
-        await open(page, `scale=${scale}`);
-        await expect(page.getByTestId('tile')).toHaveCount(10);
-        await expect(page.getByTestId('selected-title')).toHaveText('FATAL FRAME 4');
-        await expectNoOverflow(page);
-        await expectInViewport(page, '[data-testid="status-header"], [data-testid="footer"], [data-testid="selected-title"]');
-        await expectFlat(page);
-        // Contrast (A8): text ≥ 4.5:1, icons ≥ 3:1 over the plain background.
-        expect(await contrastOf(page, '[data-testid="selected-title"]')).toBeGreaterThanOrEqual(4.5);
-        expect(await contrastOf(page, '[data-testid="clock"]')).toBeGreaterThanOrEqual(4.5);
-        expect(await contrastOf(page, '[data-testid="prompt-confirm"] .label')).toBeGreaterThanOrEqual(4.5);
-        expect(await contrastOf(page, '[data-testid="system-name"]')).toBeGreaterThanOrEqual(4.5);
-        expect(await contrastOf(page, '[data-testid="status-network"]')).toBeGreaterThanOrEqual(3);
-        // L-10: one optical size, one weight, AM / PM about 60 % of the digits.
-        const m = await headerMetrics(page);
-        // Same weight and fill for every icon; sizes differ only by each glyph's optical factor,
-        // which makes every icon's ink as tall as the clock's capitals (measured in the sandbox:
-        // 18 px each at 1080 p, 100 %; see the handoff).
-        expect(new Set(m.icons.map((i) => i.vs)).size).toBe(1);
-        expect(m.icons.every((i) => i.vs.includes('300'))).toBe(true);
-        expect(m.clockWeight).toBe('400');
-        expect(m.ampmSize / m.clockSize).toBeCloseTo(0.6, 1);
-        // Exactly one focus ring is visible.
-        const rings = await page.locator('.tile.focused').count();
-        expect(rings).toBe(1);
-        // Sizes follow the window and Interface Scale (no fixed pixels: alpha.1 QA-6).
-        const label = await page
-          .getByTestId('prompt-confirm')
-          .locator('.label')
-          .evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
-        expect(label).toBeCloseTo(28 * (vp.h / 1080) * (scale / 100), 0);
-        // The header scales at half rate (150 % → 125 %).
-        expect(m.clockSize).toBeCloseTo(25 * (vp.h / 1080) * (1 + (scale / 100 - 1) / 2), 0);
-        // Tiles follow Tile Size, not Interface Scale.
-        const tile = await page.getByTestId('tile').first().boundingBox();
-        expect(tile?.width ?? 0).toBeCloseTo(384 * (vp.h / 1080), 0);
-        await shot(page, `t1-home-${vp.w}x${vp.h}-${scale}`);
-      });
+      for (const preset of ['light', 'dark'] as const) {
+        test(`Home at ${vp.w}x${vp.h}, ${scale} %, ${preset}`, async ({ page }) => {
+          await page.setViewportSize({ width: vp.w, height: vp.h });
+          await open(page, `scale=${scale}&preset=${preset}`);
+          const px = vp.h / 1080;
+          await expect(page.getByTestId('tile')).toHaveCount(10);
+          await expect(page.getByTestId('selected-title')).toHaveText('Amber Lighthouse');
+          await expectNoOverflow(page);
+          await expectInViewport(page, '[data-testid="status-header"], [data-testid="footer"], [data-testid="selected-title-row"]');
+          await expectFlat(page);
+          // Contrast (A8): text ≥ 4.5:1, icons ≥ 3:1 over the plain background.
+          expect(await contrastOf(page, '[data-testid="selected-title"]')).toBeGreaterThanOrEqual(4.5);
+          expect(await contrastOf(page, '[data-testid="clock"]')).toBeGreaterThanOrEqual(4.5);
+          expect(await contrastOf(page, '[data-testid="prompt-confirm"] .label')).toBeGreaterThanOrEqual(4.5);
+          expect(await contrastOf(page, '[data-testid="system-name"]')).toBeGreaterThanOrEqual(4.5);
+          expect(await contrastOf(page, '[data-testid="status-network"]')).toBeGreaterThanOrEqual(3);
+          // L-10: one weight and fill for every icon; AM / PM 60 %.
+          const m = await headerMetrics(page);
+          expect(new Set(m.icons.map((i) => i.vs)).size).toBe(1);
+          expect(m.icons.every((i) => i.vs.includes('300'))).toBe(true);
+          expect(m.clockWeight).toBe('400');
+          expect(m.ampmSize / m.clockSize).toBeCloseTo(0.6, 1);
+          expect(await page.locator('.tile.focused').count()).toBe(1);
+          // Sizes follow the window and Interface Scale (alpha.1 QA-6); header at half rate;
+          // tiles follow Tile Size.
+          const label = await page
+            .getByTestId('prompt-confirm')
+            .locator('.label')
+            .evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+          expect(label).toBeCloseTo(28 * px * (scale / 100), 0);
+          expect(m.clockSize).toBeCloseTo(25 * px * (1 + (scale / 100 - 1) / 2), 0);
+          const tile = await page.getByTestId('tile').first().boundingBox();
+          expect(tile?.width ?? 0).toBeCloseTo(384 * px, 0);
+
+          // B-8: the title row starts at the row's start and never moves with the focus.
+          const rowStart = 160 * px;
+          const titleX = async () => (await page.getByTestId('selected-title-row').boundingBox())?.x ?? -1;
+          expect(await titleX()).toBeCloseTo(rowStart, 0);
+          // The icon: about the title's cap height plus a little (cap ≈ 0.7 em), rounded.
+          const icon = await page.getByTestId('title-icon').evaluate((el) => {
+            const r = el.getBoundingClientRect();
+            const fs = parseFloat(getComputedStyle(el.parentElement as Element).fontSize);
+            return { h: r.height, fs, radius: parseFloat(getComputedStyle(el).borderTopLeftRadius) };
+          });
+          expect(icon.h).toBeGreaterThan(icon.fs * 0.7);
+          expect(icon.h).toBeLessThan(icon.fs * 1.05);
+          expect(icon.radius).toBeGreaterThan(0);
+
+          // A long title: the row stays at the start; the text scrolls by transform up to the
+          // right margin (L-16).
+          for (let i = 0; i < 7; i++) await page.keyboard.press('ArrowRight');
+          await expect(page.getByTestId('selected-title')).toContainText('The Long Corridor');
+          expect(await titleX()).toBeCloseTo(rowStart, 0);
+          await expect(page.getByTestId('selected-title-text')).toHaveAttribute('data-moving', 'true');
+          const right = await page.getByTestId('selected-title-row').evaluate((el) => el.getBoundingClientRect().right);
+          expect(right).toBeLessThanOrEqual(vp.w * 0.95 + 1);
+          await shot(page, `t1-home-${vp.w}x${vp.h}-${scale}-${preset}-long-title`);
+
+          // A game with no icon: the letter tile in the accent colour (A8 on its own background).
+          for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowLeft');
+          await expect(page.getByTestId('selected-title')).toHaveText('Moss Kingdom');
+          await expect(page.getByTestId('title-letter')).toHaveText('M');
+          expect(await contrastOf(page, '[data-testid="title-letter"]')).toBeGreaterThanOrEqual(4.5);
+          expect(await titleX()).toBeCloseTo(rowStart, 0);
+          await page.waitForTimeout(300);
+          await shot(page, `t1-home-${vp.w}x${vp.h}-${scale}-${preset}-no-icon`);
+        });
+      }
     }
   }
-
-  test('dark preset, 1920x1080', async ({ page }) => {
-    await page.setViewportSize({ width: 1920, height: 1080 });
-    await open(page, 'preset=dark');
-    await expectFlat(page);
-    expect(await contrastOf(page, '[data-testid="selected-title"]')).toBeGreaterThanOrEqual(4.5);
-    expect(await contrastOf(page, '[data-testid="clock"]')).toBeGreaterThanOrEqual(4.5);
-    expect(await contrastOf(page, '[data-testid="prompt-confirm"] .label')).toBeGreaterThanOrEqual(4.5);
-    await shot(page, 't1-home-dark-1920x1080');
-  });
 
   test('status: no controller, offline, low battery charging; a later change arrives as an event', async ({ page }) => {
     await page.goto('./?time=09:05&h12=0&network=offline&battery=20c&status-later=1');
@@ -151,10 +170,10 @@ test.describe('T1.1 Home (mocked core)', () => {
     await pad(page, 'DPadRight');
     for (let i = 0; i < 20; i++) await pad(page, 'DPadRight', 'repeat');
     expect(await focusIndex(page)).toBe(9);
-    await expect(page.getByTestId('selected-title')).toHaveText('Zero Escape The Nonary Games');
+    await expect(page.getByTestId('selected-title')).toHaveText('Zephyr Line Express');
     await shot(page, 't1-home-focus-last');
     const l = await logs(page);
-    expect(l).toContain('info: input down DPadLeft (controller 1 seq 6) -> action left, end of row, no sound');
+    expect(l.some((x) => x.startsWith('info: input down DPadLeft (controller 1 seq 6) -> action left, end of row, no sound, core → UI '))).toBe(true);
     expect(l.filter((x) => x.includes('-> action right, focus 10/10')).length).toBe(1);
     // No line says a move happened twice for one event: every acting line names one focus.
     const moves = l.filter((x) => /action (left|right), focus/.test(x));
@@ -229,10 +248,10 @@ test.describe('T1.1 Home (mocked core)', () => {
     await expect(page.locator('.tile.hovered')).toHaveCount(0);
     await expect(page.locator('.tile.focused')).toHaveCount(0);
     await shot(page, 't1-home-mouse-after-start');
-    // Picking up the pad shows the ring on the remembered tile.
+    // B-10: picking up the pad only brings the ring back on the remembered tile.
     await pad(page, 'DPadRight');
     await expect(page.getByTestId('screen')).toHaveAttribute('data-input', 'pad');
-    await expect(page.locator('.tile.focused')).toHaveAttribute('data-index', '4');
+    await expect(page.locator('.tile.focused')).toHaveAttribute('data-index', '3');
   });
 
   test('A / Enter start the focused game once; sounds: one per action, repeats paced', async ({ page }) => {
@@ -240,8 +259,8 @@ test.describe('T1.1 Home (mocked core)', () => {
     await pad(page, 'A');
     await page.keyboard.press('Enter');
     let l = await logs(page);
-    expect(l.filter((x) => x.startsWith('info: start requested: "FATAL FRAME 4" (press)'))).toHaveLength(2);
-    expect(l.filter((x) => x.includes('-> action confirm, start "FATAL FRAME 4"'))).toHaveLength(2);
+    expect(l.filter((x) => x.startsWith('info: start requested: "Amber Lighthouse" (press)'))).toHaveLength(2);
+    expect(l.filter((x) => x.includes('-> action confirm, start "Amber Lighthouse"'))).toHaveLength(2);
     // Holding a direction: the press sounds; repeats every 90 ms sound at most every 180 ms.
     await pad(page, 'DPadRight');
     for (let i = 0; i < 6; i++) {
@@ -250,8 +269,8 @@ test.describe('T1.1 Home (mocked core)', () => {
     }
     l = await logs(page);
     const moveLines = l.filter((x) => x.includes('DPadRight'));
-    const played = moveLines.filter((x) => x.endsWith('sound move')).length;
-    const skipped = moveLines.filter((x) => x.endsWith('sound skipped (repeat pacing)')).length;
+    const played = moveLines.filter((x) => x.includes(', sound move')).length;
+    const skipped = moveLines.filter((x) => x.includes(', sound skipped (repeat pacing)')).length;
     console.warn(`move sounds: ${played} played, ${skipped} skipped of ${moveLines.length} moves`);
     expect(played + skipped).toBe(7);
     expect(played).toBeGreaterThanOrEqual(3);
@@ -365,5 +384,114 @@ test.describe('T1.1 Home (mocked core)', () => {
     const vw = page.viewportSize()?.width ?? 1920;
     expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(vw);
     await expectNoOverflow(page);
+  });
+
+  test('B-10: after the mouse, the first pad or key press only brings the ring back', async ({ page }) => {
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    await open(page);
+    const tile = (i: number) => page.locator(`[data-testid="tile"][data-index="${i}"]`);
+    await tile(2).hover();
+    await page.mouse.move(700, 450, { steps: 4 });
+    await tile(2).hover();
+    await expect(page.getByTestId('screen')).toHaveAttribute('data-input', 'mouse');
+    await expect(page.locator('.tile.focused')).toHaveCount(0);
+    // The pad: no move, no sound; the ring on the hovered tile.
+    await pad(page, 'DPadRight');
+    await expect(page.locator('.tile.focused')).toHaveAttribute('data-index', '2');
+    let l = await logs(page);
+    expect(l).toContain('info: ring back on tile 3 (after mouse)');
+    const first = l.find((x) => x.includes('input down DPadRight'));
+    expect(first).toContain('-> ring back on tile 3 (after mouse), no move, no sound');
+    expect(l.filter((x) => x.includes('sound move'))).toHaveLength(0);
+    // The next press moves, with its sound.
+    await pad(page, 'DPadRight');
+    await expect(page.locator('.tile.focused')).toHaveAttribute('data-index', '3');
+    l = await logs(page);
+    expect(l.filter((x) => x.includes('action right, focus 4/10') && x.includes('sound move'))).toHaveLength(1);
+    // The same for the keyboard after a click.
+    await tile(1).click();
+    await page.mouse.move(800, 500, { steps: 4 });
+    await tile(1).hover();
+    await page.keyboard.press('ArrowLeft');
+    await expect(page.locator('.tile.focused')).toHaveAttribute('data-index', '1');
+    expect(await logs(page)).toContain('info: ring back on tile 2 (after mouse)');
+    await shot(page, 't1-home-ring-back-after-mouse');
+  });
+
+  test('D-007: with 3000 px pictures, pictures are decoded ahead and quick navigation stays smooth', async ({ page }) => {
+    test.setTimeout(90_000);
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    await page.goto(`./?${BASE}&bigart=1`);
+    await expect(page.getByTestId('screen')).toHaveAttribute('data-library', 'loaded', { timeout: 30_000 });
+    await expect(page.getByTestId('tile')).toHaveCount(10);
+    const ready = (await logs(page)).find((x) => x.startsWith('info: tile pictures ready:'));
+    expect(ready).toMatch(/decoded ahead in \d+ ms \(sizes 3000×3000/);
+    const marker = (await logs(page)).length;
+    // Quick pad use over all 10 tiles and back, a press every 70 ms.
+    for (let round = 0; round < 2; round++) {
+      for (const dir of ['DPadRight', 'DPadLeft']) {
+        for (let i = 0; i < 9; i++) {
+          await pad(page, dir);
+          await page.waitForTimeout(70);
+        }
+      }
+    }
+    await page.waitForTimeout(500);
+    const l = (await logs(page)).slice(marker);
+    const presses = l.filter((x) => /input down DPad(Right|Left)/.test(x));
+    expect(presses).toHaveLength(36);
+    const delays = presses.map((x) => Number(/core → UI (\d+) ms/.exec(x)?.[1] ?? '999'));
+    console.warn(`D-007 big pictures: core → UI max ${Math.max(...delays)} ms over ${delays.length} presses`);
+    expect(Math.max(...delays)).toBeLessThanOrEqual(50);
+    const long = l.filter((x) => x.startsWith('info: long task'));
+    console.warn(`D-007 long tasks during navigation: ${long.length}${long.length ? ` — ${long[0]}` : ''}`);
+    expect(long).toHaveLength(0);
+    await shot(page, 't1-home-big-pictures');
+  });
+
+  test('B-9: every accent pair meets A8, light and dark', async ({ page }) => {
+    for (const preset of ['light', 'dark']) {
+      await open(page, `preset=${preset}`);
+      const ratios = await page.evaluate(() => {
+        const v = (n: string) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+        // The build may shorten colours (#ffffff → #fff).
+        const full = (h: string) => (h.length === 4 ? `#${[...h.slice(1)].map((c) => c + c).join('')}` : h);
+        const hex = (h: string) => [1, 3, 5].map((i) => parseInt(full(h).slice(i, i + 2), 16));
+        const lum = (h: string) => {
+          const [r, g, b] = hex(h).map((c) => {
+            const s = c / 255;
+            return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+          });
+          return 0.2126 * (r ?? 0) + 0.7152 * (g ?? 0) + 0.0722 * (b ?? 0);
+        };
+        const cr = (a: string, b: string) => {
+          const [x, y] = [lum(v(a)), lum(v(b))];
+          return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+        };
+        return {
+          ring: cr('--color-ring', '--color-bg'),
+          ringGap: cr('--color-ring', '--color-ring-gap'),
+          title: cr('--color-title', '--color-bg'),
+          hover: cr('--color-hover', '--color-bg'),
+          letter: cr('--color-letter-ink', '--color-letter-bg'),
+          soft: cr('--color-on-soft', '--color-soft'),
+          pressed: cr('--color-on-pressed', '--color-pressed'),
+          accentOnSurface: cr('--color-accent', '--color-surface-raised'),
+        };
+      });
+      expect(Object.values(ratios).every((x) => Number.isFinite(x))).toBe(true);
+      console.warn(`B-9 ${preset}: ${JSON.stringify(Object.fromEntries(Object.entries(ratios).map(([k, x]) => [k, Number(x.toFixed(2))])))}`);
+      // Focus ring, hover outline, accent shapes: ≥ 3:1. Text: ≥ 4.5:1.
+      expect(ratios.ring).toBeGreaterThanOrEqual(3);
+      expect(ratios.ringGap).toBeGreaterThanOrEqual(3);
+      expect(ratios.hover).toBeGreaterThanOrEqual(3);
+      expect(ratios.accentOnSurface).toBeGreaterThanOrEqual(3);
+      expect(ratios.title).toBeGreaterThanOrEqual(4.5);
+      expect(ratios.letter).toBeGreaterThanOrEqual(4.5);
+      expect(ratios.soft).toBeGreaterThanOrEqual(4.5);
+      expect(ratios.pressed).toBeGreaterThanOrEqual(4.5);
+    }
+    const ring = await page.locator('.tile.focused .ring-line').evaluate((el) => getComputedStyle(el).borderTopColor);
+    expect(ring).toBe('rgb(255, 70, 162)');
   });
 });

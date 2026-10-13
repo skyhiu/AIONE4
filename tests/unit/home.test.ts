@@ -5,7 +5,6 @@ import {
   initialHome,
   keepInView,
   move,
-  titleAlign,
   titleIndex,
   toPadMode,
   visibleTiles,
@@ -14,7 +13,7 @@ import {
 } from '../../src/lib/home/model';
 import { RepeatPacer, REPEAT_MIN_GAP_MS, SOUND_FILES } from '../../src/lib/audio/sounds';
 import { formatClock, msToNextMinute } from '../../src/lib/clock';
-import { frameStats } from '../../src/lib/perf/perf';
+import { describeFrames, describeLongTask, frameStats } from '../../src/lib/perf/perf';
 import { deviceAfter } from '../../src/lib/frame/glyphs';
 
 describe('Home row model', () => {
@@ -78,19 +77,14 @@ describe('Home row model', () => {
     expect(s.first).toBe(6);
   });
 
-  it('the title aligns with the row ends', () => {
-    const s = withCount(initialHome(0, 4), 10);
-    expect(titleAlign(s, 0)).toBe('start');
-    expect(titleAlign(s, 1)).toBe('center');
-    expect(titleAlign(s, 3)).toBe('end');
-  });
 });
 
 describe('menu sounds', () => {
-  it('maps move, select and back to the proposed pack files', () => {
-    expect(SOUND_FILES.move.pack).toBe(24);
-    expect(SOUND_FILES.select.pack).toBe(9);
-    expect(SOUND_FILES.back.pack).toBe(15);
+  it('maps move, select and back to the FilmCow family (B-1 rev. h)', () => {
+    expect(SOUND_FILES.move.file).toBe('move.wav');
+    expect(SOUND_FILES.select.file).toBe('select.wav');
+    expect(SOUND_FILES.back.file).toBe('back.wav');
+    expect(Object.values(SOUND_FILES).every((s) => s.source.startsWith('FilmCow'))).toBe(true);
   });
   it('a press always plays; repeats every 90 ms play every second time', () => {
     const p = new RepeatPacer();
@@ -108,6 +102,34 @@ describe('clock', () => {
     expect(formatClock(new Date(2026, 9, 13, 0, 5), true)).toEqual({ time: '12:05', ampm: 'AM' });
     expect(formatClock(new Date(2026, 9, 13, 9, 5), false)).toEqual({ time: '09:05', ampm: null });
     expect(msToNextMinute(new Date(2026, 9, 13, 9, 5, 59, 500))).toBe(500);
+  });
+});
+
+describe('perf line (D-008)', () => {
+  it('names the longest frame, frames over 33 ms, and marks a window janky over 50 ms', () => {
+    const smooth = frameStats(Array(300).fill(16.7));
+    expect(smooth.janky).toBe(false);
+    expect(describeFrames(smooth, 4)).toBe(
+      'frames 5.0 s: avg 16.7 ms, p95 16.7 ms, longest 16.7 ms, over 33 ms: 0 (300 frames); longest input delay (core → UI) 4 ms',
+    );
+    // A D-007-like freeze: 290 normal frames and one of 510 ms. p95 hides it; the new parts show it.
+    const freeze = frameStats([...Array(290).fill(16.7), 40, 510]);
+    expect(freeze.p95).toBeLessThan(17);
+    expect(freeze.longest).toBe(510);
+    expect(freeze.over33).toBe(2);
+    expect(freeze.janky).toBe(true);
+    expect(describeFrames(freeze, 498)).toContain('longest 510.0 ms, over 33 ms: 2 (292 frames), JANKY; longest input delay (core → UI) 498 ms');
+    expect(describeFrames(frameStats([]), null)).toBe('frames: not sampled yet');
+  });
+  it('a long task line names the last action and the pictures around it (D-007)', () => {
+    const line = describeLongTask(10_000, 180, 'down DPadRight → right, focus 6/10 "Moss Kingdom"', [
+      { at: 9_500, what: 'tile "Moss Kingdom" shown', width: 2048, height: 2048 },
+      { at: 2_000, what: 'tile "Old" shown', width: 640, height: 640 },
+    ]);
+    expect(line).toBe(
+      'long task 180 ms at 10.00 s; last action: down DPadRight → right, focus 6/10 "Moss Kingdom"; pictures loaded or decoded around it: tile "Moss Kingdom" shown 2048×2048',
+    );
+    expect(describeLongTask(0, 60, 'none yet', [])).toContain('around it: none');
   });
 });
 

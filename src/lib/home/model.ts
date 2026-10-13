@@ -95,15 +95,6 @@ export function wheel(s: HomeState, dir: -1 | 1): [HomeState, boolean] {
   return [{ ...s, first }, first !== s.first];
 }
 
-/** Where the selected game's title sits over its tile: at the row's ends it aligns with the
- *  tile's outer edge so it never leaves the screen. */
-export function titleAlign(s: HomeState, index: number): 'start' | 'center' | 'end' {
-  const pos = index - s.first;
-  if (pos <= 0) return 'start';
-  if (pos >= s.visible - 1) return 'end';
-  return 'center';
-}
-
 /** The tile whose title is shown: pad mode the focus; mouse mode the hovered, else the
  *  selected tile (none when nothing is hovered or selected). */
 export function titleIndex(s: HomeState, mode: 'pad' | 'mouse'): number | null {

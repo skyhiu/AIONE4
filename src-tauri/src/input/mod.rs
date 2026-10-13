@@ -23,6 +23,16 @@ pub struct PadEvent {
     /// XInput slot 0–3.
     pub pad: u32,
     pub seq: u64,
+    /// D-008: when the core read it (Unix time in ms), so the UI can log the core → UI delay.
+    pub at_ms: u64,
+}
+
+/// Unix time in milliseconds (the UI's `Date.now()` uses the same clock).
+pub fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 static SEQ: AtomicU64 = AtomicU64::new(0);

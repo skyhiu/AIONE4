@@ -1,8 +1,11 @@
 // Menu sounds (B-1, audio model A): preloaded Web Audio buffers through AIONE's own gain stages,
 // AIONE Volume × Mute × the menu category × this play. AIONE never touches the Windows volume.
 //
-// Mapping (docs/sound/SOUND_MAPPING.md, a proposal for the user to judge): move = #24,
-// select = #09, back = #15 from "50 Menu Interface SFX" by ColorAlpha (CC BY 4.0), unchanged.
+// Sounds (B-1 rev. h / j, alpha.5): AIONE's own menu family made from FilmCow recordings by
+// tools/sound/make_menu_family.py (docs/sound/SOUND_MAPPING.md): move (a clicky button, tuned to
+// E), select (a mechanical button with a little glass, F#: a step above), back (a metal switch,
+// D: a step below). 48 kHz mono; each levelled to the family (loudest 30 ms: move −20, select
+// −18, back −19 LUFS), true peaks under −1 dBFS.
 //
 // **One sound per action, never doubled:** every action calls `play` once; a sound name is
 // monophonic (a new move stops the previous move), so sounds never stack.
@@ -10,24 +13,24 @@
 // (every 90 ms), the move sound plays at most every 180 ms (every second repeat, about 5.5 per
 // second) and 3 dB softer, so a long hold ticks evenly without becoming a buzz.
 
-import moveUrl from '../../../assets/sounds/50-menu-interface-sfx/MI_SFX 24.wav?url';
-import selectUrl from '../../../assets/sounds/50-menu-interface-sfx/MI_SFX 09.wav?url';
-import backUrl from '../../../assets/sounds/50-menu-interface-sfx/MI_SFX 15.wav?url';
+import moveUrl from '../../../assets/sounds/filmcow-menu/move.wav?url';
+import selectUrl from '../../../assets/sounds/filmcow-menu/select.wav?url';
+import backUrl from '../../../assets/sounds/filmcow-menu/back.wav?url';
 
 export type SoundName = 'move' | 'select' | 'back';
 
-export const SOUND_FILES: Record<SoundName, { pack: number; url: string }> = {
-  move: { pack: 24, url: moveUrl },
-  select: { pack: 9, url: selectUrl },
-  back: { pack: 15, url: backUrl },
+export const SOUND_FILES: Record<SoundName, { file: string; source: string; url: string }> = {
+  move: { file: 'move.wav', source: 'FilmCow "clicky button 7" (move B)', url: moveUrl },
+  select: { file: 'select.wav', source: 'FilmCow "mechanical button 8" + "glass ding 4" (select A)', url: selectUrl },
+  back: { file: 'back.wav', source: 'FilmCow "metal switch 1" (back B)', url: backUrl },
 };
 
 /** Gain stages (AIONE's own, model A). Volume and mute become settings in T2 / T3. */
 export const GAINS = {
   volume: 1,
   muted: false,
-  /** Menu category: about −4.4 dB; the pack is peak-normalised to 0 dBFS. */
-  menu: 0.6,
+  /** Menu category: 0 dB; the files already carry the family's level (alpha.5). */
+  menu: 1,
   /** A repeat's move sound: −3 dB. */
   repeat: 0.7,
 };
@@ -83,7 +86,7 @@ export class MenuSounds {
         }),
       );
       this.log(
-        `menu sounds ready: ${this.buffers.size} sounds (move #24, select #09, back #15) decoded in ${Math.round(
+        `menu sounds ready: ${this.buffers.size} sounds (FilmCow family: move, select, back) decoded in ${Math.round(
           performance.now() - started,
         )} ms; audio ${ctx.state}`,
       );

@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>AIONE 4 — menu sounds from FilmCow (4.0.0-alpha.5)</title>
+    <style>
+      body { margin: 0; background: #ebebeb; color: #2d2d2d; font: 16px/1.45 'Segoe UI', system-ui, sans-serif; }
+      main { max-width: 1100px; margin: 0 auto; padding: 24px; }
+      h1 { font-size: 26px; margin: 0 0 6px; }
+      h2 { font-size: 20px; margin: 28px 0 4px; text-transform: capitalize; }
+      h2 small { font-size: 14px; color: #5c5c5c; text-transform: none; font-weight: 400; }
+      .note { color: #5c5c5c; margin: 0 0 10px; font-size: 14px; }
+      .alt { display: flex; gap: 14px; align-items: flex-start; padding: 8px 0; border-top: 1px solid #c8c8c8; }
+      button { font: inherit; font-weight: 600; min-width: 64px; padding: 8px 14px; border-radius: 999px; border: 2px solid #2d2d2d; background: #fff; cursor: pointer; }
+      button:active { background: #ffc2e0; }
+      .m { color: #5c5c5c; font-size: 14px; }
+      .src { font-size: 13px; color: #444; margin-top: 2px; }
+      .bar { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0; align-items: center; }
+      select { font: inherit; padding: 6px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>AIONE menu sounds — choose by ear</h1>
+      <p class="note">
+        One family in A major: move on E, select a step above (F#), back a step below (D), launch on the home chord, error falling
+        F → E. Every sound is cut to one hit, cleaned (high-pass, gentle gate, short decay), tuned, levelled and checked for peaks.
+        <b>★</b> marks the set wired into alpha.5. The others are alternatives; tell me which you prefer (for example "select C, back B").
+        Played at AIONE's menu level for this family (100 %; the files carry their own level).
+      </p>
+
+      <h2>Try a set together <small>(as on Home)</small></h2>
+      <div class="bar">
+        move <select id="sm"></select> select <select id="ss"></select> back <select id="sb"></select>
+        <button id="demo-moves">4 moves + select</button>
+        <button id="demo-hold">Hold right 2 s</button>
+        <button id="demo-back">move, move, back</button>
+      </div>
+      <p class="note">"Hold right" plays AIONE's pacing: the press, repeats every 90 ms after 400 ms, the move sound at most every
+        180 ms and 3 dB softer; a new sound of the same kind stops the previous one (never stacked).</p>
+
+      <!--ROWS-->
+
+      <p class="note" style="margin-top:28px">
+        Sources: <b>FilmCow Recorded SFX</b> and <b>FilmCow SFX – Mechanisms &amp; Movement (192 kHz)</b> by FilmCow, royalty free
+        (as reported by the user); edited for AIONE (cut, filtered, gated, tuned, layered, levelled, 48 kHz). The raw recordings are
+        not included.
+      </p>
+    </main>
+    <script>
+      const LEVEL = 1; // AIONE's menu level for this family (the files carry their own level)
+      // <audio> elements work from file:// (fetch does not); one voice per kind, never stacked.
+      const voices = {};
+      function play(file, gain = 1, kind = file.split('_')[0]) {
+        voices[kind]?.pause();
+        const a = new Audio(file);
+        a.volume = Math.min(1, LEVEL * gain);
+        voices[kind] = a;
+        a.play();
+      }
+      document.querySelectorAll('button[data-src]').forEach((b) => (b.onclick = () => play(b.dataset.src)));
+      for (const [id, role] of [['sm', 'move'], ['ss', 'select'], ['sb', 'back']]) {
+        const sel = document.getElementById(id);
+        document.querySelectorAll(`button[data-src^="${role}_"]`).forEach((b) => {
+          const o = document.createElement('option');
+          o.value = b.dataset.src;
+          o.textContent = b.dataset.src.replace('.wav', '').replace(role + '_', '');
+          sel.appendChild(o);
+        });
+      }
+      const pick = (id) => document.getElementById(id).value;
+      const at = (ms, f) => setTimeout(f, ms);
+      document.getElementById('demo-moves').onclick = () => {
+        [0, 260, 520, 780].forEach((t) => at(t, () => play(pick('sm'))));
+        at(1150, () => play(pick('ss')));
+      };
+      document.getElementById('demo-back').onclick = () => {
+        at(0, () => play(pick('sm')));
+        at(260, () => play(pick('sm')));
+        at(620, () => play(pick('sb')));
+      };
+      document.getElementById('demo-hold').onclick = () => {
+        play(pick('sm'));
+        let last = 0;
+        for (let t = 400; t <= 2000; t += 90) {
+          if (t - last >= 180) {
+            last = t;
+            at(t, () => play(pick('sm'), 0.708));
+          }
+        }
+      };
+    </script>
+  </body>
+</html>

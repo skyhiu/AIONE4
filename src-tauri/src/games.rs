@@ -50,6 +50,11 @@ pub struct GameView {
     pub name: String,
     /// The media slot used for the tile (`Thumbnail`, …), or none.
     pub tile_art: Option<String>,
+    /// D-007: the cache key of the tile-sized copy (`/<id>/tile?v=<key>`), when made.
+    pub tile: Option<String>,
+    /// B-8: the cache key of the small icon (`/<id>/icon?v=<key>`), when the game has a
+    /// picture in `Icon`.
+    pub icon: Option<String>,
     pub favorite: bool,
     pub hidden: bool,
     pub category: Option<String>,
@@ -149,6 +154,10 @@ fn number(obj: &Obj, name: &str) -> u64 {
 pub fn view_of(id: &str, obj: &Obj, folder: &Path) -> GameView {
     let tile_art = TILE_ART_ORDER.iter().find_map(|slot| {
         let file = text(obj, slot)?;
+        // Only pictures: a slot can hold a video (a `portrait.mp4`).
+        if !crate::tiles::is_picture(&file) {
+            return None;
+        }
         media_path(folder, &file).filter(|p| p.is_file())?;
         Some(slot.to_string())
     });
@@ -156,6 +165,8 @@ pub fn view_of(id: &str, obj: &Obj, folder: &Path) -> GameView {
         id: id.to_string(),
         name: text(obj, "Name").unwrap_or_else(|| id.to_string()),
         tile_art,
+        tile: None,
+        icon: None,
         favorite: flag(obj, "Favorite"),
         hidden: flag(obj, "Hidden"),
         category: text(obj, "Category"),
@@ -353,6 +364,7 @@ pub fn load(data: &Path) -> LibraryLoad {
     let counts = library::scan_library(data);
     let mut skipped = counts.ignored.clone();
     let mut games = Vec::new();
+    let mut pictures = Pictures::default();
     if let Ok(read) = fs::read_dir(&games_root) {
         let mut entries: Vec<_> = read.flatten().collect();
         entries.sort_by_key(|e| e.file_name());
@@ -371,7 +383,9 @@ pub fn load(data: &Path) -> LibraryLoad {
                             ));
                         }
                     }
-                    games.push(view_of(&id, &obj, &entry.path()));
+                    let mut v = view_of(&id, &obj, &entry.path());
+                    pictures.add(data, &mut v, &obj, &entry.path());
+                    games.push(v);
                 }
                 Err(e) => {
                     // scan_library already skips unreadable files; this covers a race.
@@ -392,6 +406,9 @@ pub fn load(data: &Path) -> LibraryLoad {
             }
         }
     }
+    if let Some(line) = pictures.summary() {
+        notes.push(line);
+    }
     games.sort_by(|a, b| {
         a.name
             .to_lowercase()
@@ -405,6 +422,75 @@ pub fn load(data: &Path) -> LibraryLoad {
         skipped,
         notes,
         expected,
+    }
+}
+
+/// D-007 / B-8: makes the tile and icon copies during a load and sums up what happened.
+#[derive(Default)]
+struct Pictures {
+    made: Vec<String>,
+    reused: u32,
+    failed: Vec<String>,
+    ms: u128,
+}
+
+impl Pictures {
+    fn add(&mut self, data: &Path, v: &mut GameView, obj: &Obj, folder: &Path) {
+        let started = std::time::Instant::now();
+        let id = v.id.clone();
+        let mut one = |kind: crate::tiles::Kind, slot: &str| -> Option<String> {
+            let file = text(obj, slot)?;
+            if !crate::tiles::is_picture(&file) {
+                return None;
+            }
+            let src = media_path(folder, &file).filter(|p| p.is_file())?;
+            match crate::tiles::ensure(data, &id, kind, &src) {
+                Ok(m) => {
+                    if m.made {
+                        let (w, h) = m.source_px.unwrap_or((0, 0));
+                        self.made
+                            .push(format!("{id} {} {file} {w}×{h}", kind.name()));
+                    } else {
+                        self.reused += 1;
+                    }
+                    Some(m.key)
+                }
+                Err(e) => {
+                    self.failed
+                        .push(format!("{id} {} {file}: {e}", kind.name()));
+                    None
+                }
+            }
+        };
+        if let Some(slot) = v.tile_art.clone() {
+            v.tile = one(crate::tiles::Kind::Tile, &slot);
+        }
+        v.icon = one(crate::tiles::Kind::Icon, "Icon");
+        self.ms += started.elapsed().as_millis();
+    }
+
+    fn summary(&self) -> Option<String> {
+        if self.made.is_empty() && self.reused == 0 && self.failed.is_empty() {
+            return None;
+        }
+        let mut s = format!(
+            "tile pictures: {} made, {} reused, {} failed, in {} ms (tiles {}×{} JPEG, icons up to {}×{} PNG, in Cache\\Tiles)",
+            self.made.len(),
+            self.reused,
+            self.failed.len(),
+            self.ms,
+            crate::tiles::TILE_PX,
+            crate::tiles::TILE_PX,
+            crate::tiles::ICON_PX,
+            crate::tiles::ICON_PX
+        );
+        if !self.made.is_empty() {
+            s.push_str(&format!("; made from: {}", self.made.join(", ")));
+        }
+        if !self.failed.is_empty() {
+            s.push_str(&format!("; failed: {}", self.failed.join("; ")));
+        }
+        Some(s)
     }
 }
 
@@ -454,6 +540,25 @@ pub fn log_lines(l: &LibraryLoad) -> Vec<String> {
 /// The file behind `aione-media://<id>/<slot>`, or None. Only known slots of a game folder
 /// inside `<data>\Games\` are ever served.
 pub fn resolve_media(data: &Path, id: &str, slot: &str) -> Option<PathBuf> {
+    // D-007 / B-8: the cached tile and icon copies.
+    if slot == "tile" || slot == "icon" {
+        if id.is_empty() || id.contains(['/', '\\']) || id == ".." {
+            return None;
+        }
+        let folder = games_dir(data).join(id);
+        let obj = read_object(&folder.join(GAME_FILE)).ok()?;
+        let v = view_of(id, &obj, &folder);
+        let (kind, src_slot) = if slot == "tile" {
+            (crate::tiles::Kind::Tile, v.tile_art?)
+        } else {
+            (crate::tiles::Kind::Icon, "Icon".to_string())
+        };
+        let file = text(&obj, &src_slot)?;
+        let src = media_path(&folder, &file)?;
+        let key = crate::tiles::key_of(&src)?;
+        let p = crate::tiles::path_for(data, id, kind, &key);
+        return p.is_file().then_some(p);
+    }
     if !MEDIA_SLOTS.contains(&slot)
         || id.is_empty()
         || !Path::new(id)
@@ -494,23 +599,26 @@ mod tests {
 
     /// Builds `<data>\Imported\AIONE-WPF\Games\` like the user's: the two real game.json files
     /// (fixtures), eight more of the same shape, `_Removed`, and a finished copy record.
+    fn png(path: &Path, w: u32, h: u32) {
+        image::RgbImage::from_fn(w, h, |x, y| {
+            image::Rgb([(x % 200) as u8, (y % 200) as u8, 40])
+        })
+        .save(path)
+        .unwrap();
+    }
+
     fn user_like(data: &Path) {
         let games = crate::migration::destination(data).join(GAMES_DIR);
         let real = [
-            ("FATAL FRAME 4", "wpf-game1.game.json"),
-            ("Zero Escape The Nonary Games", "wpf-game2.game.json"),
+            ("Amber Lighthouse", "wpf-game1.game.json"),
+            ("Zephyr Line Express", "wpf-game2.game.json"),
         ];
         for (folder, fixture) in real {
             let d = games.join(folder);
             fs::create_dir_all(&d).unwrap();
             fs::copy(Path::new(FIXTURES).join(fixture), d.join(GAME_FILE)).unwrap();
-            for f in [
-                "thumbnail.png",
-                "background.png",
-                "hero.png",
-                "portrait.jpg",
-                "game.lnk",
-            ] {
+            png(&d.join("thumbnail.png"), 1200, 900);
+            for f in ["background.png", "hero.png", "portrait.jpg", "game.lnk"] {
                 fs::write(d.join(f), [1u8]).unwrap();
             }
         }
@@ -522,7 +630,7 @@ mod tests {
                 format!(r#"{{"Name":"Game {i:02}","Shortcut":"game.lnk","Thumbnail":"thumbnail.png","Favorite":false,"Hidden":false,"PlayCount":0}}"#),
             )
             .unwrap();
-            fs::write(d.join("thumbnail.png"), [1u8]).unwrap();
+            png(&d.join("thumbnail.png"), 300, 300);
         }
         fs::create_dir_all(games.join("_Removed")).unwrap();
         fs::write(games.join("_Removed").join(GAME_FILE), r#"{"Name":"Old"}"#).unwrap();
@@ -538,15 +646,21 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let folder = dir.path();
         fs::write(folder.join("thumbnail.png"), [1u8]).unwrap();
+        // A video in a picture slot is skipped (the user's Portrait is an .mp4).
+        let mut vid = serde_json::Map::new();
+        vid.insert("Name".into(), "V".into());
+        vid.insert("Portrait".into(), "portrait.mp4".into());
+        fs::write(folder.join("portrait.mp4"), [1u8]).unwrap();
+        assert_eq!(view_of("V", &vid, folder).tile_art, None);
         let obj = read_object(&Path::new(FIXTURES).join("wpf-game2.game.json")).unwrap();
-        let v = view_of("Zero Escape The Nonary Games", &obj, folder);
-        assert_eq!(v.name, "Zero Escape The Nonary Games");
+        let v = view_of("Zephyr Line Express", &obj, folder);
+        assert_eq!(v.name, "Zephyr Line Express");
         assert_eq!(v.category.as_deref(), Some("Steam"));
         assert_eq!(v.tile_art.as_deref(), Some("Thumbnail"));
         assert!(!v.favorite && !v.hidden);
         let obj1 = read_object(&Path::new(FIXTURES).join("wpf-game1.game.json")).unwrap();
-        let v1 = view_of("FATAL FRAME 4", &obj1, folder);
-        assert_eq!(v1.name, "FATAL FRAME 4");
+        let v1 = view_of("Amber Lighthouse", &obj1, folder);
+        assert_eq!(v1.name, "Amber Lighthouse");
         assert_eq!(v1.category, None);
     }
 
@@ -563,21 +677,17 @@ mod tests {
         assert!(l.notes[0].starts_with("converted 10 games from Imported\\AIONE-WPF\\Games"));
         assert!(l.notes[0].contains("not converted: _Removed"));
         // Sorted by name; the real names are used.
-        assert_eq!(l.games[0].name, "FATAL FRAME 4");
-        assert_eq!(l.games[9].name, "Zero Escape The Nonary Games");
+        assert_eq!(l.games[0].name, "Amber Lighthouse");
+        assert_eq!(l.games[9].name, "Zephyr Line Express");
         // The copy in Imported\ is unchanged.
         let after = crate::migration::fingerprint(&crate::migration::destination(data));
         assert_eq!(before, after);
         // Converted files keep every field and get AioneSchema.
-        let conv = read_object(
-            &games_dir(data)
-                .join("Zero Escape The Nonary Games")
-                .join(GAME_FILE),
-        )
-        .unwrap();
+        let conv =
+            read_object(&games_dir(data).join("Zephyr Line Express").join(GAME_FILE)).unwrap();
         assert_eq!(
             conv.get("SteamAppId").and_then(|v| v.as_str()),
-            Some("477740")
+            Some("123450")
         );
         assert_eq!(conv.get(SCHEMA_FIELD).and_then(|v| v.as_u64()), Some(1));
         let lines = log_lines(&l);
@@ -585,10 +695,29 @@ mod tests {
             .iter()
             .any(|x| x.starts_with("library loaded: 10 games (from ")));
         assert!(lines.iter().any(|x| x.ends_with("10 loaded (match)")));
-        // A second load converts nothing.
+        // D-007: every game got a tile-sized copy; the icons are .ico/.png names without files
+        // here, so none were made.
+        assert!(l.games.iter().all(|g| g.tile.is_some()), "{:?}", l.notes);
+        let pics = l
+            .notes
+            .iter()
+            .find(|n| n.starts_with("tile pictures:"))
+            .unwrap();
+        assert!(
+            pics.starts_with("tile pictures: 10 made, 0 reused, 0 failed"),
+            "{pics}"
+        );
+        assert!(
+            pics.contains("Amber Lighthouse tile thumbnail.png 1200×900"),
+            "{pics}"
+        );
+        let tile = resolve_media(data, "Amber Lighthouse", "tile").unwrap();
+        assert_eq!(image::open(tile).unwrap().width(), crate::tiles::TILE_PX);
+        // A second load converts nothing and reuses every copy.
         let again = load(data);
         assert_eq!(again.games.len(), 10);
-        assert!(again.notes.is_empty(), "{:?}", again.notes);
+        assert_eq!(again.notes.len(), 1, "{:?}", again.notes);
+        assert!(again.notes[0].starts_with("tile pictures: 0 made, 10 reused, 0 failed"));
     }
 
     #[test]
@@ -678,12 +807,8 @@ mod tests {
         .unwrap();
         assert_eq!((r.schema, r.games, r.origin.as_str()), (1, 10, "converted"));
         let obj = read_object(&Path::new(FIXTURES).join("alpha4.game.json")).unwrap();
-        let v = view_of(
-            "Zero Escape The Nonary Games",
-            &obj,
-            Path::new("/nonexistent"),
-        );
-        assert_eq!(v.name, "Zero Escape The Nonary Games");
+        let v = view_of("Zephyr Line Express", &obj, Path::new("/nonexistent"));
+        assert_eq!(v.name, "Zephyr Line Express");
         assert_eq!(v.tile_art, None, "no files in a missing folder");
         // An empty record (all defaults) reads too.
         let empty: LibraryRecord = serde_json::from_str("{}").unwrap();
@@ -703,6 +828,9 @@ mod tests {
         .unwrap();
         fs::write(g.join("t.png"), [1u8]).unwrap();
         fs::write(data.join("secret.png"), [1u8]).unwrap();
+        // The tile copy is served only once made; a video is never a tile.
+        assert!(resolve_media(data, "G", "tile").is_none());
+        assert!(resolve_media(data, "../G", "tile").is_none());
         assert!(resolve_media(data, "G", "Thumbnail").is_some());
         assert!(resolve_media(data, "G", "Hero").is_none());
         assert!(resolve_media(data, "G", "Icon").is_none());

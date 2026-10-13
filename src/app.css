@@ -48,11 +48,18 @@
   --color-text-muted: #5c5c5c;
   --color-icon-dim: #7a7a7a;
   --color-divider: #9e9e9e;
-  --color-accent: #008c9e;
-  --color-ring: #008c9e;
+  /* B-9: hot pink accent (brand #FF46A2), light preset values for A8 contrast. */
+  --color-accent: #fd007e; /* ring and accent shapes: 3.2:1 on the background */
+  --color-ring: #fd007e;
   --color-ring-gap: #ffffff;
-  --color-title: #006f7d;
-  --color-hover: #5c5c5c;
+  --color-title: #b5005a; /* accent text: 5.7:1 */
+  --color-hover: #b5005a; /* mouse hover outline: 5.7:1 */
+  --color-letter-bg: #b5005a; /* B-8 fallback icon */
+  --color-letter-ink: #ffffff; /* 6.75:1 on it */
+  --color-soft: #ffc2e0; /* soft fill (palette tint) */
+  --color-on-soft: #2d2d2d; /* 9.2:1 */
+  --color-pressed: #ff58ab; /* pressed fill (palette tint) */
+  --color-on-pressed: #2d2d2d; /* 4.75:1 */
   --color-ok: #1c7a43;
   --color-warn: #8a5a00;
   --color-scrim: rgb(0 0 0 / 0.42);
@@ -108,11 +115,17 @@
   --color-text-muted: #b4b4b4;
   --color-icon-dim: #8c8c8c;
   --color-divider: #6e6e6e;
-  --color-accent: #1bb8cc;
-  --color-ring: #1bb8cc;
+  --color-accent: #ff46a2; /* brand pink: 4.4:1 */
+  --color-ring: #ff46a2;
   --color-ring-gap: #2d2d2d;
-  --color-title: #3fd3e6;
-  --color-hover: #b4b4b4;
+  --color-title: #ff69b4; /* 5.2:1 */
+  --color-hover: #ff69b4;
+  --color-letter-bg: #ff69b4;
+  --color-letter-ink: #1e1e1e; /* 6.3:1 */
+  --color-soft: #480024; /* palette's darkest shade */
+  --color-on-soft: #ffffff; /* 16.1:1 */
+  --color-pressed: #ff46a2;
+  --color-on-pressed: #1e1e1e;
   --color-ok: #6fd39a;
   --color-warn: #f2c56b;
   --color-scrim: rgb(0 0 0 / 0.55);

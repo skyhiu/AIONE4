@@ -12,6 +12,7 @@ pub mod logging;
 pub mod migration;
 pub mod paths;
 pub mod status;
+pub mod tiles;
 pub mod version;
 
 use logging::Level;
@@ -498,7 +499,10 @@ pub fn run() {
 mod tests {
     #[test]
     fn media_paths_decode() {
-        assert_eq!(super::percent_decode("FATAL%20FRAME%204"), "FATAL FRAME 4");
+        assert_eq!(
+            super::percent_decode("Amber%20Lighthouse"),
+            "Amber Lighthouse"
+        );
         assert_eq!(super::percent_decode("a%2"), "a%2");
         assert_eq!(super::percent_decode("%E3%81%82"), "\u{3042}");
     }

@@ -1,5 +1,26 @@
 # Changelog
 
+## 4.0.0-alpha.5 — T1.1 fixes and changes
+
+- **D-007 (Home freezes):** the core makes one 640 × 640 copy of each tile picture and one ≤ 128 px
+  copy of each icon (`Cache\Tiles\`, remade only when the source changes); Home decodes all of
+  them before it takes input, so scrolling never decodes. Every long task is logged with the last
+  action and the pictures around it. UI test with 3000 × 3000 pictures.
+- **D-008 (perf line):** adds the longest frame, frames over 33 ms, "JANKY" when any frame is over
+  50 ms, and the longest input delay (core → UI). Each pad input line shows its own delay.
+- **B-10:** after mouse use, the first pad or key press only brings the ring back (no move, no
+  sound); logged "ring back on tile N (after mouse)".
+- **B-8:** the selected game's title is always at the row's start, with the game's icon (rounded,
+  about the cap height) or a pink letter tile; long titles scroll up to the right margin.
+- **B-9:** hot pink accent (light: ring #FD007E, text #B5005A; dark: ring #FF46A2, text #FF69B4),
+  hover, pressed and soft fills from the palette; every pair checked against A8 in the UI tests.
+- **Menu sounds (B-1 rev. h / j):** a new family made from FilmCow recordings (move, select,
+  back wired; launch, drawer, end of row, toggle, error proposed), tuned in A major; listening page
+  delivered separately. The 50 Menu Interface SFX pack stays in the repository until T1.2.
+- **B-11:** test fixtures use invented titles and values.
+- Picture slots holding a video (`portrait.mp4`) are never used as tiles.
+- **Tests:** Rust 77; Vitest 53; Playwright 39 with 43 screenshots.
+
 ## 4.0.0-alpha.4 — T1.1: the library and a still Home
 
 - **Home (Switch-style, still):** status header (clock with a smaller AM / PM, controller,

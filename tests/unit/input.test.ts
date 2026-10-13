@@ -29,14 +29,15 @@ describe('controller slots (D-002)', () => {
 
 describe('input events', () => {
   it('converts pad events and ignores connection events', () => {
-    expect(fromPadEvent({ kind: 'down', control: 'B', pad: 0, seq: 1 })).toEqual({
+    expect(fromPadEvent({ kind: 'down', control: 'B', pad: 0, seq: 1, atMs: 1000 })).toEqual({
       source: 'controller',
       kind: 'down',
       control: 'B',
       pad: 1,
       seq: 1,
+      atMs: 1000,
     });
-    expect(fromPadEvent({ kind: 'connected', control: '', pad: 0, seq: 2 })).toBeNull();
+    expect(fromPadEvent({ kind: 'connected', control: '', pad: 0, seq: 2, atMs: 0 })).toBeNull();
   });
 
   it('names keys', () => {

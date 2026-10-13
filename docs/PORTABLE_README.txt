@@ -17,10 +17,14 @@ Test build (until Settings exist):
 - Interface Scale for one run:   AIONE4.exe --interface-scale=150   (90 to 150, steps of 10)
 
 Credits (details in THIRD_PARTY_ASSETS.md):
+- Menu sounds made from FilmCow recordings: "FilmCow Recorded SFX" and "FilmCow SFX -
+  Mechanisms & Movement" by FilmCow, royalty free. Files used: clicky button 7, mechanical
+  button 8, glass ding 4, metal switch 1 (cut, filtered, shortened, pitch-shifted, layered,
+  levelled, converted to 48 kHz).
 - "50 Menu Interface SFX" by ColorAlpha, https://coloralpha.itch.io/50-menu-interface-sfx,
   CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). The Boot Up sound will be an
   adaptation of this pack (modified: sounds combined, pitched, echoed, faded, loudness
-  matched). The menu sounds (move, select, back) are files 24, 09 and 15, unchanged.
+  matched). No longer played from 4.0.0-alpha.5; removed in a later build.
 - Kenney Input Prompts by Kenney (www.kenney.nl), CC0.
 - Material Symbols Rounded by Google, Apache-2.0.
 - Fonts Nunito, Inter, Figtree, Quicksand, M PLUS Rounded 1c: SIL Open Font License 1.1.

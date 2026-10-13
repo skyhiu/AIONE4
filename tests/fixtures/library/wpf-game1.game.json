@@ -1,14 +1,14 @@
 {
-  "Name": "FATAL FRAME 4",
+  "Name": "Amber Lighthouse",
   "Shortcut": "game.lnk",
   "Thumbnail": "thumbnail.png",
   "Background": "background.png",
   "Hero": "hero.png",
   "Icon": "icon.ico",
   "Portrait": "portrait.jpg",
-  "Favorite": false,
+  "Favorite": true,
   "Hidden": false,
-  "PlayCount": 0,
-  "PlayTimeMinutes": 0,
-  "LastSessionMinutes": 0
+  "PlayCount": 7,
+  "PlayTimeMinutes": 412,
+  "LastSessionMinutes": 38
 }

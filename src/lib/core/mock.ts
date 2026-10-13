@@ -15,6 +15,8 @@
 //   &network=wifi | wired | offline   &battery=none | <percent> | <percent>c (charging)
 //   &status-later=1    the core pushes a status change 300 ms after start
 //   &noart=1           no tile art (plain tiles)
+//   &bigart=1          tile pictures of 3000 × 3000 px (D-007: as if the core served full-size files)
+//   &noicons=1         no game has an icon (B-8 fallback everywhere)
 // Tests drive input through `window.__aioneMock` (see MockControl below).
 import pkg from '../../../package.json';
 import alpha1Record from '../../../tests/fixtures/migration/alpha1.migration.json?raw';
@@ -79,26 +81,81 @@ const ART_URLS = Object.keys(ART)
 /** Like the user's copy: 10 games, two with their real names (the attached game.json files),
  *  one without art, one with a long title (marquee). */
 export const SAMPLE_GAMES: GameView[] = [
-  'FATAL FRAME 4',
+  'Amber Lighthouse',
   'Glass Orchard',
   'Lantern Valley',
   'Moss Kingdom',
   'Northbound',
   'Paper Comets',
   'Quiet Engines',
-  'The Long Corridor Between Two Very Distant Stations',
+  'The Long Corridor Between Two Very Distant Stations: The Complete Night Edition with Every Bonus Chapter and Director Commentary',
   'Tide & Ember',
-  'Zero Escape The Nonary Games',
+  'Zephyr Line Express',
 ].map((name) => ({
   id: name,
   name,
   tileArt: name === 'Quiet Engines' ? null : 'Thumbnail',
+  tile: name === 'Quiet Engines' ? null : 'k1',
+  // Two games without an icon show the B-8 letter tile.
+  icon: name === 'Quiet Engines' || name === 'Moss Kingdom' ? null : 'i1',
   favorite: false,
   hidden: false,
-  category: name.startsWith('Zero') ? 'Steam' : null,
+  category: name.startsWith('Zephyr') ? 'Steam' : null,
   playCount: 0,
   playTimeMinutes: 0,
 }));
+
+const ICON_COLOURS = ['#3b6ea8', '#c0392b', '#2e8b57', '#8e44ad', '#d35400', '#16a085', '#7f8c8d', '#b8860b', '#2c3e50', '#c71585'];
+const iconCache = new Map<number, string>();
+/** An original placeholder icon (a coloured square with a white shape), drawn once. */
+function mockIcon(i: number): string {
+  const hit = iconCache.get(i);
+  if (hit) return hit;
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  if (!g) return '';
+  g.fillStyle = ICON_COLOURS[i % ICON_COLOURS.length] ?? '#555';
+  g.fillRect(0, 0, 128, 128);
+  g.fillStyle = '#fff';
+  g.beginPath();
+  if (i % 3 === 0) g.arc(64, 64, 34, 0, Math.PI * 2);
+  else if (i % 3 === 1) g.rect(32, 32, 64, 64);
+  else {
+    g.moveTo(64, 26);
+    g.lineTo(104, 98);
+    g.lineTo(24, 98);
+  }
+  g.fill();
+  const url = c.toDataURL('image/png');
+  iconCache.set(i, url);
+  return url;
+}
+
+const bigCache = new Map<number, string>();
+/** D-007 test: a 3000 × 3000 noisy JPEG (costly to decode), drawn once per picture. */
+function bigArt(i: number): string {
+  const k = i % 4;
+  const hit = bigCache.get(k);
+  if (hit) return hit;
+  const c = document.createElement('canvas');
+  c.width = c.height = 3000;
+  const g = c.getContext('2d');
+  if (!g) return '';
+  const img = g.createImageData(3000, 3000);
+  let seed = 1234 + k;
+  for (let p = 0; p < img.data.length; p += 4) {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    img.data[p] = (seed >> 3) & 255;
+    img.data[p + 1] = (seed >> 11) & 255;
+    img.data[p + 2] = (k * 60 + (seed >> 19)) & 255;
+    img.data[p + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  const url = c.toDataURL('image/jpeg', 0.92);
+  bigCache.set(k, url);
+  return url;
+}
 
 function mockLibrary(kind: string): LibraryLoad {
   const base = { source: 'C:\\Users\\Player\\AppData\\Local\\AIONE4\\Games', skipped: [], notes: [] };
@@ -167,7 +224,7 @@ export function createMock(search: string): { core: Core; control: MockControl }
       else connected.delete(pad);
       lastConnectionSeq = seq;
     }
-    const ev: PadEvent = { kind, control, pad, seq };
+    const ev: PadEvent = { kind, control, pad, seq, atMs: Date.now() };
     padHandlers.forEach((h) => h(ev));
   };
 
@@ -288,9 +345,12 @@ export function createMock(search: string): { core: Core; control: MockControl }
     },
     libraryLoad: () => Promise.resolve(mockLibrary(params.get('library') ?? 'sample')),
     mediaUrl(gameId, slot) {
-      if (noArt || slot !== 'Thumbnail') return '';
-      const i = SAMPLE_GAMES.findIndex((g) => g.id === gameId);
-      return ART_URLS[(i < 0 ? Number(gameId.replace(/\D/g, '')) : i) % ART_URLS.length] ?? '';
+      const i0 = SAMPLE_GAMES.findIndex((g) => g.id === gameId);
+      const i = i0 < 0 ? Number(gameId.replace(/\D/g, '')) : i0;
+      if (slot === 'icon') return params.get('noicons') === '1' ? '' : mockIcon(i);
+      if (noArt || (slot !== 'Thumbnail' && slot !== 'tile')) return '';
+      if (params.get('bigart') === '1') return bigArt(i);
+      return ART_URLS[i % ART_URLS.length] ?? '';
     },
     statusNow: () => Promise.resolve(mockStatus(params)),
     onStatus(h) {

@@ -26,7 +26,7 @@ run with `AIONE4.exe --interface-scale=150` (never stored). Default 100 %.
 | Status cluster | centre 8.5 % of the height from the top; right edge 5 % of the width in |
 | Game row | top of the tiles at 292 (27 %); first tile 160 from the left (8.3 % of 1920) |
 | Tile (Tile Size "Small", the Switch-style default) | 384 × 384, gap 20, radius 4; 4 full tiles in view at 16:9 |
-| Selected title | above its tile, 0.75 rem gap; box 150 % of the tile; aligned to the tile's start at the left end of the view, its end at the right end, centred between |
+| Selected title (B-8) | at the row's start (160), from the row band's top, up to 5 % of the width from the right; icon first |
 | Drawer area | kept free below the row (the drawer comes in T1.2) |
 | Footer | divider 2.4 % in from each side; height 5.5 rem; branding left (Home only), prompts right |
 
@@ -57,30 +57,52 @@ run with `AIONE4.exe --interface-scale=150` (never stored). Default 100 %.
   the keyboard; the mouse keeps the last set. Mapping: `docs/GLYPH_MAPPING.md`. Glyph 2.25 rem.
 
 ## Colour (Switch-style)
-Contrast per A8: text ≥ 4.5:1, large text and icons ≥ 3:1 (checked by the UI tests).
+Contrast per A8: text ≥ 4.5:1, large text and icons ≥ 3:1. Every accent pair is measured in the UI
+test "B-9: every accent pair meets A8" (values below are that test's output).
 
-| Role | Light | Dark | Notes |
-|---|---|---|---|
-| Background | `#EBEBEB` | `#2D2D2D` | flat; no gradient or band (L-09) |
-| Surface (plain tile, dialog) | `#FFFFFF` / dialog `#F6F6F6` | `#3A3A3A` / `#444444` | |
-| Text | `#2D2D2D` (11.6:1) | `#FFFFFF` (13.8:1) | |
-| Muted text | `#5C5C5C` (5.6:1) | `#B4B4B4` (6.6:1) | |
-| Dimmed icon | `#7A7A7A` (≈3.6:1) | `#8C8C8C` (≈4.0:1) | controller with no pad |
-| Focus ring | `#008C9E` (3.4:1) | `#1BB8CC` (5.8:1) | with a gap in the background / white |
-| Selected title | `#006F7D` (≥ 4.5:1) | `#3FD3E6` (7.7:1) | in the ring's hue (reference A4). The real Switch's bright teal would fail A8 on light grey, so the light preset uses a darker teal |
-| Hover (mouse) | `#5C5C5C` outline | `#B4B4B4` outline | never the ring colour |
-| Divider | `#9E9E9E` | `#6E6E6E` | decorative |
-| Warning / OK text | `#8A5A00` / `#1C7A43` | `#F2C56B` / `#6FD39A` | copy dialog |
-| Scrim under dialogs | black 42 % | black 55 % | the header dims with the rest (KD-90) |
+**Accent (B-9, rev. h): hot pink**, brand colour **#FF46A2** (also the logo's diamond, B-5 final).
+Hover, pressed and soft fills come from the user's #FF46A2 palette (shades #FF2290 … #480024,
+tints #FF58AB … #FFC2E0).
 
-The preset is chosen in Settings (T3); this build starts in light (an assumption; see the handoff).
+| Role | Light | Dark |
+|---|---|---|
+| Background | `#EBEBEB` | `#2D2D2D` |
+| Surface (plain tile) / dialog | `#FFFFFF` / `#F6F6F6` | `#3A3A3A` / `#444444` |
+| Text | `#2D2D2D` (11.6:1) | `#FFFFFF` (13.8:1) |
+| Muted text | `#5C5C5C` (5.6:1) | `#B4B4B4` (6.6:1) |
+| Dimmed icon (no controller) | `#7A7A7A` | `#8C8C8C` |
+| **Focus ring and accent shapes** | **`#FD007E`** (3.22:1; 3.83:1 against the white gap) | **`#FF46A2`** (4.36:1) |
+| **Accent text** (the selected title) | **`#B5005A`** (5.66:1) | **`#FF69B4`** (5.20:1) |
+| Hover outline (mouse) | `#B5005A` (5.66:1) | `#FF69B4` (5.20:1) |
+| B-8 letter tile | white on `#B5005A` (6.75:1) | `#1E1E1E` on `#FF69B4` (6.30:1) |
+| Soft fill (hover fill in dialogs) | `#FFC2E0`, text `#2D2D2D` (9.21:1) | `#480024`, text white (16.14:1) |
+| Pressed fill | `#FF58AB`, text `#2D2D2D` (4.75:1) | `#FF46A2`, text `#1E1E1E` (5.28:1) |
+| Accent on the dialog surface (progress bar) | 3.55:1 | 3.08:1 |
+| Divider | `#9E9E9E` | `#6E6E6E` |
+| Warning / OK text | `#8A5A00` / `#1C7A43` | `#F2C56B` / `#6FD39A` |
+| Scrim under dialogs | black 42 % | black 55 % |
+
+The light preset is the default (B-11).
+
+## The selected game's title (B-8, rev. h)
+Always at the **row's start** (left edge 160 design px, the first tile's edge), never following
+the focused tile; it spans to the screen's right margin (5 % of the width). It shows the game's
+**icon** (the core's ≤ 128 px copy of `game.json` `Icon`), **0.92 em** square (the font's
+capitals are about 0.7 em: cap height plus a little), corner radius 0.2 em, then the title in the
+accent text colour, Regular, `--text-title`. With no icon: a **letter tile** of the same size in
+the accent text colour with the title's first letter (Bold). A title longer than its space
+scrolls by transform (the shared marquee, L-16). The title is hidden while a dialog is open and in
+mouse mode when nothing is hovered or selected.
 
 ## States and focus (reference A5, A7)
-- **Pad / keyboard mode:** one focus ring on the focused tile: 6 px ring in the ring colour with a
+- **Pad / keyboard mode:** one focus ring on the focused tile: 6 px ring in the ring colour (hot pink) with a
   5 px gap, 11 px outside the tile. The new ring fades in and settles from 102.5 % while the old
   one fades out at the same time (240 ms, ease-in-out). After that, the ring alone blinks
   (opacity 1 → 0.45 → 1, 1.4 s, ease-in-out) while it stays focused; the blink restarts on every
   move, so it never runs during movement. The mouse cursor is hidden.
+- **From mouse to pad or keys (B-10):** the first pad or key press after mouse use only brings
+  the ring back, on the tile last hovered or clicked; it does not move and plays no sound. The
+  next press moves. Logged "ring back on tile N (after mouse)".
 - **Mouse mode:** hover only, a 4 px outline in the hover colour; the tile selected by a first
   click keeps the same hover look; no ring. A click starts only the selected tile (L-06).
   Movement of more than 6 px switches to mouse mode; a pad or key press switches back at once,
@@ -101,14 +123,21 @@ The preset is chosen in Settings (T3); this build starts in light (an assumption
 Eases: `--ease-out` `cubic-bezier(0.2, 0.8, 0.2, 1)`, `--ease-in-out` `cubic-bezier(0.4, 0, 0.2, 1)`.
 
 ## Sound (menu)
-Move #24, select #09, back #15 of "50 Menu Interface SFX" (CC BY 4.0), unchanged, through
-AIONE's own gain stages: Volume 100 % × menu level 60 % (−4.4 dB). One sound per action; a sound
-never stacks on itself. Held directions: the move sound plays at most every 180 ms, 3 dB softer.
-Details: `docs/sound/SOUND_MAPPING.md`.
+AIONE's own family, made from FilmCow recordings (B-1 rev. h / j) by
+`tools/sound/make_menu_family.py`, in **A major**: move on E, select a step above (F#), back a
+step below (D); proposals: launch on A, error falling F → E. Cut to one hit, high-passed, gently
+gated, short decays (move 25 ms, select 64 ms, back 28 ms), 48 kHz mono, levelled to the family
+(loudest 30 ms: move −20, select −18, back −19 LUFS), true peaks under −1 dBFS. Played through
+AIONE's gain stages at menu level 100 %. One sound per action; a sound never stacks on itself;
+held directions: at most every 180 ms, 3 dB softer. Details: `docs/sound/SOUND_MAPPING.md`.
 
 ## The frame
 One shared frame per screen (A3): `StatusHeader` (Home only), `Footer` (prompts right, branding
 left on Home only). Full screens get the title row in T3 / T4.
+
+## Pictures (D-007)
+Tiles show the core's 640 × 640 JPEG copy (centre crop, like `object-fit: cover`); icons its
+≤ 128 px PNG copy. Home decodes every tile and icon picture before it takes input.
 
 ## Effects
 None in the app: no blur, shadow or filter on Home. The dialog keeps its one shadow from T0. The

@@ -2,7 +2,7 @@
 name = "aione4"
 # Mirrors package.json (the one place the version is set). build.rs fails the build if
 # they differ, and the UI and logs read it from the core.
-version = "4.0.0-alpha.4"
+version = "4.0.0-alpha.5"
 description = "AIONE 4: a fullscreen, controller-first game launcher for Windows"
 authors = ["skyhiu"]
 edition = "2021"
@@ -19,6 +19,8 @@ tauri-build = { version = "=2.7.0", features = [] }
 serde_json = "=1.0.151"
 
 [dependencies]
+# D-007: tile-sized copies of the game pictures (decode PNG / JPEG / ICO / BMP / WebP / GIF; encode JPEG / PNG).
+image = { version = "=0.25.6", default-features = false, features = ["png", "jpeg", "ico", "bmp", "webp", "gif"] }
 tauri = { version = "=2.12.0", features = [] }
 tauri-plugin-single-instance = "=2.5.0"
 serde = { version = "=1.0.229", features = ["derive"] }

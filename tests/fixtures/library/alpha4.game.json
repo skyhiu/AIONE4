@@ -1,8 +1,8 @@
 {
-  "Name": "Zero Escape The Nonary Games",
+  "Name": "Zephyr Line Express",
   "Category": "Steam",
   "Shortcut": "game.url",
-  "SteamAppId": "477740",
+  "SteamAppId": "123450",
   "Thumbnail": "thumbnail.png",
   "Background": "background.png",
   "Hero": "hero.png",
@@ -10,8 +10,8 @@
   "Portrait": "portrait.png",
   "Favorite": false,
   "Hidden": false,
-  "PlayCount": 0,
-  "PlayTimeMinutes": 0,
-  "LastSessionMinutes": 0,
+  "PlayCount": 2,
+  "PlayTimeMinutes": 95,
+  "LastSessionMinutes": 60,
   "AioneSchema": 1
 }

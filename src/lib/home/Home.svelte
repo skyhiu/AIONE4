@@ -12,7 +12,7 @@
   import Footer from '../frame/Footer.svelte';
   import Marquee from '../frame/Marquee.svelte';
   import type { GlyphDevice } from '../frame/glyphs';
-  import { titleAlign, titleIndex, type HomeState } from './model';
+  import { titleIndex, type HomeState } from './model';
 
   let {
     games,
@@ -25,6 +25,7 @@
     status,
     pressed,
     mediaUrl,
+    onPicture = () => {},
     fixedTime = null,
     hour12,
     onHover,
@@ -39,7 +40,8 @@
     padConnected: boolean;
     status: PcStatus | null;
     pressed: number | null;
-    mediaUrl: (g: GameView) => string;
+    mediaUrl: (g: GameView, slot: 'tile' | 'icon') => string;
+    onPicture?: (what: string, width: number, height: number) => void;
     fixedTime?: Date | null;
     hour12?: boolean;
     onHover: (index: number | null) => void;
@@ -47,6 +49,7 @@
   } = $props();
 
   let broken = $state(new Set<string>());
+  let brokenIcons = $state(new Set<string>());
   const shownTitle = $derived(suspended ? null : titleIndex(home, mode));
 </script>
 
@@ -54,10 +57,34 @@
   <StatusHeader {padConnected} {status} {fixedTime} {...hour12 === undefined ? {} : { hour12 }} />
 
   <div class="row" data-testid="game-row" data-first={home.first} data-focus={home.focus} data-count={games.length}>
+    {#if loadState === 'loaded' && shownTitle !== null && games[shownTitle]}
+      {@const tg = games[shownTitle]}
+      {@const iconUrl = tg.icon && !brokenIcons.has(tg.id) ? mediaUrl(tg, 'icon') : ''}
+      <!-- B-8: the selected game's title, always at the row's start, preceded by its icon. -->
+      <div class="title" data-testid="selected-title-row" data-owner="home-title">
+        {#if iconUrl}
+          <img
+            class="title-icon"
+            data-testid="title-icon"
+            src={iconUrl}
+            alt=""
+            draggable="false"
+            onerror={() => (brokenIcons = new Set([...brokenIcons, tg.id]))}
+          />
+        {:else}
+          <span class="title-icon letter" data-testid="title-letter" aria-hidden="true"
+            >{[...tg.name.trim()][0]?.toUpperCase() ?? '?'}</span
+          >
+        {/if}
+        <span class="title-text" data-testid="selected-title"
+          ><Marquee text={tg.name} align="start" testid="selected-title-text" /></span
+        >
+      </div>
+    {/if}
     {#if loadState === 'loaded'}
       <div class="track" style:--first={home.first} data-owner="home-row">
         {#each games as g, i (g.id)}
-          {@const url = g.tileArt && !broken.has(g.id) ? mediaUrl(g) : ''}
+          {@const url = g.tile && !broken.has(g.id) ? mediaUrl(g, 'tile') : ''}
           <div
             class="tile"
             role="button"
@@ -80,6 +107,10 @@
                   alt=""
                   draggable="false"
                   decoding="async"
+                  onload={(e) => {
+                    const im = e.currentTarget as HTMLImageElement;
+                    onPicture(`tile "${g.name}" shown`, im.naturalWidth, im.naturalHeight);
+                  }}
                   onerror={() => (broken = new Set([...broken, g.id]))}
                 />
               {:else}
@@ -88,11 +119,7 @@
             </div>
             <span class="hover-line" aria-hidden="true"></span>
             <span class="ring" aria-hidden="true" data-owner="home-ring"><span class="ring-line"></span></span>
-            {#if shownTitle === i}
-              <div class="title align-{titleAlign(home, i)}" data-testid="selected-title" data-owner="home-title">
-                <Marquee text={g.name} align={titleAlign(home, i)} testid="selected-title-text" />
-              </div>
-            {/if}
+
           </div>
         {/each}
       </div>
@@ -231,24 +258,48 @@
     opacity: 1;
   }
 
+  /* B-8: the title row: fixed at the row's start (left), up to the screen's right margin.
+     Icon about the title's cap height plus a little, rounded. */
   .title {
     position: absolute;
-    bottom: calc(100% + 0.75rem);
-    width: 150%;
+    left: calc(160 * var(--px));
+    right: 5vw;
+    top: 0;
+    height: 3.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
     color: var(--color-title);
     font-size: var(--text-title);
     font-weight: 400;
     line-height: 1.35;
     letter-spacing: 0.01em;
   }
-  .align-start {
-    left: 0;
+  .title-icon {
+    flex: none;
+    /* The font's capitals are about 0.7 em tall: the icon is that plus a little. */
+    width: 0.92em;
+    height: 0.92em;
+    border-radius: 0.2em;
+    object-fit: cover;
+    display: block;
   }
-  .align-center {
-    left: -25%;
+  .letter {
+    background: var(--color-letter-bg);
+    color: var(--color-letter-ink);
+    font-size: 0.62em;
+    width: calc(0.92em / 0.62);
+    height: calc(0.92em / 0.62);
+    border-radius: calc(0.2em / 0.62);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    line-height: 1;
   }
-  .align-end {
-    right: 0;
+  .title-text {
+    flex: 1 1 auto;
+    min-width: 0;
   }
 
   .message {

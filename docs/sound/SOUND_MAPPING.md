@@ -1,4 +1,61 @@
-# Sounds: the 50 Menu Interface SFX pack, a proposed mapping, and the startup variants
+# Menu sounds
+
+## 4.0.0-alpha.5: AIONE's own family from FilmCow recordings (B-1 rev. h / j)
+
+**Status:** move, select and back (★) are **wired**, for the user to judge by ear on the listening
+page (`AIONE4_4.0.0-alpha.5_menu-sounds.zip`, delivered separately) and in the app. The other roles
+are **proposals, not wired** (launch: T1.3; drawer: T1.2; toggle: T3). The raw FilmCow recordings
+are never committed; only the processed files AIONE uses (`assets/sounds/filmcow-menu/`).
+
+**Sources:** FilmCow Recorded SFX (48 kHz, mono) and FilmCow SFX – Mechanisms & Movement
+(192 kHz, stereo), the candidate groups the maintainer chose (`rec_1…4`, `mech_1…6`); all 392
+files measured by `tools/sound/filmcow_measure.py` (length, hits, attack, decay, noise floor,
+brightness, pitch, loudness).
+
+**Processing** (`tools/sound/make_menu_family.py`, at the source's own rate, delivered at 48 kHz):
+one hit cut from 1.5 ms before its rise, with a 4 ms end fade; 2nd-order high-pass (120–300 Hz),
+optional low-pass; a tight exponential decay and a gentle gate against the file's own noise floor;
+the strongest resonance tuned (tape-style) to the family's note in **A major** (move E, select F#
+a step above, back D a step below; launch A; end of row and toggle on a chord tone; error F → E);
+layers summed; loudness matched on the loudest 30 ms (K-weighted); true peak ≤ −1 dBFS by gain only
+(no limiter, no clipping); 24-bit mono WAV.
+
+**How the wired set was chosen:** by the measurements and the spectrograms of all 21 sounds (the
+implementer cannot listen): move B is one crisp transient (the ratchet A is a 25 ms noisy smear);
+back B has a natural decay (A ends abruptly where the next hit starts in the source).
+
+| Role | Alt | Name | Source (FilmCow) and tuning | Length | Loudest 30 ms (LUFS) | True peak (dBFS) |
+|---|---|---|---|---|---|---|
+| move | A | Ratchet tick | clicky squeaky knob 17.wav (Mechanisms & Movement), hit 2/17, E8 (5274 Hz) | 28.9 ms | -20.0 | -10.02 |
+| move | B ★ | Clicky button | clicky button 7.wav (Recorded SFX), hit 1/1, E8 (5274 Hz) | 24.5 ms | -20.0 | -9.2 |
+| move | C | Toy snap tick | plastic toy mechanism snap 6.wav (Mechanisms & Movement), hit 1/1, E7 (2637 Hz) | 25.8 ms | -20.0 | -6.46 |
+| select | A ★ | Button + glass | mechanical button 8.wav (Mechanisms & Movement), hit 1/1, F#5 (740 Hz); glass ding 4.wav (Recorded SFX), hit 1/2, F#8 (5920 Hz) | 63.7 ms | -18.0 | -6.49 |
+| select | B | Metal pop-up | metal button pop up 7.wav (Recorded SFX), hit 1/1, F#4 (370 Hz) | 86.4 ms | -18.0 | -9.78 |
+| select | C | Light switch | light switch on.wav (Recorded SFX), hit 1/1, F#6 (1480 Hz) | 68.9 ms | -18.0 | -7.81 |
+| back | A | Old metal switch | old metal switch 1.wav (Mechanisms & Movement), hit 1/2, D8 (4699 Hz) | 24.5 ms | -19.0 | -11.31 |
+| back | B ★ | Metal switch (rec) | metal switch 1.wav (Recorded SFX), hit 1/1, D7 (2349 Hz) | 27.8 ms | -19.0 | -6.58 |
+| back | C | Soft button, lower | mechanical button 7.wav (Mechanisms & Movement), hit 1/1, D6 (1175 Hz) | 41.1 ms | -19.0 | -7.91 |
+| launch | A | Snap + glass on A | mechanism snap together 6.wav (Mechanisms & Movement), hit 1/1, A7 (3520 Hz); glass ding 4.wav (Recorded SFX), hit 1/2, E8 (5274 Hz) | 90.3 ms | -16.0 | -4.52 |
+| launch | B | Tape eject | tape recorder eject 5.wav (Mechanisms & Movement), hit 1/4, A5 (880 Hz) | 98.4 ms | -16.0 | -6.74 |
+| drawer open | A | Case slide on | plastic case slide on 9.wav (Mechanisms & Movement), hit 1/3, not tuned | 163.0 ms | -21.0 | -11.48 |
+| drawer open | B | Lens extend | camera lens extend 2.wav (Mechanisms & Movement), hit 1/5, not tuned | 63.5 ms | -21.0 | -13.73 |
+| drawer close | A | Case slide off | plastic case slide off 1.wav (Mechanisms & Movement), hit 1/2, not tuned | 87.0 ms | -21.0 | -5.75 |
+| drawer close | B | Lens contract | camera lens contract 4.wav (Mechanisms & Movement), hit 1/1, not tuned | 160.0 ms | -21.0 | -9.69 |
+| end of row | A | Soft wood bump | wood hit 4.wav (Recorded SFX), hit 1/1, E6 (1319 Hz) | 57.0 ms | -22.0 | -7.88 |
+| end of row | B | Tin pop, muted | tin pop 5.wav (Mechanisms & Movement), hit 1/1, E6 (1319 Hz) | 36.5 ms | -22.0 | -8.95 |
+| toggle | A | Metal switch | metal switch 7.wav (Mechanisms & Movement), hit 1/1, E5 (659 Hz) | 32.0 ms | -19.0 | -3.44 |
+| toggle | B | Metal latch (rec) | metal latch 4.wav (Recorded SFX), hit 1/1, E4 (330 Hz) | 41.9 ms | -19.0 | -10.01 |
+| error | A | Two wood bumps, falling | wood hit 4.wav (Recorded SFX), hit 1/1, F6 (1397 Hz); wood hit 4.wav (Recorded SFX), hit 1/1, E6 (1319 Hz) | 161.5 ms | -18.0 | -3.75 |
+| error | B | Two tin pops, falling | tin pop 2.wav (Mechanisms & Movement), hit 1/1, F6 (1397 Hz); tin pop 2.wav (Mechanisms & Movement), hit 1/1, E6 (1319 Hz) | 124.2 ms | -18.0 | -4.75 |
+
+**Playback:** one sound per action; a sound never stacks on itself; held directions play the move
+sound at most every 180 ms, 3 dB softer (T1.1 rules kept). Menu level 100 % (the files carry their
+own level).
+
+## Earlier (alpha.2–alpha.4): 50 Menu Interface SFX mapping
+
+Superseded for menu sounds by the FilmCow family (B-1 rev. h). The pack is removed in T1.2.
+
 
 Status: move / select / back **in use from 4.0.0-alpha.4** for the user to judge on the PC
 (the rest: proposal). **Repeats:** while a direction is held (a repeat every 90 ms), the move

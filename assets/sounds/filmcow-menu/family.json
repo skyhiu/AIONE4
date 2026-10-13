@@ -1,0 +1,123 @@
+{
+ "move": [
+  {
+   "file": "move_B.wav",
+   "id": "B",
+   "label": "Clicky button",
+   "layers": [
+    {
+     "source": "rec_1_move_taps/clicky button 7.wav",
+     "library": "FilmCow Recorded SFX",
+     "source_rate": 48000,
+     "noise_floor_db": -71.9,
+     "hit": 1,
+     "of_hits": 1,
+     "start_ms": 73.0,
+     "length_ms": 30.0,
+     "resonance_hz": 4617,
+     "tuned_semitones": 2.3,
+     "tuned_to": "E8 (5274 Hz)",
+     "high_pass_hz": 250,
+     "low_pass_hz": null,
+     "decay_tau_ms": 7,
+     "hold_ms": 1.5,
+     "gain_db": 0,
+     "offset_ms": 0
+    }
+   ],
+   "length_ms": 24.5,
+   "loudest_30ms_lufs": -20.0,
+   "true_peak_dbfs": -9.2,
+   "sample_peak_dbfs": -9.73,
+   "wired": true,
+   "proposal_only": false
+  }
+ ],
+ "select": [
+  {
+   "file": "select_A.wav",
+   "id": "A",
+   "label": "Button + glass",
+   "layers": [
+    {
+     "source": "mech_2_select/mechanical button 8.wav",
+     "library": "FilmCow SFX \u2013 Mechanisms & Movement (192 kHz)",
+     "source_rate": 192000,
+     "noise_floor_db": -134.0,
+     "hit": 1,
+     "of_hits": 1,
+     "start_ms": 165.5,
+     "length_ms": 60.0,
+     "resonance_hz": 785,
+     "tuned_semitones": -1.03,
+     "tuned_to": "F#5 (740 Hz)",
+     "high_pass_hz": 150,
+     "low_pass_hz": null,
+     "decay_tau_ms": 14,
+     "hold_ms": 3,
+     "gain_db": 0,
+     "offset_ms": 0
+    },
+    {
+     "source": "rec_2_select_confirm/glass ding 4.wav",
+     "library": "FilmCow Recorded SFX",
+     "source_rate": 48000,
+     "noise_floor_db": -69.8,
+     "hit": 1,
+     "of_hits": 2,
+     "start_ms": 18.5,
+     "length_ms": 22.5,
+     "resonance_hz": 5484,
+     "tuned_semitones": 1.32,
+     "tuned_to": "F#8 (5920 Hz)",
+     "high_pass_hz": 600,
+     "low_pass_hz": null,
+     "decay_tau_ms": 45,
+     "hold_ms": 4,
+     "gain_db": -13,
+     "offset_ms": 2
+    }
+   ],
+   "length_ms": 63.7,
+   "loudest_30ms_lufs": -18.0,
+   "true_peak_dbfs": -6.49,
+   "sample_peak_dbfs": -6.5,
+   "wired": true,
+   "proposal_only": false
+  }
+ ],
+ "back": [
+  {
+   "file": "back_B.wav",
+   "id": "B",
+   "label": "Metal switch (rec)",
+   "layers": [
+    {
+     "source": "rec_3_back_close/metal switch 1.wav",
+     "library": "FilmCow Recorded SFX",
+     "source_rate": 48000,
+     "noise_floor_db": -65.3,
+     "hit": 1,
+     "of_hits": 1,
+     "start_ms": 138.5,
+     "length_ms": 50.0,
+     "resonance_hz": 2250,
+     "tuned_semitones": 0.75,
+     "tuned_to": "D7 (2349 Hz)",
+     "high_pass_hz": 150,
+     "low_pass_hz": 9000,
+     "decay_tau_ms": 11,
+     "hold_ms": 3,
+     "gain_db": 0,
+     "offset_ms": 0
+    }
+   ],
+   "length_ms": 27.8,
+   "loudest_30ms_lufs": -19.0,
+   "true_peak_dbfs": -6.58,
+   "sample_peak_dbfs": -6.59,
+   "wired": true,
+   "proposal_only": false
+  }
+ ]
+}

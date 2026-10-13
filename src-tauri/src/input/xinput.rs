@@ -111,6 +111,7 @@ fn run(get_state: GetStateFn, emit: impl Fn(PadEvent), guide: impl Fn()) {
             control,
             pad,
             seq: next_seq(),
+            at_ms: super::now_ms(),
         };
         if kind == "connected" || kind == "disconnected" {
             super::record_connection(pad, kind == "connected", ev.seq);

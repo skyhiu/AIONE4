@@ -184,11 +184,15 @@
   :global([data-input='mouse']) button.focused {
     outline-color: transparent;
   }
+  /* B-9: hover and pressed fills from the pink palette (soft tint / pressed shade). */
   :global([data-input='mouse']) button:hover {
-    background: var(--color-divider);
+    background: var(--color-soft);
+    color: var(--color-on-soft);
   }
   button:active {
     transform: scale(0.97);
+    background: var(--color-pressed);
+    color: var(--color-on-pressed);
   }
   .hints {
     margin: var(--space-4) 0 0;
@@ -197,8 +201,8 @@
     text-align: right;
   }
   .bar {
-    height: 8px;
-    border-radius: 4px;
+    height: 0.5rem;
+    border-radius: 0.25rem;
     background: var(--color-surface);
     overflow: hidden;
     margin: var(--space-4) 0;

@@ -97,13 +97,30 @@
     if (ev.kind === 'up') return;
     perf.input(ev.source);
     sounds.resume();
+    // D-008: how long the press waited between the core reading it and the UI acting on it.
+    const delay = ev.atMs === undefined ? null : Math.max(0, Date.now() - ev.atMs);
+    if (delay !== null) perf.inputDelay(delay);
+    const waited = delay === null ? '' : `, core → UI ${delay} ms`;
     if (ev.source !== 'mouse') {
       device = deviceAfter(device, ev.source);
-      setMode('pad');
+      // B-10: the first pad or key press after mouse use only brings the ring back.
+      if (inputMode === 'mouse') {
+        setMode('pad');
+        const where = dialogOpen
+          ? 'in the dialog'
+          : loadState === 'loaded'
+            ? `on tile ${home.focus + 1}`
+            : 'on Home';
+        core?.log('info', `input ${ev.kind} ${ev.control} (${ev.source}${ev.seq === undefined ? '' : ` seq ${ev.seq}`}) -> ring back ${where} (after mouse), no move, no sound${waited}`);
+        core?.log('info', `ring back ${where} (after mouse)`);
+        perf.action(`ring back ${where}`);
+        return;
+      }
     }
     const action = toAction(ev);
     const outcome = action ? act(action, ev.kind === 'repeat' ? 'repeat' : 'press') : undefined;
-    core?.log('info', describeInput(ev, action, outcome));
+    perf.action(`${ev.kind} ${ev.control} → ${action ?? 'no action'}${loadState === 'loaded' && !dialogOpen ? `, focus ${home.focus + 1}/${games.length} "${games[home.focus]?.name ?? ''}"` : ''}`);
+    core?.log('info', describeInput(ev, action, `${outcome ?? ''}${waited}`.replace(/^, /, '')));
   }
 
   /** One action to the active context. Returns what it did, for the log line. */
@@ -190,6 +207,7 @@
     const g = games[index];
     const [next, result] = clickTile(home, index);
     home = next;
+    perf.action(`click tile ${index + 1} "${g?.name ?? ''}" (${result})`);
     if (result === 'select') {
       core?.log('info', `input click tile ${index + 1} "${g?.name ?? ''}" (mouse) -> select (first click), ${play('move')}`);
     } else {
@@ -237,9 +255,61 @@
     home = withVisible(home, visibleTiles(window.innerWidth, window.innerHeight));
   }
 
-  function setLibrary(l: LibraryLoad) {
+  /** D-007: decoded pictures are kept here so the browser keeps them ready. */
+  let decoded: HTMLImageElement[] = [];
+
+  /** D-007: every tile and icon picture is loaded and decoded before Home takes input, so
+   *  moving along the row never decodes a picture. Waits at most 5 s. */
+  async function decodeAhead(list: GameView[]): Promise<void> {
+    if (!core) return;
+    const c = core;
+    const started = performance.now();
+    const jobs: Promise<string>[] = [];
+    const keep: HTMLImageElement[] = [];
+    for (const g of list) {
+      for (const [slot, key] of [
+        ['tile', g.tile],
+        ['icon', g.icon],
+      ] as const) {
+        if (!key) continue;
+        const url = c.mediaUrl(g.id, slot, key);
+        if (!url) continue;
+        const img = new Image();
+        img.decoding = 'async';
+        img.src = url;
+        keep.push(img);
+        jobs.push(
+          img
+            .decode()
+            .then(() => {
+              perf.picture(`${slot} "${g.name}" (decoded ahead)`, img.naturalWidth, img.naturalHeight);
+              return `${img.naturalWidth}×${img.naturalHeight}`;
+            })
+            .catch(() => 'failed'),
+        );
+      }
+    }
+    const timeout = new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), 5000));
+    const done = await Promise.race([Promise.all(jobs), timeout]);
+    decoded = keep;
+    const ms = Math.round(performance.now() - started);
+    if (done === 'timeout') {
+      c.log('warn', `tile pictures: decoding ahead took over 5 s; Home starts anyway`);
+    } else {
+      const sizes = [...new Set(done)].join(', ') || 'none';
+      const failed = done.filter((d) => d === 'failed').length;
+      c.log(
+        'info',
+        `tile pictures ready: ${done.length - failed} decoded ahead in ${ms} ms (sizes ${sizes}; ${decoded.length} kept ready)${failed ? `, ${failed} failed` : ''}`,
+      );
+    }
+  }
+
+  async function setLibrary(l: LibraryLoad) {
     library = l;
-    games = l.games.filter((g) => !g.hidden);
+    const shown = l.games.filter((g) => !g.hidden);
+    await decodeAhead(shown);
+    games = shown;
     loadState = l.state === 'error' ? 'error' : games.length > 0 ? 'loaded' : 'empty';
     home = withCount(home, games.length);
     core?.log('info', `home shows ${games.length} games (${l.games.length - games.length} hidden)`);
@@ -247,7 +317,7 @@
 
   async function reloadLibrary(c: Core) {
     try {
-      setLibrary(await c.libraryLoad());
+      await setLibrary(await c.libraryLoad());
     } catch (err) {
       loadState = 'error';
       c.log('error', `library_load failed: ${String(err)}`);
@@ -345,7 +415,11 @@
     {pressed}
     {fixedTime}
     {...hour12 === undefined ? {} : { hour12 }}
-    mediaUrl={(g) => (core && g.tileArt ? core.mediaUrl(g.id, g.tileArt) : '')}
+    mediaUrl={(g, slot) => {
+      const key = slot === 'tile' ? g.tile : g.icon;
+      return core && key ? core.mediaUrl(g.id, slot, key) : '';
+    }}
+    onPicture={(what, w, h) => perf.picture(what, w, h)}
     {onHover}
     onClick={onTileClick}
   />

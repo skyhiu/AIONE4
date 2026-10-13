@@ -45,7 +45,8 @@ export function createTauriCore(): Core {
       await invoke('restart_app');
     },
     libraryLoad: () => invoke<LibraryLoad>('library_load'),
-    mediaUrl: (gameId, slot) => `${MEDIA_BASE}/${encodeURIComponent(gameId)}/${encodeURIComponent(slot)}`,
+    mediaUrl: (gameId, slot, key) =>
+      `${MEDIA_BASE}/${encodeURIComponent(gameId)}/${encodeURIComponent(slot)}${key ? `?v=${encodeURIComponent(key)}` : ''}`,
     statusNow: () => invoke<PcStatus>('status_now'),
     onStatus: (handler) => listen<PcStatus>(EVENTS.status, (e) => handler(e.payload)),
     onPad: (handler) => listen<PadEvent>(EVENTS.pad, (e) => handler(e.payload)),

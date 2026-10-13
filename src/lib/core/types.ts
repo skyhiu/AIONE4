@@ -19,6 +19,10 @@ export interface GameView {
   name: string;
   /** The media slot shown on the tile ("Thumbnail", …), or null for a plain tile. */
   tileArt: string | null;
+  /** D-007: cache key of the tile-sized copy (640 × 640), or null. */
+  tile: string | null;
+  /** B-8: cache key of the small icon (up to 128 px), or null (the title shows a letter tile). */
+  icon: string | null;
   favorite: boolean;
   hidden: boolean;
   category: string | null;
@@ -55,6 +59,8 @@ export interface PadEvent {
   pad: number;
   /** Monotonic sequence number from the core (detects lost or duplicated events). */
   seq: number;
+  /** D-008: when the core read it (Unix ms, same clock as Date.now()). */
+  atMs: number;
 }
 
 export interface LibraryCounts {
@@ -132,8 +138,9 @@ export interface Core {
   padSlots(): Promise<PadSlots>;
   restart(): Promise<void>;
   libraryLoad(): Promise<LibraryLoad>;
-  /** URL of a game's media slot (served only from the game's own folder). */
-  mediaUrl(gameId: string, slot: string): string;
+  /** URL of a game's media slot (served only from the game's own folder), or of its cached
+   *  'tile' / 'icon' copy; `key` busts the web view's cache when the copy changes. */
+  mediaUrl(gameId: string, slot: string, key?: string): string;
   statusNow(): Promise<PcStatus>;
   onStatus(handler: (status: PcStatus) => void): Promise<Unlisten>;
   onPad(handler: (event: PadEvent) => void): Promise<Unlisten>;

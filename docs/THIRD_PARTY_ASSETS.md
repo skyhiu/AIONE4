@@ -72,3 +72,23 @@ ColorAlpha (CC BY 4.0), made by `tools/brand/make_t11_bootup.py`:
 Lettering in the proposals: M PLUS Rounded 1c Medium (SIL OFL 1.1), converted to outlines.
 The marks are original (designed in this build); no console maker's shapes.
 
+## FilmCow (menu sounds from 4.0.0-alpha.5)
+
+- **FilmCow Recorded SFX** and **FilmCow SFX – Mechanisms & Movement (192 kHz)** by **FilmCow**,
+  the user's own libraries, **royalty free** (as the user reports; B-1 rev. h / j). Credit:
+  "FilmCow". The raw recordings are **not** in the repository.
+- **In the app** (`assets/sounds/filmcow-menu/`, made by `tools/sound/make_menu_family.py`):
+  - `move.wav` from "clicky button 7" (Recorded SFX);
+  - `select.wav` from "mechanical button 8" (Mechanisms & Movement) layered with "glass ding 4"
+    (Recorded SFX) at −13 dB;
+  - `back.wav` from "metal switch 1" (Recorded SFX).
+- **Changes:** one hit cut out; high-pass and low-pass filtered; gated and shortened (a tight
+  decay); pitch-shifted to the family's notes (move −0 … +2.3 semitones, details in
+  `assets/sounds/filmcow-menu/family.json`); layered; loudness matched; converted to 48 kHz mono
+  24-bit.
+- **Alternatives and proposals** (listening page only, not in the repository): made the same way
+  from "clicky squeaky knob 17", "mechanical button 7", "plastic toy mechanism snap 6", "mechanism snap together 6", "tape recorder eject 5", "metal switch 7", "old metal switch 1", "camera lens contract 4", "camera lens extend 2", "plastic case slide off 1", "plastic case slide on 9", "tin pop 2", "tin pop 5", "light switch on", "metal button pop up 7", "metal latch 4", "wood hit 4".
+
+The 50 Menu Interface SFX pack (above) stays in the repository until T1.2, as instructed; the app
+no longer plays it.
+

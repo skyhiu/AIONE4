@@ -14,12 +14,14 @@ export interface InputEvent {
   pad?: number;
   /** The core's sequence number (controller events), to prove one press shows once. */
   seq?: number;
+  /** D-008: when the core read it (Unix ms), for the core → UI delay. */
+  atMs?: number;
 }
 
 /** Converts a core pad event to an input event; connect / disconnect are not input. */
 export function fromPadEvent(ev: PadEvent): InputEvent | null {
   if (ev.kind === 'connected' || ev.kind === 'disconnected') return null;
-  return { source: 'controller', kind: ev.kind, control: ev.control, pad: ev.pad + 1, seq: ev.seq };
+  return { source: 'controller', kind: ev.kind, control: ev.control, pad: ev.pad + 1, seq: ev.seq, atMs: ev.atMs };
 }
 
 const KEY_NAMES: Record<string, string> = {
