@@ -10,11 +10,19 @@
 //                      tests/fixtures/migration/), read with the core's rule: a readable record
 //                      with a decision other than "failed" means "already handled"
 //   &copy=finished     Imported\\AIONE-WPF exists (used with record=unreadable)
+//   &library=sample | empty | error | many   the games (sample = 10 like the user's copy)
+//   &scale=90..150     Interface Scale for this run (like --interface-scale)
+//   &network=wifi | wired | offline   &battery=none | <percent> | <percent>c (charging)
+//   &status-later=1    the core pushes a status change 300 ms after start
+//   &noart=1           no tile art (plain tiles)
 // Tests drive input through `window.__aioneMock` (see MockControl below).
 import pkg from '../../../package.json';
 import alpha1Record from '../../../tests/fixtures/migration/alpha1.migration.json?raw';
 import alpha2Record from '../../../tests/fixtures/migration/alpha2.migration.json?raw';
 import type {
+  GameView,
+  LibraryLoad,
+  PcStatus,
   CopyProgress,
   CopyResult,
   Core,
@@ -58,6 +66,65 @@ export const SAMPLE_LIBRARY: LibraryCounts = {
   ],
 };
 
+/** Original placeholder art (tests/fixtures/library/art), never real game art. */
+const ART = import.meta.glob('../../../tests/fixtures/library/art/*.png', {
+  eager: true,
+  query: '?url',
+  import: 'default',
+}) as Record<string, string>;
+const ART_URLS = Object.keys(ART)
+  .sort()
+  .map((k) => ART[k] ?? '');
+
+/** Like the user's copy: 10 games, two with their real names (the attached game.json files),
+ *  one without art, one with a long title (marquee). */
+export const SAMPLE_GAMES: GameView[] = [
+  'FATAL FRAME 4',
+  'Glass Orchard',
+  'Lantern Valley',
+  'Moss Kingdom',
+  'Northbound',
+  'Paper Comets',
+  'Quiet Engines',
+  'The Long Corridor Between Two Very Distant Stations',
+  'Tide & Ember',
+  'Zero Escape The Nonary Games',
+].map((name) => ({
+  id: name,
+  name,
+  tileArt: name === 'Quiet Engines' ? null : 'Thumbnail',
+  favorite: false,
+  hidden: false,
+  category: name.startsWith('Zero') ? 'Steam' : null,
+  playCount: 0,
+  playTimeMinutes: 0,
+}));
+
+function mockLibrary(kind: string): LibraryLoad {
+  const base = { source: 'C:\\Users\\Player\\AppData\\Local\\AIONE4\\Games', skipped: [], notes: [] };
+  if (kind === 'empty') return { ...base, state: 'empty', games: [], expected: null };
+  if (kind === 'error')
+    return {
+      ...base,
+      state: 'error',
+      games: [],
+      notes: ['the conversion of your copied games failed: copying X: access denied'],
+      expected: 10,
+    };
+  if (kind === 'many') {
+    const games = Array.from({ length: 24 }, (_, i) => ({ ...(SAMPLE_GAMES[i % 10] as GameView), id: `g${i}`, name: `Game ${i + 1}` }));
+    return { ...base, state: 'loaded', games, expected: 24 };
+  }
+  return { ...base, state: 'loaded', games: SAMPLE_GAMES, expected: 10 };
+}
+
+function mockStatus(params: URLSearchParams): PcStatus {
+  const network = (params.get('network') ?? 'wifi') as PcStatus['network'];
+  const b = params.get('battery') ?? 'none';
+  if (b === 'none') return { network, battery: null };
+  return { network, battery: { percent: Number.parseInt(b, 10), charging: b.endsWith('c') } };
+}
+
 export function createMockCore(search: string = globalThis.location?.search ?? ''): Core {
   return createMock(search).core;
 }
@@ -67,6 +134,8 @@ export function createMock(search: string): { core: Core; control: MockControl }
   const scenario = params.get('migration') ?? 'none';
   const stepMs = Number(params.get('step') ?? '150');
   const padHandlers = new Set<Handler<PadEvent>>();
+  const statusHandlers = new Set<Handler<PcStatus>>();
+  const noArt = params.get('noart') === '1';
   const progressHandlers = new Set<Handler<CopyProgress>>();
   const doneHandlers = new Set<Handler<CopyResult>>();
   let seq = 0;
@@ -141,6 +210,8 @@ export function createMock(search: string): { core: Core; control: MockControl }
         logsDir: 'C:\\Users\\Player\\AppData\\Local\\AIONE4\\Logs',
         platform: 'mock',
         pid: 4242,
+        interfaceScale: Number(params.get('scale') ?? '100'),
+        fromAutostart: false,
       }),
     uiReady() {
       control.uiReadyCalls += 1;
@@ -214,6 +285,18 @@ export function createMock(search: string): { core: Core; control: MockControl }
     restart() {
       control.restarts += 1;
       return Promise.resolve();
+    },
+    libraryLoad: () => Promise.resolve(mockLibrary(params.get('library') ?? 'sample')),
+    mediaUrl(gameId, slot) {
+      if (noArt || slot !== 'Thumbnail') return '';
+      const i = SAMPLE_GAMES.findIndex((g) => g.id === gameId);
+      return ART_URLS[(i < 0 ? Number(gameId.replace(/\D/g, '')) : i) % ART_URLS.length] ?? '';
+    },
+    statusNow: () => Promise.resolve(mockStatus(params)),
+    onStatus(h) {
+      if (params.get('status-later') === '1')
+        setTimeout(() => statusHandlers.forEach((f) => f({ network: 'offline', battery: { percent: 15, charging: false } })), 300);
+      return sub(statusHandlers, h);
     },
     onPad: (h) => sub(padHandlers, h),
     onCopyProgress: (h) => sub(progressHandlers, h),

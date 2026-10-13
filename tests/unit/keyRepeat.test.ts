@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { KEY_REPEAT_DELAY_MS, KEY_REPEAT_INTERVAL_MS, KeyRepeater, isModifier } from '../../src/lib/input/keyRepeat';
+import { KEY_REPEAT_DELAY_MS, KEY_REPEAT_INTERVAL_MS, KeyRepeater, REPEATING_KEYS, repeats } from '../../src/lib/input/keyRepeat';
 
 // D-006 / B-3: AIONE times key repeats (400 ms, then every 90 ms) and ignores Windows' repeats.
 describe('key repeat', () => {
@@ -11,7 +11,11 @@ describe('key repeat', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     events = [];
-    r = new KeyRepeater((e, phase) => events.push(`${phase} ${e.key} @${Date.now() - start}`));
+    r = new KeyRepeater(
+      (e, phase, rel) =>
+        events.push(`${phase} ${e.key} @${Date.now() - start}${rel ? ` held ${rel.heldMs} ms, ${rel.repeats} repeats` : ''}`),
+      () => Date.now(),
+    );
     start = Date.now();
   });
   afterEach(() => vi.useRealTimers());
@@ -37,21 +41,19 @@ describe('key repeat', () => {
       'repeat ArrowRight @760',
       'repeat ArrowRight @850',
       'repeat ArrowRight @940',
-      'up ArrowRight @1000',
+      'up ArrowRight @1000 held 1000 ms, 7 repeats',
     ]);
     expect(r.active).toBe(false);
   });
 
   it('modifier keys never repeat', () => {
-    for (const k of ['Alt', 'Control', 'Shift', 'Meta']) expect(isModifier(k)).toBe(true);
-    expect(isModifier('ArrowDown')).toBe(false);
     r.keydown({ ...alt, repeat: false });
     for (let i = 0; i < 40; i++) {
       vi.advanceTimersByTime(50);
       r.keydown({ ...alt, repeat: true });
     }
     r.keyup(alt);
-    expect(events).toEqual(['down Alt @0', 'up Alt @2000']);
+    expect(events).toEqual(['down Alt @0', 'up Alt @2000 held 2000 ms, 0 repeats']);
     expect(r.active).toBe(false);
   });
 
@@ -63,13 +65,37 @@ describe('key repeat', () => {
     r.keyup({ key: 'ArrowDown', code: 'ArrowDown' });
     vi.advanceTimersByTime(500);
     r.keyup(right);
-    expect(events).toEqual(['down ArrowRight @0', 'down ArrowDown @100', 'repeat ArrowDown @500', 'up ArrowDown @500', 'up ArrowRight @1000']);
+    expect(events).toEqual(['down ArrowRight @0', 'down ArrowDown @100', 'repeat ArrowDown @500', 'up ArrowDown @500 held 400 ms, 1 repeats', 'up ArrowRight @1000 held 1000 ms, 0 repeats']);
   });
 
   it('losing focus releases held keys and stops repeating', () => {
     r.keydown({ ...right, repeat: false });
     r.releaseAll();
     vi.advanceTimersByTime(1000);
-    expect(events).toEqual(['down ArrowRight @0', 'up ArrowRight @0']);
+    expect(events).toEqual(['down ArrowRight @0', 'up ArrowRight @0 held 0 ms, 0 repeats']);
+  });
+
+  // B-3 rev. e: only navigation keys repeat; Enter, Space and Esc never do, like A and B.
+  it('only the arrows repeat; Enter, Space, Esc, Tab, letters and modifiers never do', () => {
+    expect([...REPEATING_KEYS].sort()).toEqual(['ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp']);
+    for (const k of ['Enter', ' ', 'Escape', 'Tab', 'PageDown', 'a', 'Backspace', 'Alt', 'Control', 'Shift', 'Meta'])
+      expect(repeats(k), k).toBe(false);
+    const keys: [string, string][] = [
+      ['Enter', 'Enter'],
+      [' ', 'Space'],
+      ['Escape', 'Escape'],
+    ];
+    for (const [key, code] of keys) {
+      events = [];
+      start = Date.now();
+      r.keydown({ key, code, repeat: false });
+      for (let i = 0; i < 20; i++) {
+        vi.advanceTimersByTime(50);
+        r.keydown({ key, code, repeat: true });
+      }
+      r.keyup({ key, code });
+      expect(events).toEqual([`down ${key} @0`, `up ${key} @1000 held 1000 ms, 0 repeats`]);
+    }
+    expect(r.active).toBe(false);
   });
 });

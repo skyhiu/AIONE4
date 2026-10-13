@@ -1,6 +1,10 @@
 # Glyph mapping (Kenney Input Prompts 1.5)
 
-Status: **proposal** for T1, when the frame shows prompts. Nothing uses these files yet.
+Status: **in use from 4.0.0-alpha.4** for the Home footer (Select: `xbox_button_a.svg` /
+`keyboard_enter.svg`); the rest of the table is still the proposal for later screens. The user
+judges the glyphs on screen in T1. The glyph set follows the last controller or keyboard input;
+the mouse keeps the last set. XInput cannot tell a pad's make, so every pad uses the Xbox (plain)
+set until other pads are supported.
 
 **Basis:** the real file names in `assets/glyphs/kenney-input-prompts/`, which is Kenney's
 `Vector` (SVG) folder of each set, unchanged; only the set folders were renamed (`Xbox Series` →

@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "origin": "converted",
+  "convertedFrom": "Imported\\AIONE-WPF\\Games",
+  "at": "2026-10-13 21:00:00",
+  "appVersion": "4.0.0-alpha.4",
+  "games": 10,
+  "skipped": [
+    {
+      "name": "_Removed",
+      "reason": "skipped by name (starts with \"_\")"
+    }
+  ]
+}

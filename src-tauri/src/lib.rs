@@ -1,14 +1,17 @@
-//! AIONE 4 core (Tauri 2). T0: the window, single instance, restart, the foreground at start,
-//! the data folder and logs, the one-time copy of the WPF data, and controller input.
+//! AIONE 4 core (Tauri 2): the window, single instance, restart, the foreground at start, the
+//! data folder and logs, the one-time copy of the WPF data, controller input (with B-7's
+//! background rule), the game library (T1.1) and its media, and the header's status values.
 //! See docs/ARCHITECTURE.md.
 
 pub mod foreground;
+pub mod games;
 pub mod input;
 pub mod library;
 pub mod lifecycle;
 pub mod logging;
 pub mod migration;
 pub mod paths;
+pub mod status;
 pub mod version;
 
 use logging::Level;
@@ -21,6 +24,9 @@ use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent};
 pub const EVENT_PAD: &str = "aione://pad";
 pub const EVENT_COPY_PROGRESS: &str = "aione://copy-progress";
 pub const EVENT_COPY_DONE: &str = "aione://copy-done";
+pub const EVENT_STATUS: &str = "aione://status";
+/// The game media protocol: `http://aione-media.localhost/<game id>/<slot>` on Windows.
+pub const MEDIA_SCHEME: &str = "aione-media";
 const MAIN_WINDOW: &str = "main";
 /// The black wait before the window is shown anyway if the UI never reports ready (A9: 4 s).
 const SHOW_FALLBACK: Duration = Duration::from_secs(4);
@@ -34,6 +40,8 @@ struct AppState {
     started: Instant,
     shown: AtomicBool,
     copy_running: AtomicBool,
+    interface_scale: u32,
+    from_autostart: bool,
 }
 
 #[derive(Serialize)]
@@ -44,6 +52,9 @@ struct AppInfo {
     logs_dir: String,
     platform: &'static str,
     pid: u32,
+    /// Interface Scale in percent for this run (100 until Settings exist; `--interface-scale`).
+    interface_scale: u32,
+    from_autostart: bool,
 }
 
 #[tauri::command]
@@ -54,6 +65,75 @@ fn app_info(state: tauri::State<'_, AppState>) -> AppInfo {
         logs_dir: paths::logs_dir(&state.data_dir).display().to_string(),
         platform: std::env::consts::OS,
         pid: std::process::id(),
+        interface_scale: state.interface_scale,
+        from_autostart: state.from_autostart,
+    }
+}
+
+/// Loads the library (converting the WPF copy once if needed) and logs the L-17 lines.
+#[tauri::command]
+async fn library_load(app: AppHandle) -> Result<games::LibraryLoad, String> {
+    let data = app.state::<AppState>().data_dir.clone();
+    let load = tauri::async_runtime::spawn_blocking(move || games::load(&data))
+        .await
+        .map_err(|e| e.to_string())?;
+    for line in games::log_lines(&load) {
+        let level = if line.contains("MISMATCH") || load.state == "error" {
+            Level::Warn
+        } else {
+            Level::Info
+        };
+        if let Some(l) = logging::get() {
+            l.write(level, "library", &line);
+        }
+    }
+    Ok(load)
+}
+
+/// The header's status right now (the UI then follows `aione://status` events).
+#[tauri::command]
+fn status_now() -> status::Status {
+    status::read()
+}
+
+/// Decodes `%XX` escapes of a URL path segment.
+fn percent_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len() {
+            let hex = std::str::from_utf8(&b[i + 1..i + 3]).unwrap_or("");
+            if let Ok(v) = u8::from_str_radix(hex, 16) {
+                out.push(v);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Serves `/<game id>/<slot>` from the game's own folder (`games::resolve_media`); 404 otherwise.
+fn media_response(data: &std::path::Path, path: &str) -> tauri::http::Response<Vec<u8>> {
+    let mut parts = path.trim_start_matches('/').splitn(2, '/');
+    let id = percent_decode(parts.next().unwrap_or_default());
+    let slot = percent_decode(parts.next().unwrap_or_default());
+    let found = games::resolve_media(data, &id, &slot)
+        .and_then(|p| std::fs::read(&p).ok().map(|b| (games::mime_of(&p), b)));
+    match found {
+        Some((mime, bytes)) => tauri::http::Response::builder()
+            .status(200)
+            .header("Content-Type", mime)
+            .header("Cache-Control", "no-cache")
+            .body(bytes)
+            .unwrap_or_default(),
+        None => tauri::http::Response::builder()
+            .status(404)
+            .body(Vec::new())
+            .unwrap_or_default(),
     }
 }
 
@@ -307,6 +387,8 @@ pub fn run() {
         started,
         shown: AtomicBool::new(false),
         copy_running: AtomicBool::new(false),
+        interface_scale: args.interface_scale.unwrap_or(100),
+        from_autostart: args.from_autostart,
     };
 
     let app = tauri::Builder::default()
@@ -322,6 +404,12 @@ pub fn run() {
             show_and_focus(app, "second start");
         }))
         .manage(state)
+        .register_asynchronous_uri_scheme_protocol(MEDIA_SCHEME, |ctx, request, responder| {
+            let data = ctx.app_handle().state::<AppState>().data_dir.clone();
+            let path = request.uri().path().to_string();
+            // File reads off the main thread.
+            std::thread::spawn(move || responder.respond(media_response(&data, &path)));
+        })
         .invoke_handler(tauri::generate_handler![
             app_info,
             ui_ready,
@@ -329,12 +417,35 @@ pub fn run() {
             migration_status,
             migration_decide,
             pad_slots,
-            restart_app
+            restart_app,
+            library_load,
+            status_now
         ])
         .setup(|app| {
+            #[cfg(windows)]
+            if let Some(w) = app.get_webview_window(MAIN_WINDOW) {
+                if let Ok(h) = w.hwnd() {
+                    foreground::set_main_window(h.0 as isize);
+                }
+            }
             let handle = app.handle().clone();
-            input::start(move |ev| {
-                let _ = handle.emit(EVENT_PAD, ev);
+            let guide_handle = app.handle().clone();
+            input::start(
+                move |ev| {
+                    let _ = handle.emit(EVENT_PAD, ev);
+                },
+                // B-7: Guide in the background brings AIONE to the front.
+                move || {
+                    logging::lifecycle(
+                        Level::Info,
+                        "Guide pressed while AIONE is in the background: bringing AIONE to the front",
+                    );
+                    show_and_focus(&guide_handle, "Guide");
+                },
+            );
+            let status_handle = app.handle().clone();
+            status::start(move |s| {
+                let _ = status_handle.emit(EVENT_STATUS, s);
             });
             // Bounded black wait: show the window even if the UI never says it is ready.
             let handle = app.handle().clone();
@@ -354,6 +465,8 @@ pub fn run() {
         .on_window_event(|_window, event| {
             if let WindowEvent::CloseRequested { .. } = event {
                 logging::lifecycle(Level::Info, "window close requested");
+                // T0 QA-5: exit begins; the guard stops before Windows hands the foreground on.
+                foreground::closing("AIONE is closing");
             }
         })
         .build(tauri::generate_context!());
@@ -372,10 +485,21 @@ pub fn run() {
     app.run(|_app, event| match event {
         RunEvent::ExitRequested { code, .. } => {
             logging::lifecycle(Level::Info, &format!("exit requested (code {code:?})"));
+            foreground::closing("AIONE is closing");
         }
         RunEvent::Exit => {
             logging::lifecycle(Level::Info, "exit");
         }
         _ => {}
     });
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn media_paths_decode() {
+        assert_eq!(super::percent_decode("FATAL%20FRAME%204"), "FATAL FRAME 4");
+        assert_eq!(super::percent_decode("a%2"), "a%2");
+        assert_eq!(super::percent_decode("%E3%81%82"), "\u{3042}");
+    }
 }

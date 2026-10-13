@@ -2,9 +2,11 @@
 //! xinput1_3.dll, then xinput9_1_0.dll). Uses `XInputGetStateEx` (ordinal 100) when present,
 //! because only it reports the Guide button; otherwise `XInputGetState`.
 
+use super::gate::{BackgroundGate, Route, BACKGROUND_NOTE};
 use super::mapping::{Kind, PadOut, PadTracker, RawPad, CONTROLS};
 use super::{next_seq, PadEvent};
 use crate::logging;
+use std::cell::RefCell;
 use std::time::{Duration, Instant};
 use windows::core::{s, w, PCSTR, PCWSTR};
 use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
@@ -78,7 +80,7 @@ fn load() -> Option<(GetStateFn, String)> {
     None
 }
 
-pub fn start(emit: impl Fn(PadEvent) + Send + 'static) {
+pub fn start(emit: impl Fn(PadEvent) + Send + 'static, guide: impl Fn() + Send + 'static) {
     let spawned = std::thread::Builder::new()
         .name("aione-xinput".into())
         .spawn(move || {
@@ -90,17 +92,19 @@ pub fn start(emit: impl Fn(PadEvent) + Send + 'static) {
                 "input",
                 &format!("XInput ready: {how}; polling 8 ms while a pad is connected"),
             );
-            run(get_state, emit);
+            run(get_state, emit, guide);
         });
     if let Err(e) = spawned {
         logging::error("input", &format!("could not start the input thread: {e}"));
     }
 }
 
-fn run(get_state: GetStateFn, emit: impl Fn(PadEvent)) {
+fn run(get_state: GetStateFn, emit: impl Fn(PadEvent), guide: impl Fn()) {
     let mut trackers: [PadTracker; 4] = Default::default();
     let mut connected = [false; 4];
     let mut last_probe = [None::<Instant>; 4];
+    // B-7: in the background only Guide acts; everything else is logged only.
+    let gate = RefCell::new(BackgroundGate::default());
     let send = |kind: &'static str, control: &'static str, pad: u32, detail: &str| {
         let ev = PadEvent {
             kind,
@@ -128,12 +132,41 @@ fn run(get_state: GetStateFn, emit: impl Fn(PadEvent)) {
         emit(ev);
     };
     let out = |e: &PadOut, slot: u32| {
-        let detail = if e.kind == Kind::Up {
+        let control = CONTROLS[e.index];
+        let foreground = crate::foreground::aione_is_foreground();
+        let route = gate
+            .borrow_mut()
+            .route(slot, e.index, control, e.kind, foreground);
+        let mut detail = if e.kind == Kind::Up {
             format!(", held {} ms, {} repeats", e.held.as_millis(), e.repeats)
         } else {
             String::new()
         };
-        send(e.kind.as_str(), CONTROLS[e.index], slot, &detail);
+        match route {
+            Route::Act => send(e.kind.as_str(), control, slot, &detail),
+            Route::ActGuide => {
+                detail.push_str(" (AIONE in the background: Guide acts)");
+                send(e.kind.as_str(), control, slot, &detail);
+                if e.kind == Kind::Down {
+                    guide();
+                }
+            }
+            Route::LogOnly => {
+                // Logged with the same wording as acted-on presses, never sent to the UI.
+                // Background repeats are not logged one by one; the release says how many.
+                if e.kind != Kind::Repeat {
+                    logging::info(
+                        "input",
+                        &format!(
+                            "pad {} {} {control} (seq {}){detail}{BACKGROUND_NOTE}",
+                            slot + 1,
+                            e.kind.as_str(),
+                            next_seq()
+                        ),
+                    );
+                }
+            }
+        }
     };
 
     loop {

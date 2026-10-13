@@ -1,6 +1,9 @@
 # Sounds: the 50 Menu Interface SFX pack, a proposed mapping, and the startup variants
 
-Status: **proposal** (alpha.2). The startup variants A–C at the end were not chosen (B-1 rev. d); the 5 s Boot Up variants replace them (`BOOTUP_SOUNDS.md`). Nothing plays these yet; I (the implementer) cannot hear
+Status: move / select / back **in use from 4.0.0-alpha.4** for the user to judge on the PC
+(the rest: proposal). **Repeats:** while a direction is held (a repeat every 90 ms), the move
+sound plays at most every 180 ms and 3 dB softer; a sound never stacks on itself; levels:
+AIONE Volume 100 % × menu 60 %. Originally a proposal (alpha.2). The startup variants A–C at the end were not chosen (B-1 rev. d); the 5 s Boot Up variants replace them (`BOOTUP_SOUNDS.md`). Nothing plays these yet; I (the implementer) cannot hear
 them, so every description below comes from measurements and spectrograms. The user listens
 and adjusts in T1.
 

@@ -1,56 +1,29 @@
 import { describe, expect, it } from 'vitest';
-import { describeInput, fromKeyboard, fromMouseButton, fromPadEvent, fromWheel, keyName, toAction } from '../../src/lib/input/events';
-import { applyInput, applyPadConnection, applyPadSlots, describeLast, initialReadout } from '../../src/lib/input/readout';
+import { describeInput, describeKeyRelease, fromKeyboard, fromMouseButton, fromPadEvent, fromWheel, keyName, toAction } from '../../src/lib/input/events';
+import { applyPadConnection, applyPadSlots, initialPads } from '../../src/lib/input/pads';
 import { isBlockedBrowserKey, isRestartShortcut } from '../../src/lib/input/shortcuts';
 
-describe('input readout (T0)', () => {
-  it('counts one press once, with its release separately', () => {
-    let s = initialReadout();
-    s = applyInput(s, { source: 'controller', kind: 'down', control: 'A', pad: 1 });
-    s = applyInput(s, { source: 'controller', kind: 'up', control: 'A', pad: 1 });
-    expect(s.presses).toBe(1);
-    expect(s.releases).toBe(1);
-    expect(s.repeats).toBe(0);
-    expect(describeLast(s)).toBe('A (controller 1)');
-  });
-
-  it('counts repeats apart from presses', () => {
-    let s = initialReadout();
-    s = applyInput(s, { source: 'keyboard', kind: 'down', control: 'Down' });
-    s = applyInput(s, { source: 'keyboard', kind: 'repeat', control: 'Down' });
-    s = applyInput(s, { source: 'keyboard', kind: 'repeat', control: 'Down' });
-    expect(s.presses).toBe(1);
-    expect(s.repeats).toBe(2);
-    expect(s.bySource).toEqual({ controller: 0, keyboard: 1, mouse: 0 });
-  });
-
+describe('controller slots (D-002)', () => {
   it('tracks connected controller slots', () => {
-    let s = initialReadout();
+    let s = initialPads();
     s = applyPadConnection(s, 2, true, 1);
     s = applyPadConnection(s, 1, true, 2);
     s = applyPadConnection(s, 2, false, 3);
     expect(s.pads).toEqual([1]);
   });
 
-  it('D-002: the slots query shows a pad connected before the UI listened', () => {
-    const s = applyPadSlots(initialReadout(), [1], 7);
-    expect(s.pads).toEqual([1]);
-    expect(s.padSeq).toBe(7);
+  it('the slots query shows a pad connected before the UI listened', () => {
+    const s = applyPadSlots(initialPads(), [1], 7);
+    expect(s).toEqual({ pads: [1], seq: 7 });
   });
 
-  it('D-002: an older query answer never overwrites a newer event', () => {
-    // Event (seq 9: slot 1 disconnected) arrives before the answer computed at seq 7.
-    let s = applyPadSlots(initialReadout(), [1], 7);
+  it('an older query answer never overwrites a newer event', () => {
+    let s = applyPadSlots(initialPads(), [1], 7);
     s = applyPadConnection(s, 1, false, 9);
     s = applyPadSlots(s, [1], 7);
     expect(s.pads).toEqual([]);
-    // A duplicate or older event is ignored too.
     s = applyPadConnection(s, 1, true, 8);
     expect(s.pads).toEqual([]);
-  });
-
-  it('starts empty', () => {
-    expect(describeLast(initialReadout())).toBe('No input yet');
   });
 });
 
@@ -101,13 +74,16 @@ describe('input events', () => {
 });
 
 describe('input log line', () => {
-  it('carries the core sequence number, the press count and the action', () => {
-    expect(describeInput({ source: 'controller', kind: 'down', control: 'A', pad: 1, seq: 57 }, 12, 'confirm')).toBe(
-      'input down A (controller 1 seq 57) -> presses 12, action confirm',
+  it('carries the core sequence number, the action and what it did', () => {
+    expect(
+      describeInput({ source: 'controller', kind: 'down', control: 'DPadRight', pad: 1, seq: 57 }, 'right', 'focus 2/10, sound move'),
+    ).toBe('input down DPadRight (controller 1 seq 57) -> action right, focus 2/10, sound move');
+    expect(describeInput({ source: 'keyboard', kind: 'repeat', control: 'Down' }, null)).toBe(
+      'input repeat Down (keyboard) -> no action',
     );
-    expect(describeInput({ source: 'keyboard', kind: 'repeat', control: 'Down' }, 3, null)).toBe(
-      'input repeat Down (keyboard) -> presses 3',
-    );
+  });
+  it('logs key releases like the pad (D-006)', () => {
+    expect(describeKeyRelease('Enter', 132, 0)).toBe('input up Enter (keyboard), held 132 ms, 0 repeats');
   });
 });
 

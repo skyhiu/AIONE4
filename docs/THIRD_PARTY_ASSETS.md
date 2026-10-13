@@ -46,3 +46,29 @@ ColorAlpha** (https://coloralpha.itch.io/50-menu-interface-sfx), licensed **CC B
   `MI_SFX 43.wav`. Sequenced, light stereo echo, fade, high-pass, loudness matched.
 - **C:** from `MI_SFX 48.wav`, `MI_SFX 44.wav`, `MI_SFX 43.wav` and `MI_SFX 16.wav` (pitched
   −4 semitones and softened). Layered, stereo echo, fade, high-pass, loudness matched.
+
+## Used by the app from 4.0.0-alpha.4
+
+- **50 Menu Interface SFX** (ColorAlpha, CC BY 4.0, coloralpha.itch.io/50-menu-interface-sfx):
+  `MI_SFX 24.wav` (move), `MI_SFX 09.wav` (select), `MI_SFX 15.wav` (back), unchanged.
+- **Kenney Input Prompts 1.5** (CC0): `xbox_button_a.svg`, `xbox_button_b.svg`,
+  `keyboard_enter.svg`, `keyboard_escape.svg`, unchanged (tinted by the app as a mask).
+- **Material Symbols Rounded** (Apache-2.0): the header icons.
+- **M PLUS Rounded 1c** (SIL OFL 1.1): Regular, Medium, Bold, the theme font.
+
+## Logo and Boot Up proposals (4.0.0-alpha.4; delivered separately, not in the app)
+
+Sounds `gather.wav`, `mosaic.wav`, `path.wav`: **adaptations** of "50 Menu Interface SFX" by
+ColorAlpha (CC BY 4.0), made by `tools/brand/make_t11_bootup.py`:
+- **Gather:** #09 at 0, +4, +7, +12, +16 semitones (−2 dB); #44 (−3 dB); #43 (−1 dB), #16 at
+  −4 semitones low-passed at 3 kHz (−6 dB), #09 at −12 (−8 dB); stereo echo 210 / 290 ms.
+- **Mosaic:** #13 at 0, +5, +7 with #24 (−6 dB); #49 (−5 dB) with #28 (−4 dB); #48 (−5 dB); #43
+  (−2 dB) with #16 at −4, low-passed (−7 dB); stereo echo 190 / 260 ms.
+- **Path:** #21 at 0, +4, +7, +12 with #31 (−9 dB); #28 (−3 dB); #44 (−3 dB); #43 with #16 at −4,
+  low-passed; stereo echo 200 / 280 ms.
+- All: 60 Hz high-pass, loudest 100 ms matched to the pack median − 2 dB, gentle limiting (at
+  most 0.1 dB used), true peaks ≤ −1 dBFS, exactly 5.0 s with a 400 ms fade.
+
+Lettering in the proposals: M PLUS Rounded 1c Medium (SIL OFL 1.1), converted to outlines.
+The marks are original (designed in this build); no console maker's shapes.
+

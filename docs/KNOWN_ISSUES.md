@@ -6,26 +6,41 @@ an item Fixed and Verified.
 
 ## D-defects
 
-| ID | Severity | Description | Status (4.0.0-alpha.3) |
+| ID | Severity | Description | Status (4.0.0-alpha.4) |
 |---|---|---|---|
-| D-001 | Low | Copy counts: library folders, hidden and favorites (L-17 / KD-101). | **Implemented, Unverified (except `Config\`, moved to T2).** Four counts with one rule since alpha.2. alpha.3 fixes the missing source lines. Cause **confirmed**: an alpha.2 edit did not apply, so the lines were never written; a log-capture test now proves they are. The three "library … " lines are always written, also "none found, looked in: …", and name `Config\` as not yet read until the user's files arrive in T2. |
-| D-002 | Low | A pad already connected at start shows as "not connected". | **Implemented, Unverified** (alpha.2; not yet tested on the PC with a pad on). |
-| D-003 | Low | Copy progress bar disagrees with its text. | **Implemented, Unverified** (alpha.2; CI screenshot showed 25.0 % against "25 %"; QA to confirm). |
-| D-004 | Medium | An update asked the copy question again and copied everything a second time. | **Implemented, Unverified.** Cause **confirmed** (QA-1, by the log): alpha.2 required a `folders` field that alpha.1 had not written, and treated "unreadable" as "never asked". Now, per B-6: every record field has a default except the decision; an unreadable record is backed up once next to itself and reported in the log and to the user; a finished copy in `Imported\AIONE-WPF\` means "never ask again", even without a record. Fixtures of alpha.1's and alpha.2's records are read as "copied" in Rust and UI tests. |
-| D-005 | Low | The keyboard-focus line calls AIONE's own web view "another program". | **Implemented, Unverified.** Cause **confirmed** from the source: it compared processes. Now judged by window ownership: is the focus window's top-level ancestor AIONE's main window? Logged as "AIONE 4's web view: keys reach AIONE", or "another program has the keys: … (keys do NOT reach AIONE)". |
-| D-006 | Low | Held keys repeat at Windows' speed, not 400 / 90 ms. | **Implemented, Unverified.** Cause **confirmed** from the source: the UI counted the browser's repeated keydowns. Now AIONE times key repeats itself (400 ms, then every 90 ms) and ignores Windows' repeats; modifier keys never repeat. Unit test with fake timers; UI test measured the first repeat at 400–401 ms, then a 90.3–92.3 ms mean gap (five runs). |
+| D-001 | Low | Copy counts (L-17 / KD-101). | **Verified for T0** (alpha.3); `Config\` part open for T2. alpha.4: the real WPF files confirm the field names `Favorite` and `Hidden` (they were a hypothesis); the loader reads them. Folders: no field in the two files seen; still read as before. |
+| D-002 | Low | A pad connected before start showed as not connected. | **Fixed and Verified** (alpha.3, PC). Home's controller icon uses the same query. |
+| D-003 | Low | Copy bar against its text. | **Fixed and Verified** (alpha.3). |
+| D-004 | Medium | An update asked the copy question again. | **Fixed and Verified** (alpha.3, PC). |
+| D-005 | Low | Focus line wording. | **Fixed and Verified**, both wordings (alpha.3, PC). |
+| D-006 | Low | Key repeats and releases. | Timing **Fixed and Verified** (alpha.3, PC). Key list and release lines: **Implemented, Unverified** (alpha.4: only the arrows repeat; Enter, Space, Esc, modifiers never; `input up <key> (keyboard), held N ms, R repeats`; unit and UI tests pass). |
+
+## T0 QA findings carried into T1.1
+
+| Finding | Status (4.0.0-alpha.4) |
+|---|---|
+| QA-4 (T0 test): an autostart start is not marked | **Implemented, Unverified**: the entry runs `"<exe>" --from-autostart`; logged "started by Windows at sign-in". Unit test on the command. |
+| QA-5 (T0 retest): closing logged as "the user switched away" | **Implemented, Unverified**: exit stops the guard first ("AIONE is closing"); later foreground changes are ignored. Unit test on the guard's decision. Windows code compiles first in CI. |
 
 ## L-lessons touched
 
 | Lesson | Status | Notes |
 |---|---|---|
-| L-17 (import counts match) | Implemented, Unverified | See D-001 and D-004. "What loads equals the counts" can be shown fully in T1. |
-| L-20 (foreground at start) | Implemented, Unverified | Start and second start passed on the PC (alpha.1 QA); sign-in still to test. alpha.3 fixes the keyboard-focus line (D-005). |
+| L-06 (click activates, no hover left, no single-click launch) | Implemented, Unverified | UI tests: first click selects, second starts; nothing highlighted after. Launching itself is T1.3. |
+| L-09 (no unintended gradient / band) | Implemented, Unverified | UI tests: no background image anywhere on Home (art excepted), light and dark. |
+| L-10 (header one optical size and weight) | Implemented, Unverified | Measured in the sandbox: every header item's ink 18 px at 1080 p (battery 19). UI test: one weight, AM / PM 60 %. |
+| L-16 (no layout loops; marquee by transform) | Implemented, Unverified | UI tests: the row and the marquee move by transform; every running animation changes only transform or opacity; overflow measured once per title. |
+| L-17 (counts match what loads) | Implemented, Unverified | `library check (L-17): the copy counted 10 games; 10 loaded (match)`. Rust test on a copy shaped like the user's; UI test: Home shows 10. |
+| L-20 | Verified for T0 | Sign-in starts are now marked (QA-4). |
 
 ## Limitations
 
-- No Boot Up, Home, Settings or game launching yet (T1+).
+- No drawer, background video, Boot Up or game launching yet (T1.2, T1.3); A on a game is logged only.
+- No right-stick pointer yet (reference A7); the right stick does nothing on Home.
+- Wi-Fi signal strength is not shown (always the full Wi-Fi icon).
+- Interface Scale and the light / dark preset cannot be changed in the app before Settings (T3); `--interface-scale` exists for testing.
+- The copy dialogs still show plain-text hints ("A Select · B Not now"); glyphs come with the dialog work in T2.
 - A library kept outside the WPF data folder (its "Games Folder" setting) is not copied.
 - The copy cannot be cancelled once started.
 - Steam Input or other tools that add a virtual XInput pad can show one press on two slots.
-- Under the copy dialog, the wordmark is half-visible (alpha.1 QA-2): carried into T1 (frame).
+- Under the copy dialog Home is suspended (no ring, title, hover or prompts) and dimmed (alpha.1 QA-2).

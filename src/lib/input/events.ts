@@ -1,5 +1,5 @@
 // One input event shape for every source, so controller, keyboard and mouse reach the same
-// readout (T0) and, from T1, the same actions (Master Prompt A4).
+// actions (Master Prompt A4).
 import type { PadEvent } from '../core/types';
 
 export type InputSource = 'controller' | 'keyboard' | 'mouse';
@@ -66,7 +66,7 @@ export function fromWheel(deltaY: number): InputEvent | null {
   return { source: 'mouse', kind: 'down', control: deltaY < 0 ? 'Wheel up' : 'Wheel down' };
 }
 
-/** The few actions the T0 dialog needs. The full action map comes in T1. */
+/** The actions Home and the dialogs use (T1.1). More come with the Quick Menu (T2). */
 export type UiAction = 'confirm' | 'back' | 'left' | 'right' | 'up' | 'down';
 
 const ACTIONS: Record<InputSource, Record<string, UiAction>> = {
@@ -105,10 +105,17 @@ export function toAction(ev: InputEvent): UiAction | null {
   return action;
 }
 
-/** One log line for an input the UI acted on (alpha.1 QA-7): source, kind, control, slot,
- *  the core's sequence number, the press count after it, and the action, if any. */
-export function describeInput(ev: InputEvent, presses: number, action: UiAction | null): string {
+/** One log line for a press or repeat the UI received: source, kind, control, slot, the
+ *  core's sequence number, the action, and what it did (focus move, sound), so "one press, one
+ *  action, one sound" can be proven from the log. */
+export function describeInput(ev: InputEvent, action: UiAction | null, outcome?: string): string {
   const where = ev.pad === undefined ? ev.source : `${ev.source} ${ev.pad}`;
   const seq = ev.seq === undefined ? '' : ` seq ${ev.seq}`;
-  return `input ${ev.kind} ${ev.control} (${where}${seq}) -> presses ${presses}${action ? `, action ${action}` : ''}`;
+  const what = action ? `action ${action}` : 'no action';
+  return `input ${ev.kind} ${ev.control} (${where}${seq}) -> ${what}${outcome ? `, ${outcome}` : ''}`;
+}
+
+/** D-006 / B-3: a key release, like the pad's: `input up <key> (keyboard), held N ms, R repeats`. */
+export function describeKeyRelease(control: string, heldMs: number, repeats: number): string {
+  return `input up ${control} (keyboard), held ${heldMs} ms, ${repeats} repeats`;
 }

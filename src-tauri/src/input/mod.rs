@@ -5,6 +5,7 @@
 //! connected; empty slots are probed once a second; with no pad connected the thread sleeps
 //! 250 ms between checks (idle CPU stays near zero).
 
+pub mod gate;
 pub mod mapping;
 #[cfg(windows)]
 mod xinput;
@@ -64,15 +65,20 @@ pub fn pad_slots() -> PadSlots {
     }
 }
 
-/// Starts the input thread. `emit` receives every event (called on the input thread).
-pub fn start(emit: impl Fn(PadEvent) + Send + 'static) {
+/// Starts the input thread. `emit` receives every event the UI may act on (called on the input
+/// thread). B-7: while AIONE is in the background, only Guide reaches `emit`; a Guide press in
+/// the background also calls `guide_in_background` (the core brings AIONE to the front).
+pub fn start(
+    emit: impl Fn(PadEvent) + Send + 'static,
+    guide_in_background: impl Fn() + Send + 'static,
+) {
     #[cfg(windows)]
     {
-        xinput::start(emit);
+        xinput::start(emit, guide_in_background);
     }
     #[cfg(not(windows))]
     {
-        let _ = emit;
+        let _ = (emit, guide_in_background);
         crate::logging::warn(
             "input",
             "XInput is only available on Windows; no controller input",

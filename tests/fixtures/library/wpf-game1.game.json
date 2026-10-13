@@ -1,0 +1,14 @@
+{
+  "Name": "FATAL FRAME 4",
+  "Shortcut": "game.lnk",
+  "Thumbnail": "thumbnail.png",
+  "Background": "background.png",
+  "Hero": "hero.png",
+  "Icon": "icon.ico",
+  "Portrait": "portrait.jpg",
+  "Favorite": false,
+  "Hidden": false,
+  "PlayCount": 0,
+  "PlayTimeMinutes": 0,
+  "LastSessionMinutes": 0
+}

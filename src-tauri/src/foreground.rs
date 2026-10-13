@@ -17,8 +17,94 @@
 //! polling) for a short time after start. If another program takes the foreground and the
 //! user is not switching (Alt / Win / a mouse button not held), AIONE takes it back, at most
 //! three times. Every event is logged.
+//!
+//! **Closing (T0 QA-5):** when exit begins (window close requested, or the app is asked to
+//! exit), `closing()` stops the guard at once and marks AIONE as closing, so Windows giving the
+//! foreground to another window *because AIONE's window closes* is never logged as "the user
+//! switched away".
+//!
+//! **B-7:** `aione_is_foreground()` tells the input thread whether AIONE's main window is the
+//! foreground window, so pad input in the background is logged but not acted on (except Guide).
 
 use serde::Serialize;
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
+
+/// AIONE's main window handle (0 until the window exists).
+static MAIN_HWND: AtomicIsize = AtomicIsize::new(0);
+/// Set when exit begins (QA-5).
+static CLOSING: AtomicBool = AtomicBool::new(false);
+
+pub fn set_main_window(raw: isize) {
+    MAIN_HWND.store(raw, Ordering::SeqCst);
+}
+
+pub fn main_window() -> isize {
+    MAIN_HWND.load(Ordering::SeqCst)
+}
+
+pub fn is_closing() -> bool {
+    CLOSING.load(Ordering::SeqCst)
+}
+
+/// Exit begins: stop the guard (with that reason) and ignore later foreground changes.
+/// Must be called on the main thread (where the guard's hook lives). Idempotent.
+pub fn closing(reason: &str) {
+    if !CLOSING.swap(true, Ordering::SeqCst) {
+        stop_guard(reason);
+    }
+}
+
+/// What the guard does with one foreground change to another program (pure, tested).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GuardDecision {
+    /// AIONE is closing: ignore (QA-5); the guard is already off.
+    IgnoreClosing,
+    /// The guard's time is over: switch it off.
+    TimeUp,
+    /// Alt / Win / a mouse button is held: the user switched; switch the guard off.
+    UserSwitched,
+    /// Taken back the maximum number of times: switch the guard off.
+    LimitReached,
+    /// Take the foreground back.
+    TakeBack,
+}
+
+pub fn guard_decision(
+    closing: bool,
+    expired: bool,
+    user_keys_held: bool,
+    reclaims: u32,
+    max_reclaims: u32,
+) -> GuardDecision {
+    if closing {
+        GuardDecision::IgnoreClosing
+    } else if expired {
+        GuardDecision::TimeUp
+    } else if user_keys_held {
+        GuardDecision::UserSwitched
+    } else if reclaims >= max_reclaims {
+        GuardDecision::LimitReached
+    } else {
+        GuardDecision::TakeBack
+    }
+}
+
+/// B-7: whether AIONE's main window is the foreground window. True when unknown (no window
+/// yet, or not Windows), so nothing is dropped by mistake before the window exists.
+pub fn aione_is_foreground() -> bool {
+    let own = main_window();
+    if own == 0 {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        win::is_foreground_raw(own)
+    }
+    #[cfg(not(windows))]
+    {
+        true
+    }
+}
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct ForegroundReport {
@@ -119,6 +205,12 @@ mod win {
     fn is_foreground(h: HWND) -> bool {
         // SAFETY: plain query.
         unsafe { GetForegroundWindow() == h }
+    }
+
+    /// B-7: the foreground window is AIONE's main window (top-level windows only; the web
+    /// view is a child of it).
+    pub fn is_foreground_raw(own: isize) -> bool {
+        is_foreground(hwnd(own))
     }
 
     /// "explorer.exe (pid 1234)" for the window's process, or "none".
@@ -296,6 +388,9 @@ mod win {
     /// Must be called on the main (UI) thread: WinEvent callbacks arrive on the installing
     /// thread's message loop.
     pub fn start_guard(own: isize, seconds: u64) {
+        if super::is_closing() {
+            return;
+        }
         // SAFETY: out-of-context hook with a static callback; unhooked in stop_guard.
         let hook = unsafe {
             SetWinEventHook(
@@ -363,11 +458,6 @@ mod win {
         let (own, reclaim) = {
             let Ok(mut lock) = GUARD.lock() else { return };
             let Some(g) = lock.as_mut() else { return };
-            if Instant::now() > g.until {
-                drop(lock);
-                stop_guard("time is up");
-                return;
-            }
             let mut pid = 0u32;
             // SAFETY: valid out pointer.
             unsafe { GetWindowThreadProcessId(window, Some(&mut pid)) };
@@ -375,27 +465,44 @@ mod win {
             if pid == unsafe { GetCurrentProcessId() } {
                 return;
             }
-            let who = describe_window(window);
             let user = [VK_MENU.0, VK_LWIN.0, VK_RWIN.0, VK_LBUTTON.0, VK_RBUTTON.0]
                 .into_iter()
                 .any(key_down);
-            if user {
-                logging::lifecycle(
-                    Level::Info,
-                    &format!("foreground moved to {who} by the user (Alt / Win / mouse held)"),
-                );
-                drop(lock);
-                stop_guard("the user switched away");
-                return;
-            }
-            if g.reclaims >= MAX_RECLAIMS {
-                logging::lifecycle(
-                    Level::Warn,
-                    &format!("foreground taken by {who}; limit reached, not taking it back"),
-                );
-                drop(lock);
-                stop_guard("limit reached");
-                return;
+            let decision = super::guard_decision(
+                super::is_closing(),
+                Instant::now() > g.until,
+                user,
+                g.reclaims,
+                MAX_RECLAIMS,
+            );
+            let who = describe_window(window);
+            match decision {
+                // QA-5: AIONE's own window is closing; Windows hands the foreground on.
+                super::GuardDecision::IgnoreClosing => return,
+                super::GuardDecision::TimeUp => {
+                    drop(lock);
+                    stop_guard("time is up");
+                    return;
+                }
+                super::GuardDecision::UserSwitched => {
+                    logging::lifecycle(
+                        Level::Info,
+                        &format!("foreground moved to {who} by the user (Alt / Win / mouse held)"),
+                    );
+                    drop(lock);
+                    stop_guard("the user switched away");
+                    return;
+                }
+                super::GuardDecision::LimitReached => {
+                    logging::lifecycle(
+                        Level::Warn,
+                        &format!("foreground taken by {who}; limit reached, not taking it back"),
+                    );
+                    drop(lock);
+                    stop_guard("limit reached");
+                    return;
+                }
+                super::GuardDecision::TakeBack => {}
             }
             g.reclaims += 1;
             logging::lifecycle(
@@ -419,7 +526,52 @@ mod win {
 
 #[cfg(test)]
 mod tests {
-    use super::focus_wording;
+    use super::{focus_wording, guard_decision, GuardDecision};
+
+    /// T0 QA-5: once exit has begun, a foreground change is never read as the user switching
+    /// away (Alt is still held from Alt+F4 when Windows hands the foreground on).
+    #[test]
+    fn closing_wins_over_every_other_reason() {
+        assert_eq!(
+            guard_decision(true, false, true, 0, 3),
+            GuardDecision::IgnoreClosing
+        );
+        assert_eq!(
+            guard_decision(true, true, false, 3, 3),
+            GuardDecision::IgnoreClosing
+        );
+        assert_eq!(
+            guard_decision(false, false, true, 0, 3),
+            GuardDecision::UserSwitched
+        );
+        assert_eq!(
+            guard_decision(false, true, true, 0, 3),
+            GuardDecision::TimeUp
+        );
+        assert_eq!(
+            guard_decision(false, false, false, 3, 3),
+            GuardDecision::LimitReached
+        );
+        assert_eq!(
+            guard_decision(false, false, false, 1, 3),
+            GuardDecision::TakeBack
+        );
+    }
+
+    #[test]
+    fn closing_is_idempotent_and_sticky() {
+        assert!(!super::is_closing());
+        super::closing("AIONE is closing");
+        super::closing("AIONE is closing");
+        assert!(super::is_closing());
+    }
+
+    #[test]
+    fn foreground_is_assumed_until_the_window_exists() {
+        // No main window yet: nothing is dropped as "background".
+        assert_eq!(super::main_window(), 0);
+        assert!(super::aione_is_foreground());
+    }
 
     #[test]
     fn web_view_inside_aione_reaches_aione() {

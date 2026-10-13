@@ -1,5 +1,36 @@
 # Changelog
 
+## 4.0.0-alpha.4 — T1.1: the library and a still Home
+
+- **Home (Switch-style, still):** status header (clock with a smaller AM / PM, controller,
+  network, battery), the game row from the library with the focus ring and its blink, the
+  selected game's title with a marquee for long titles, the footer with Kenney prompts and the
+  "AIONE" branding. Controller, keyboard and mouse (hover only; first click selects, second click
+  starts: L-06). Light (default) and dark presets. Empty and error states. Starting a game is
+  logged only (launching comes in T1.3). No drawer or background video yet (T1.2).
+- **Sizes follow the window and Interface Scale** (alpha.1 QA-6); the header at half rate; the
+  tiles follow Tile Size. `--interface-scale=90..150` sets it for one run until Settings exist.
+- **Library loader (B-6, L-17):** the copied WPF games are converted once into AIONE 4's own
+  `Games\` (the WPF layout, plus `AioneSchema`), with a `library.json` record; the copy stays
+  untouched. Logs `library loaded: N games …` and the L-17 check against the copy's count. Game art
+  is served only from a game's own folder (`aione-media` protocol).
+- **Menu sounds:** move #24, select #09, back #15 through AIONE's own gain stages; one sound per
+  action; held directions paced to at most every 180 ms.
+- **D-006 (B-3 rev. e):** only the arrow keys repeat; Enter, Space, Esc and modifiers never do;
+  key releases are logged `input up <key> (keyboard), held N ms, R repeats`.
+- **B-7:** in the background only Guide acts (it brings AIONE to the front); every other pad
+  input is logged "(AIONE in the background: logged, not acted on)". The T0 readout is gone.
+- **T0 QA-4:** the Start with Windows entry runs `"<exe>" --from-autostart`, logged at start.
+- **T0 QA-5:** the foreground guard stops when exit begins.
+- **Header status:** battery (laptops) and network (wired / Wi-Fi / offline) from the core,
+  pushed on change (one 30 s check in the core).
+- **Perf log (A7):** a `perf` line every 10 s and on each screen change.
+- **WebView2 autoplay:** `--autoplay-policy=no-user-gesture-required`, so menu sounds play for
+  pad-only use.
+- **Docs:** `AIONE_DESIGN_SYSTEM.md` started in full; logo and Boot Up proposals
+  (`docs/brand/LOGO_PROPOSALS.md`, tool `tools/brand/make_t11_bootup.py`).
+- **Tests:** Rust 71 (was 50); Vitest 52; Playwright 31 with 24 screenshots.
+
 ## 4.0.0-alpha.3 — T0 fixes, logo and Boot Up sound proposals
 
 - **D-004 (B-6):** the copy record reads from every earlier version. Fields are optional with

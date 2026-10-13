@@ -7,7 +7,11 @@
 //!
 //! Start with Windows: `AIONE4.exe --autostart=on|off` writes / removes the value "AIONE 4" in
 //! `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` and exits (T0 has no Settings yet; the
-//! setting comes with Settings in T3).
+//! setting comes with Settings in T3). The entry runs `"<exe>" --from-autostart`, so a start at
+//! Windows sign-in is marked in the log on its own (T0 QA-4; L-20 in T9).
+//!
+//! `--interface-scale=90..150` (steps of 10) sets Interface Scale for this run only, until the
+//! setting exists (T3). It is never stored.
 
 use crate::logging::{self, Level};
 use std::path::PathBuf;
@@ -15,11 +19,19 @@ use std::time::Duration;
 
 pub const WAIT_TIMEOUT: Duration = Duration::from_secs(15);
 pub const RUN_VALUE_NAME: &str = "AIONE 4";
+/// Passed by the Start with Windows entry (T0 QA-4).
+pub const FROM_AUTOSTART: &str = "--from-autostart";
+/// Interface Scale steps (reference A8: 90–150 % by 10).
+pub const SCALE_STEPS: [u32; 7] = [90, 100, 110, 120, 130, 140, 150];
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Args {
     pub wait_for_pid: Option<u32>,
     pub autostart: Option<bool>,
+    /// Started by the Start with Windows entry (`--from-autostart`).
+    pub from_autostart: bool,
+    /// `--interface-scale=N` for this run (percent, one of `SCALE_STEPS`).
+    pub interface_scale: Option<u32>,
     pub unknown: Vec<String>,
 }
 
@@ -43,11 +55,23 @@ pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Args {
                 "off" | "false" | "0" => out.autostart = Some(false),
                 _ => out.unknown.push(a),
             }
+        } else if a == FROM_AUTOSTART {
+            out.from_autostart = true;
+        } else if let Some(v) = a.strip_prefix("--interface-scale=") {
+            match v.trim_end_matches('%').parse::<u32>() {
+                Ok(n) if SCALE_STEPS.contains(&n) => out.interface_scale = Some(n),
+                _ => out.unknown.push(a),
+            }
         } else {
             out.unknown.push(a);
         }
     }
     out
+}
+
+/// The command the Start with Windows entry runs: the exe in quotes, then the marker.
+pub fn autostart_command(exe: &std::path::Path) -> String {
+    format!("\"{}\" {FROM_AUTOSTART}", exe.display())
 }
 
 /// Waits for the previous instance to exit. Returns a log line describing what happened.
@@ -180,6 +204,18 @@ pub fn log_start(args: &Args) {
             std::env::args().skip(1).collect::<Vec<_>>()
         ),
     );
+    if args.from_autostart {
+        logging::lifecycle(
+            Level::Info,
+            "started by Windows at sign-in (the Start with Windows entry passed --from-autostart)",
+        );
+    }
+    if let Some(n) = args.interface_scale {
+        logging::lifecycle(
+            Level::Info,
+            &format!("Interface Scale {n} % for this run (--interface-scale; not stored)"),
+        );
+    }
     if !args.unknown.is_empty() {
         logging::lifecycle(
             Level::Warn,
@@ -238,8 +274,7 @@ mod win {
     pub fn set_autostart(enable: bool) -> Result<String, String> {
         let name = HSTRING::from(super::RUN_VALUE_NAME);
         if enable {
-            let exe = super::exe_path();
-            let value = format!("\"{}\"", exe.display());
+            let value = super::autostart_command(&super::exe_path());
             let wide: Vec<u16> = value.encode_utf16().chain(std::iter::once(0)).collect();
             // SAFETY: the data pointer and byte length describe `wide`.
             let rc = unsafe {
@@ -291,6 +326,38 @@ mod tests {
         assert_eq!(p(&["--autostart=on"]).autostart, Some(true));
         assert_eq!(p(&["--autostart=OFF"]).autostart, Some(false));
         assert_eq!(p(&[]), Args::default());
+        assert!(p(&["--from-autostart"]).from_autostart);
+        assert_eq!(p(&["--interface-scale=150"]).interface_scale, Some(150));
+        assert_eq!(p(&["--interface-scale=90%"]).interface_scale, Some(90));
+    }
+
+    #[test]
+    fn interface_scale_accepts_only_the_steps() {
+        for bad in [
+            "--interface-scale=155",
+            "--interface-scale=80",
+            "--interface-scale=x",
+        ] {
+            let a = p(&[bad]);
+            assert_eq!(a.interface_scale, None, "{bad}");
+            assert_eq!(a.unknown, vec![bad]);
+        }
+    }
+
+    /// T0 QA-4: the Start with Windows entry carries the marker, after the quoted exe path.
+    #[test]
+    fn autostart_entry_passes_the_marker() {
+        let cmd = autostart_command(std::path::Path::new(r"D:\Games\AIONE 4\AIONE4.exe"));
+        assert_eq!(cmd, r#""D:\Games\AIONE 4\AIONE4.exe" --from-autostart"#);
+        // What Windows runs at sign-in parses back to a marked start.
+        let args: Vec<String> = cmd
+            .split('"')
+            .nth(2)
+            .unwrap()
+            .split_whitespace()
+            .map(String::from)
+            .collect();
+        assert!(parse_args(args).from_autostart);
     }
 
     #[test]

@@ -1,23 +1,25 @@
 # AIONE 4 — Architecture
 
-Current as of **4.0.0-alpha.3 (T0)**. Rules: Master Prompt Part A (A3 technology, A4 input, A5 window and lifecycle, A9 data).
+Current as of **4.0.0-alpha.4 (T1.1)**. Rules: Master Prompt Part A (A3 technology, A4 input, A5 window and lifecycle, A9 data).
 
 ## Overview
 
 ```
-┌──────────────────────────── AIONE4.exe (Tauri 2) ────────────────────────────┐
-│ Rust core (src-tauri/)                       │ TypeScript UI (src/, Svelte 5) │
-│                                              │                                │
-│ lifecycle.rs  args, restart wait, autostart  │ App.svelte   first window     │
-│ paths.rs      %LOCALAPPDATA%\AIONE4, \AIONE  │ lib/core     Core interface   │
-│ logging.rs    aione.log, lifecycle.log       │   tauri.ts   invoke + listen  │
-│ foreground.rs take / hold the foreground     │   mock.ts    UI tests only    │
-│ input/        XInput thread → aione://pad    │ lib/input    events, readout  │
-│ library.rs    what counts as a game          │ lib/migrationFlow copy dialog │
-│ migration.rs  one-time copy of WPF data      │ components/  readout, dialog  │
-│ lib.rs        commands, window, app setup    │ app.css      design tokens    │
-└──────────────────────────────────────────────┴────────────────────────────────┘
-          commands (UI → core)  ·  events (core → UI)
+┌──────────────────────────── AIONE4.exe (Tauri 2) ─────────────────────────────┐
+│ Rust core (src-tauri/)                        │ TypeScript UI (src/, Svelte 5)  │
+│                                               │                                 │
+│ lifecycle.rs  args, restart, autostart marker │ App.svelte   input owner, shell │
+│ paths.rs      %LOCALAPPDATA%\AIONE4, \AIONE   │ lib/core     Core (tauri, mock) │
+│ logging.rs    aione.log, lifecycle.log        │ lib/home     Home + pure model  │
+│ foreground.rs foreground, guard, closing      │ lib/frame    header, footer,    │
+│ input/        XInput thread, B-7 gate (gate)  │              glyphs, marquee    │
+│ library.rs    what counts as a game (scan)    │ lib/input    events, keys, pads │
+│ games.rs      conversion, loading, media      │ lib/audio    menu sounds        │
+│ status.rs     battery and network             │ lib/perf     perf log           │
+│ migration.rs  one-time copy of WPF data       │ components/  copy dialog        │
+│ lib.rs        commands, media protocol, setup │ app.css      design tokens      │
+└───────────────────────────────────────────────┴─────────────────────────────────┘
+          commands (UI → core)  ·  events (core → UI)  ·  aione-media (images)
 ```
 
 The core owns everything that touches the system; the UI owns everything the user sees (A3). The UI never reads files or the controller itself.
@@ -33,6 +35,12 @@ The core owns everything that touches the system; the UI owns everything the use
 | `migration_decide(accept)` | copy (background thread) or record "declined" (final). "Not now" (B) calls nothing: the question returns at the next start (B-2). |
 | `pad_slots` | the controller slots connected right now and the sequence number of the last connect / disconnect (D-002) |
 | `restart_app` | start a new instance that waits for this one, then exit |
+| `library_load` | convert the WPF copy once if needed, load `Games\`, log the L-17 lines; returns the games, skipped entries, notes and the copy's count |
+| `status_now` | battery and network right now (then `aione://status` events) |
+
+**Media protocol:** `http://aione-media.localhost/<game id>/<slot>` serves one image slot
+(`Thumbnail`, `Background`, `Hero`, `Icon`, `Portrait`) from that game's own folder in `Games\`.
+Anything else (other slots, `..`, absolute paths, unknown games) is a 404. CSP `img-src` allows it.
 
 ## Events (core → UI)
 
@@ -40,7 +48,8 @@ The core owns everything that touches the system; the UI owns everything the use
 |---|---|
 | `aione://pad` | `{ kind: down/up/repeat/connected/disconnected, control, pad (0–3), seq }` |
 | `aione://copy-progress` | `{ filesDone, filesTotal, bytesDone, bytesTotal }` (about every 100 ms) |
-| `aione://copy-done` | the copy result (outcome, counts, source unchanged, notes) |
+| `aione://copy-done` | the copy result (outcome, counts, source unchanged, notes); the UI reloads the library after it |
+| `aione://status` | `{ network: wired/wifi/offline/unknown, battery: { percent, charging } or null }`, only on change |
 
 ## Start-up sequence
 
@@ -189,3 +198,38 @@ record is missing or unreadable, a new one is written.
 - `npm run check:version | check:assets | typecheck | lint | test | build`, `npm run test:ui` (Playwright against `vite build --mode mock`).
 - `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test` in `src-tauri/`.
 - CI (`.github/workflows/ci.yml`, Windows): all of the above, `tauri build --no-bundle`, the portable zip, the pre-release.
+
+## T1.1 additions
+
+**Input path (A4, A6, B-7).** The XInput thread asks `foreground::aione_is_foreground()` for
+every pad event; `input/gate.rs` decides: in front, everything goes to the UI; in the background,
+only Guide (which also brings AIONE to the front), and everything else is logged "(AIONE in the
+background: logged, not acted on)". A hold that began in the background never acts. In the UI,
+`App.svelte` is the one owner of input: each event becomes one action for the active context
+(the copy dialog when open, else Home). Keyboard repeats come from `KeyRepeater` (only the
+arrows repeat); key releases are logged with their hold time.
+
+**Home.** `lib/home/model.ts` is the pure state (focus, the first tile in view, the mouse's
+selected and hovered tiles); `Home.svelte` draws it. The row moves by a CSS transform from the
+first-in-view index (no measuring). The title's marquee measures overflow once per title.
+
+**Library (B-6).** `games.rs` converts `Imported\AIONE-WPF\Games\` once into `Games\`
+(staged in `Games.converting\`, renamed at the end), adds `AioneSchema: 1` to each `game.json`
+and keeps every other field, and writes `library.json` (`schema`, `origin`, `convertedFrom`,
+`at`, `appVersion`, `games`, `skipped`; all optional). If `Games\` exists, it never converts
+again. Unreadable files are backed up once (`*.unreadable-<time>`) and reported. A newer schema is
+read, never rewritten. Fixtures: `tests/fixtures/library/`.
+
+**Sounds.** `lib/audio/sounds.ts`: one AudioContext, three decoded buffers, gain stages
+Volume × Mute × menu × play. WebView2 runs with `--autoplay-policy=no-user-gesture-required`, so a
+pad-only user hears sounds (pad input is not a browser gesture).
+
+**Timers and loops (A7).** UI: the header clock (one timeout to the next minute), the key
+repeater (only while an arrow is held), the press feedback (90 ms), the perf log (10 s, with 5 s
+of frame sampling). Core: XInput polling (8 ms with a pad, 250 ms without), the status check
+(30 s). Animations: the ring blink (focused tile), the marquee (long titles only).
+
+**Lifecycle.** `--from-autostart` marks sign-in starts. Exit (close requested or exit requested)
+calls `foreground::closing`, which stops the guard first (T0 QA-5). `--interface-scale=N` sets
+`--scale` for one run.
+

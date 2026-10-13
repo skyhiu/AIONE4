@@ -7,6 +7,41 @@ export interface AppInfo {
   logsDir: string;
   platform: string;
   pid: number;
+  /** Interface Scale in percent for this run (100 until Settings exist; `--interface-scale`). */
+  interfaceScale: number;
+  fromAutostart: boolean;
+}
+
+/** A game as the core reads it from AIONE 4's library (`Games\\<folder>\\game.json`). */
+export interface GameView {
+  /** The game's folder name (unique). */
+  id: string;
+  name: string;
+  /** The media slot shown on the tile ("Thumbnail", …), or null for a plain tile. */
+  tileArt: string | null;
+  favorite: boolean;
+  hidden: boolean;
+  category: string | null;
+  playCount: number;
+  playTimeMinutes: number;
+}
+
+export interface LibraryLoad {
+  state: 'loaded' | 'empty' | 'error';
+  /** Every game (hidden ones included), sorted by name. */
+  games: GameView[];
+  source: string;
+  skipped: IgnoredEntry[];
+  notes: string[];
+  /** How many games the copy counted (L-17), if known. */
+  expected: number | null;
+}
+
+/** The PC's status for the header (the core pushes changes). */
+export interface PcStatus {
+  network: 'wired' | 'wifi' | 'offline' | 'unknown';
+  /** null: no battery in this PC. */
+  battery: { percent: number | null; charging: boolean } | null;
 }
 
 /** A normalized controller event from the Rust core (XInput). */
@@ -96,6 +131,11 @@ export interface Core {
   /** D-002: the controller slots connected right now. */
   padSlots(): Promise<PadSlots>;
   restart(): Promise<void>;
+  libraryLoad(): Promise<LibraryLoad>;
+  /** URL of a game's media slot (served only from the game's own folder). */
+  mediaUrl(gameId: string, slot: string): string;
+  statusNow(): Promise<PcStatus>;
+  onStatus(handler: (status: PcStatus) => void): Promise<Unlisten>;
   onPad(handler: (event: PadEvent) => void): Promise<Unlisten>;
   onCopyProgress(handler: (progress: CopyProgress) => void): Promise<Unlisten>;
   onCopyDone(handler: (result: CopyResult) => void): Promise<Unlisten>;

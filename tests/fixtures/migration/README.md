@@ -1,7 +1,7 @@
 # Stored-file fixtures (B-6)
 
 Every released AIONE 4 version's stored files, with personal paths replaced (`C:\Users\Player`).
-Unit tests read them (Rust: `src-tauri/src/migration.rs`; the mocked UI: `tests/ui/t0.spec.ts`).
+Unit tests read them (Rust: `src-tauri/src/migration.rs`; the mocked UI: `tests/ui/copy.spec.ts`).
 Never edit a fixture to make a test pass: a later version must read them as they are.
 
 | File | Written by | How it was obtained |

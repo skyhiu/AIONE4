@@ -1,0 +1,17 @@
+{
+  "Name": "Zero Escape The Nonary Games",
+  "Category": "Steam",
+  "Shortcut": "game.url",
+  "SteamAppId": "477740",
+  "Thumbnail": "thumbnail.png",
+  "Background": "background.png",
+  "Hero": "hero.png",
+  "Icon": "icon.png",
+  "Portrait": "portrait.png",
+  "Favorite": false,
+  "Hidden": false,
+  "PlayCount": 0,
+  "PlayTimeMinutes": 0,
+  "LastSessionMinutes": 0,
+  "AioneSchema": 1
+}

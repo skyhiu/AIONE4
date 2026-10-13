@@ -1,167 +1,9 @@
 import { expect, test } from '@playwright/test';
 import { mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { SCREENSHOT_DIR, contrastOf, expectInViewport, expectNoOverflow, shot } from './helpers';
+import { SCREENSHOT_DIR, expectInViewport, expectNoOverflow, shot } from './helpers';
 
 const pkg = JSON.parse(readFileSync('package.json', 'utf8')) as { version: string };
-
-test.describe('T0 first window (mocked core)', () => {
-  for (const vp of [
-    { w: 1920, h: 1080 },
-    { w: 1280, h: 720 },
-    { w: 2560, h: 1440 },
-  ]) {
-    test(`shows AIONE 4 and the version at ${vp.w}x${vp.h}`, async ({ page }) => {
-      await page.setViewportSize({ width: vp.w, height: vp.h });
-      await page.goto('./');
-      await expect(page.getByTestId('wordmark')).toHaveText('AIONE 4');
-      await expect(page.getByTestId('version')).toHaveText(`Version ${pkg.version}`);
-      await expect(page.getByTestId('copy-dialog')).toHaveCount(0);
-      await expectNoOverflow(page);
-      await expectInViewport(page, '[data-testid="wordmark"], [data-testid="version"], [data-testid="readout"]');
-      expect(await contrastOf(page, '[data-testid="wordmark"]')).toBeGreaterThanOrEqual(4.5);
-      expect(await contrastOf(page, '[data-testid="version"]')).toBeGreaterThanOrEqual(4.5);
-      // The background is one flat colour (L-09).
-      const bg = await page.evaluate(() => getComputedStyle(document.querySelector('main') ?? document.body).backgroundImage);
-      expect(bg).toBe('none');
-      await shot(page, `t0-home-${vp.w}x${vp.h}`);
-    });
-  }
-
-  test('tells the core once that the first frame is drawn', async ({ page }) => {
-    await page.goto('./');
-    await expect(page.getByTestId('version')).toContainText(pkg.version);
-    await expect.poll(() => page.evaluate(() => window.__aioneMock?.uiReadyCalls)).toBe(1);
-  });
-
-  test('readout: one controller press shows once; keyboard and mouse reach the same readout', async ({ page }) => {
-    await page.goto('./');
-    await expect(page.getByTestId('version')).toContainText(pkg.version);
-
-    await expect(page.getByTestId('readout-pads')).toHaveText('No controller connected');
-    // Like the core: the pad connects before its first press.
-    await page.evaluate(() => {
-      window.__aioneMock?.pad('A', 'down');
-      window.__aioneMock?.pad('A', 'up');
-    });
-    await expect(page.getByTestId('readout-last')).toHaveText('A (controller 1)');
-    await expect(page.getByTestId('readout-presses')).toHaveText('1');
-    await expect(page.getByTestId('readout-releases')).toHaveText('1');
-    await expect(page.getByTestId('readout-pads')).toHaveText('Controller connected: slot 1');
-
-    // Held direction: one press plus repeats.
-    await page.evaluate(() => {
-      window.__aioneMock?.pad('DPadDown', 'down');
-      window.__aioneMock?.pad('DPadDown', 'repeat');
-      window.__aioneMock?.pad('DPadDown', 'repeat');
-      window.__aioneMock?.pad('DPadDown', 'up');
-    });
-    await expect(page.getByTestId('readout-presses')).toHaveText('2');
-    await expect(page.getByTestId('readout-repeats')).toHaveText('2');
-
-    await page.keyboard.press('ArrowRight');
-    await expect(page.getByTestId('readout-last')).toHaveText('Right (keyboard)');
-    await expect(page.getByTestId('readout-presses')).toHaveText('3');
-
-    await page.mouse.click(400, 300);
-    await expect(page.getByTestId('readout-last')).toHaveText('Left click (mouse)');
-    await expect(page.getByTestId('readout-presses')).toHaveText('4');
-    await expect(page.getByTestId('readout-sources')).toHaveText('Controller 2 · Keyboard 1 · Mouse 1');
-    // Every press and repeat the UI acted on is logged once, with the core's sequence number.
-    const logs = (await page.evaluate(() => window.__aioneMock?.logs)) ?? [];
-    const inputLines = logs.filter((l) => l.startsWith('info: input '));
-    expect(inputLines).toEqual([
-      'info: input down A (controller 1 seq 2) -> presses 1, action confirm',
-      'info: input down DPadDown (controller 1 seq 4) -> presses 2, action down',
-      'info: input repeat DPadDown (controller 1 seq 5) -> presses 2, action down',
-      'info: input repeat DPadDown (controller 1 seq 6) -> presses 2, action down',
-      'info: input down Right (keyboard) -> presses 3, action right',
-      'info: input down Left click (mouse) -> presses 4',
-    ]);
-    await shot(page, 't0-readout-after-inputs');
-  });
-
-  test('D-002: a pad connected before the UI listens shows as connected from the start', async ({ page }) => {
-    await page.goto('./?pad=connected');
-    await expect(page.getByTestId('version')).toContainText(pkg.version);
-    // No press, no connect event reached the UI: the state comes from the core's answer.
-    await expect(page.getByTestId('readout-pads')).toHaveText('Controller connected: slot 1');
-    await expect(page.getByTestId('readout-presses')).toHaveText('0');
-    expect(await page.evaluate(() => window.__aioneMock?.padSlotsCalls)).toBe(1);
-    const logs = (await page.evaluate(() => window.__aioneMock?.logs)) ?? [];
-    expect(logs).toContain('info: controller slots at start: [1] (as of seq 1)');
-    await shot(page, 't0-pad-connected-at-start');
-    // Later changes still arrive as events.
-    await page.evaluate(() => window.__aioneMock?.disconnect(0));
-    await expect(page.getByTestId('readout-pads')).toHaveText('No controller connected');
-  });
-
-  test('D-006: an arrow key repeats at 400 ms then every 90 ms; Alt never repeats', async ({ page }) => {
-    await page.goto('./');
-    await expect(page.getByTestId('version')).toContainText(pkg.version);
-    // Hold ArrowRight for 2 s while sending Windows-style repeated keydowns every 33 ms
-    // (Playwright marks a keydown of a held key as repeat: true).
-    const t0 = await page.evaluate(() => performance.now());
-    await page.keyboard.down('ArrowRight');
-    for (let i = 0; i < 55; i++) {
-      await page.waitForTimeout(33);
-      await page.keyboard.down('ArrowRight');
-    }
-    const held = await page.evaluate(() => performance.now());
-    await page.waitForTimeout(Math.max(0, 2000 - (held - t0)));
-    const released = await page.evaluate(() => performance.now());
-    await page.keyboard.up('ArrowRight');
-    const { logs, times } = await page.evaluate(() => ({
-      logs: window.__aioneMock?.logs ?? [],
-      times: window.__aioneMock?.logTimes ?? [],
-    }));
-    const at = (needle: string) => logs.flatMap((l, i) => (l.includes(needle) ? [times[i] ?? 0] : []));
-    const down = at('input down Right (keyboard)');
-    const reps = at('input repeat Right (keyboard)');
-    expect(down).toHaveLength(1);
-    const first = (reps[0] ?? 0) - (down[0] ?? 0);
-    const gaps = reps.slice(1).map((t, i) => t - (reps[i] ?? 0));
-    const mean = gaps.reduce((a, b) => a + b, 0) / Math.max(1, gaps.length);
-    console.warn(
-      `D-006 arrow: first repeat ${first.toFixed(0)} ms, ${reps.length} repeats, mean gap ${mean.toFixed(1)} ms`,
-    );
-    expect(first).toBeGreaterThan(380);
-    // Bounds allow for coarser Windows timers on the CI runner (about 15.6 ms steps).
-    expect(first).toBeLessThan(480);
-    expect(mean).toBeGreaterThan(84);
-    expect(mean).toBeLessThan(110);
-    // As many repeats as AIONE's timing gives for the real hold time (not one per Windows
-    // repeat: 55 were sent).
-    const holdMs = released - (down[0] ?? 0);
-    const expected = Math.floor((holdMs - 400) / 90) + 1;
-    expect(Math.abs(reps.length - expected)).toBeLessThanOrEqual(2);
-    expect(reps.length).toBeLessThan(55);
-
-    // Alt held 2 s with Windows-style repeats: one down, no repeats.
-    await page.keyboard.down('Alt');
-    for (let i = 0; i < 55; i++) {
-      await page.waitForTimeout(33);
-      await page.keyboard.down('Alt');
-    }
-    await page.keyboard.up('Alt');
-    const after = (await page.evaluate(() => window.__aioneMock?.logs)) ?? [];
-    expect(after.filter((l) => l.includes('input down Alt (keyboard)'))).toHaveLength(1);
-    expect(after.filter((l) => l.includes('input repeat Alt'))).toHaveLength(0);
-    await shot(page, 't0-readout-after-key-holds');
-  });
-
-  test('blocked browser keys do not reload the page; restart shortcut reaches the core', async ({ page }) => {
-    await page.goto('./');
-    await expect(page.getByTestId('version')).toContainText(pkg.version);
-    await page.keyboard.press('ArrowDown');
-    await page.keyboard.press('F5');
-    await page.keyboard.press('Control+r');
-    // A reload would reset the readout.
-    await expect(page.getByTestId('readout-presses')).not.toHaveText('0');
-    await page.keyboard.press('Control+Shift+R');
-    await expect.poll(() => page.evaluate(() => window.__aioneMock?.restarts)).toBe(1);
-  });
-});
 
 test.describe('T0 copy offer (mocked core)', () => {
   test('asks with Copy focused, plain counts and hints; controller copies; result shows counts', async ({ page }) => {
@@ -265,6 +107,7 @@ test.describe('T0 copy offer (mocked core)', () => {
     await page.goto('./?migration=offer');
     await expect(page.getByTestId('copy-dialog')).toHaveAttribute('data-phase', 'ask');
     await page.mouse.move(10, 10);
+    await page.mouse.move(40, 40, { steps: 4 }); // deliberate movement (A7)
     await expect(page.getByTestId('screen')).toHaveAttribute('data-input', 'mouse');
     const outline = await page.getByTestId('copy-accept').evaluate((el) => getComputedStyle(el).outlineColor);
     expect(outline).toBe('rgba(0, 0, 0, 0)');
@@ -274,7 +117,7 @@ test.describe('T0 copy offer (mocked core)', () => {
     expect(await page.evaluate(() => window.__aioneMock?.decisions)).toEqual([false]);
     // QA-5: the click line names the action it activated.
     const logs = (await page.evaluate(() => window.__aioneMock?.logs)) ?? [];
-    expect(logs).toContain('info: input click "Don\'t copy" (mouse) -> action dont-copy');
+    expect(logs.some((l) => l.startsWith('info: input click "Don\'t copy" (mouse) -> action dont-copy'))).toBe(true);
   });
 
   test('a partial copy says so', async ({ page }) => {
@@ -290,13 +133,13 @@ test.describe('T0 copy offer (mocked core)', () => {
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('copy-dialog')).toHaveCount(0);
     const logs = (await page.evaluate(() => window.__aioneMock?.logs)) ?? [];
-    expect(logs).toContain('info: input click "Copy" (mouse) -> action copy');
+    expect(logs.some((l) => l.startsWith('info: input click "Copy" (mouse) -> action copy'))).toBe(true);
   });
 
   for (const record of ['alpha1', 'alpha2']) {
     test(`B-6: started over the ${record} record, no question appears`, async ({ page }) => {
       await page.goto(`./?migration=offer&record=${record}`);
-      await expect(page.getByTestId('version')).toContainText(pkg.version);
+      await expect(page.getByTestId('screen')).toHaveAttribute('data-version', pkg.version);
       // Give the startup query time to answer, then make sure nothing appeared.
       await page.waitForTimeout(500);
       await expect(page.getByTestId('copy-dialog')).toHaveCount(0);
@@ -318,7 +161,7 @@ test.describe('T0 copy offer (mocked core)', () => {
 
   test('no dialog when the data was handled before', async ({ page }) => {
     await page.goto('./?migration=handled');
-    await expect(page.getByTestId('version')).toContainText(pkg.version);
+    await expect(page.getByTestId('screen')).toHaveAttribute('data-version', pkg.version);
     await expect(page.getByTestId('copy-dialog')).toHaveCount(0);
   });
 });
