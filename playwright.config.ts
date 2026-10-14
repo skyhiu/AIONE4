@@ -13,7 +13,11 @@ export default defineConfig({
   workers: 1,
   forbidOnly: !!process.env['CI'],
   retries: 0,
-  reporter: [['list'], ['html', { open: 'never', outputFolder: 'playwright-report' }]],
+  // In CI also the "github" reporter: each failing test becomes a GitHub annotation (test name,
+  // file, line, the error with expected / received), readable through api.github.com.
+  reporter: process.env['CI']
+    ? [['github'], ['list'], ['html', { open: 'never', outputFolder: 'playwright-report' }]]
+    : [['list'], ['html', { open: 'never', outputFolder: 'playwright-report' }]],
   use: {
     baseURL: 'http://127.0.0.1:4173',
     trace: 'retain-on-failure',

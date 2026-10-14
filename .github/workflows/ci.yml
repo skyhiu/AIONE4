@@ -58,42 +58,56 @@ jobs:
           echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
 
       - name: npm ci
-        run: npm ci
+        id: npmci
+        run: node scripts/ci-run.mjs "npm ci" -- npm ci
 
+      # Every check below runs even if an earlier one failed (one CI run reports all failures),
+      # and each failure becomes a GitHub annotation (file, line, test name, the key message),
+      # readable through api.github.com: check-runs -> annotations (A11 rev. n, the CI loop).
       - name: Assets (licence files, pinned Material Symbols)
-        run: npm run check:assets
+        if: ${{ !cancelled() && steps.npmci.outcome == 'success' }}
+        run: node scripts/ci-run.mjs "Assets" -- npm run check:assets
 
       - name: Type check
-        run: npm run typecheck
+        if: ${{ !cancelled() && steps.npmci.outcome == 'success' }}
+        run: node scripts/ci-run.mjs "Type check" -- npm run typecheck
 
       - name: Lint
-        run: npm run lint
+        if: ${{ !cancelled() && steps.npmci.outcome == 'success' }}
+        run: node scripts/ci-run.mjs "Lint" -- npm run lint
 
       - name: Unit tests (Vitest)
-        run: npm test
+        if: ${{ !cancelled() && steps.npmci.outcome == 'success' }}
+        run: npx vitest run --reporter=default --reporter=github-actions
 
       - name: Frontend build
-        run: npm run build
+        id: build
+        if: ${{ !cancelled() && steps.npmci.outcome == 'success' }}
+        run: node scripts/ci-run.mjs "Frontend build" -- npm run build
 
       - name: Built files (D-009, the real build's sounds)
-        run: npm run check:built
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: node scripts/ci-run.mjs "Built files" -- npm run check:built
 
       - name: Rust format
-        working-directory: src-tauri
-        run: cargo fmt --check
+        if: ${{ !cancelled() && steps.npmci.outcome == 'success' }}
+        run: node scripts/ci-run.mjs "Rust format" --cwd src-tauri -- cargo fmt --check
 
       - name: Rust lint (clippy)
-        working-directory: src-tauri
-        run: cargo clippy --all-targets --locked -- -D warnings
+        if: ${{ !cancelled() && steps.npmci.outcome == 'success' }}
+        run: node scripts/ci-run.mjs "Rust lint" --cwd src-tauri -- cargo clippy --all-targets --locked -- -D warnings
 
       - name: Rust tests
-        working-directory: src-tauri
-        run: cargo test --locked
+        if: ${{ !cancelled() && steps.npmci.outcome == 'success' }}
+        run: node scripts/ci-run.mjs "Rust tests" --cwd src-tauri -- cargo test --locked
 
       - name: Playwright browser
-        run: npx playwright install chromium
+        id: browser
+        if: ${{ !cancelled() && steps.npmci.outcome == 'success' }}
+        run: node scripts/ci-run.mjs "Playwright browser" -- npx playwright install chromium
 
       - name: UI tests (Playwright, mocked core)
+        if: ${{ !cancelled() && steps.browser.outcome == 'success' }}
         run: npm run test:ui
 
       - name: Upload ui-screenshots
@@ -116,11 +130,11 @@ jobs:
           retention-days: 14
 
       - name: Windows build (Tauri, no installer)
-        run: npx tauri build --ci --no-bundle
+        run: node scripts/ci-run.mjs "Windows build" -- npx tauri build --ci --no-bundle
 
       - name: Package portable zip
         shell: pwsh
-        run: ./scripts/package-windows.ps1 -Version '${{ steps.version.outputs.version }}'
+        run: node scripts/ci-run.mjs "Package" -- pwsh -NoProfile -File ./scripts/package-windows.ps1 -Version '${{ steps.version.outputs.version }}'
 
       - name: Upload Windows build
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
