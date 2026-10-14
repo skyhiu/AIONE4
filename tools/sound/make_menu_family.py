@@ -247,7 +247,7 @@ def build(src, recipe):
 # C# (a change of place), edge bump low A (dull), confirm F# (a step above the move), back D (a
 # step below), error F -> E, launch A, toggle on E / off C#, open a destination A-C#-E, Home low A.
 # Targets: loudness of the loudest 30 ms (LUFS); the frequent sounds are the softest.
-TARGET = {"wrap": -21.0, "options_open": -15.0, "options_close": -19.0, "drag_tick": -32.0, "row_move": -24.0, "drawer_move": -23.0, "row_drawer": -21.0, "edge_bump": -34.0, "confirm": -18.0,
+TARGET = {"wrap": -22.0, "options_open": -15.0, "options_close": -19.0, "scroll_tick": -32.0, "row_move": -24.0, "drawer_move": -23.0, "row_drawer": -21.0, "edge_bump": -34.0, "confirm": -18.0,
           "back": -19.0, "error": -19.0, "launch": -16.0, "toggle_on": -20.0, "toggle_off": -20.0,
           "open": -18.0, "home": -18.0}
 
@@ -265,10 +265,11 @@ def L(group, file, length, tau, note=None, **kw):
 
 
 RECIPES = {
+    # rev. v: the click around 4.2 kHz like Switch's (C8, 4186 Hz; alpha.11's sat at 5.27 kHz).
     "row_move": [
-        {"id": "A", "label": "Clicky button, tiny (your move B, cut to 8 ms)", "layers": [L(R1, "clicky button 7", 9, 2.0, "E", pick="first", hp=1200)]},
-        {"id": "B", "label": "Button pressed, tiny", "layers": [L(R1, "button pressed 3", 9, 2.0, "E", hp=1200)]},
-        {"id": "C", "label": "Ratchet tick, tiny", "layers": [L(M1, "clicky squeaky knob 17", 8, 1.8, "E", hp=1800)]},
+        {"id": "A", "label": "Clicky button, tiny, 4.2 kHz", "layers": [L(R1, "clicky button 7", 9, 2.0, "C", pick="first", hp=1200, band=(3300, 5000))]},
+        {"id": "B", "label": "Button pressed, tiny, 4.2 kHz", "layers": [L(R1, "button pressed 3", 9, 2.0, "C", hp=1200, band=(3300, 5000))]},
+        {"id": "C", "label": "Ratchet tick, tiny, 4.2 kHz", "layers": [L(M1, "clicky squeaky knob 17", 8, 1.8, "C", hp=1800, band=(3300, 5000))]},
     ],
     "drawer_move": [
         {"id": "A", "label": "Mouse click", "layers": [L(R1, "mouse click 2", 14, 3.0, "A", hp=600)]},
@@ -286,14 +287,15 @@ RECIPES = {
         {"id": "B", "label": "Plastic switch, low tick", "layers": [L(R1, "plastic switch 2", 30, 7, "E", hold=1, hp=600, lp=6000, band=(1800, 3500))]},
         {"id": "C", "label": "Button pressed, soft", "layers": [L(R1, "button pressed 3", 30, 7, "E", hold=1, hp=600, lp=6000, band=(1800, 3500))]},
     ],
-    # rev. s: louder than the click (+3 dB), about 90 ms, with a short low tail.
+    # rev. u / v: the click (a little louder, about +2 dB) plus a soft low sweep (about 35 ms, about
+    # 12 dB below the click) about 60 ms later. Alpha.11's (183 ms, as loud as the click) is gone.
     "wrap": [
-        {"id": "A", "label": "Click + low thump (90 ms)", "layers": [
-            L(R1, "clicky button 7", 14, 3.5, "E", pick="first", hp=900),
-            L(R4, "wood drop 1", 90, 28, "A", hold=3, hp=50, lp=900, band=(60, 500), gain=-4, at=4, ring=True)]},
-        {"id": "B", "label": "Switch + low spring (90 ms)", "layers": [
-            L(R2, "switch press 3", 16, 4, "E", hp=700),
-            L(M6, "spring medium hit 2", 90, 28, "A", hold=3, hp=50, lp=900, band=(60, 500), gain=-4, at=4, ring=True)]},
+        {"id": "A", "label": "Click + soft metal slide, about 1.3 kHz (60 ms later)", "layers": [
+            L(R1, "clicky button 7", 9, 2.0, "C", pick="first", hp=1200, band=(3300, 5000)),
+            L(M5, "small metal plate slide 1", 35, 10, "E", pick="first", hold=4, hp=500, lp=2400, band=(900, 1700), gain=-2, at=60, ring=True)]},
+        {"id": "B", "label": "Click + soft sliding door (60 ms later)", "layers": [
+            L(R1, "clicky button 7", 9, 2.0, "C", pick="first", hp=1200, band=(3300, 5000)),
+            L(R3, "small sliding door opens 2", 35, 10, "E", pick="first", hold=4, hp=500, lp=2400, band=(900, 1700), gain=-2, at=60, ring=True)]},
     ],
     # rev. s: open about 50 ms, bright (about 3 kHz, F#7), the loudest; close about 50 ms, lower
     # (about 2.1 kHz, C#7) with a low tail.
@@ -309,10 +311,15 @@ RECIPES = {
             L(R3, "switch 3", 50, 12, "C#", hold=2, hp=400, band=(1500, 3000)),
             L(M6, "spring medium hit 2", 70, 22, "A", hold=3, hp=50, lp=800, band=(60, 500), gain=-8, at=3, ring=True)]},
     ],
-    # rev. s: a soft, low tick (about 1.6-1.8 kHz, A6) as tiles pass while dragging (B-16).
-    "drag_tick": [
-        {"id": "A", "label": "Soft click, A6 (1.76 kHz)", "layers": [L(R1, "mouse click 2", 12, 3, "A", hp=400, lp=5000, band=(1200, 2400))]},
-        {"id": "B", "label": "Soft button, A6", "layers": [L(R1, "button pressed 3", 12, 3, "A", hp=400, lp=5000, band=(1200, 2400))]},
+    # rev. u: the row-scroll tick (also the drag tick, B-16): soft and low (about 1.3-1.9 kHz, A6),
+    # about 5-6 dB below the click; played 60-90 ms after the click when the row scrolls.
+    "scroll_tick": [
+        # The overtones are filtered out (lp 2.2 kHz), so the main energy really sits at about
+        # 1.6 kHz like Switch's (alpha.12's first build measured 3.46 kHz: a second high click).
+        # (The tool filters before tuning; a source pitched up moves its cut-off up with it, so A is
+        # the one needing almost no shift.)
+        {"id": "A", "label": "Soft low button tick, about 1.6 kHz", "layers": [L(R1, "button pressed 3", 16, 4, "G#", hp=600, lp=1700, band=(1200, 2200))]},
+        {"id": "B", "label": "Soft low click, about 1.6 kHz", "layers": [L(R1, "mouse click 2", 16, 4, "G#", hp=600, lp=1400, band=(1200, 2200))]},
     ],
     "confirm": [
         {"id": "A", "label": "Button + glass (your select A)", "layers": [
@@ -367,9 +374,9 @@ RECIPES = {
     ],
 }
 # Wired in AIONE now (the ones Home uses); the others are for their stages.
-WIRED = {"row_move": "A", "drawer_move": "A", "edge_bump": "A", "confirm": "A", "back": "A", "error": "A", "wrap": "A", "options_open": "A", "options_close": "A"}
+WIRED = {"row_move": "A", "drawer_move": "A", "edge_bump": "A", "confirm": "A", "back": "A", "error": "A", "wrap": "A", "options_open": "A", "options_close": "A", "scroll_tick": "A"}
 # rev. r: no separate row <-> drawer sound (entering a section plays its own move sound).
-PROPOSED_ONLY = ["row_drawer", "drag_tick", "launch", "toggle_on", "toggle_off", "open", "home"]
+PROPOSED_ONLY = ["row_drawer", "launch", "toggle_on", "toggle_off", "open", "home"]
 
 
 def main(src, out, repo=None):
@@ -409,7 +416,7 @@ ROLE_TEXT = {
     "wrap": "The row whipping to its other end (rev. s: louder than the click, about 90 ms, a low tail).",
     "options_open": "Opening a game's options with the pad's Menu or Tab (rev. s: bright, the loudest).",
     "options_close": "Closing the options (rev. s: lower, with a low tail).",
-    "drag_tick": "Each tile passing while dragging the row with the mouse or a finger (B-16).",
+    "scroll_tick": "Added 60-90 ms after the click when the row itself scrolls; also the drag tick (B-16).",
     "confirm": "A on a drawer button or in a dialog.", "back": "B (a step lower than confirm).",
     "error": "Not available, e.g. the \"Coming in a later stage\" toast.",
     "launch": "Starting a game (T1.3).", "toggle_on": "A toggle turned on (T2+).", "toggle_off": "A toggle turned off (T2+).",

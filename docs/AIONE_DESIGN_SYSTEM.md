@@ -244,3 +244,20 @@ scales text; tiles follow the window only).
   180 ms), `labelfade` (opacity 0 and +4 px → rest, 150 ms), `titlefade` (120 ms); all on;
   `--extras=none` off.
 
+## Rev. u / v (alpha.12) — current values, superseding the sections above where they differ
+- **Ring:** outside in: a halo (an 8 px blur, 3 px spread, in #FF46A2; its opacity follows the
+  flash), the ring (7 px, #FF46A2 always; the peak layer #FF69B4), a 2 px bright edge (#FF8CC6),
+  a 4 px white band, the picture (13 px in all). Same in both presets.
+- **Title and drawer label:** #FF46A2 (the user's choice, like Switch; 2.65:1 on #EBEBEB).
+- **Row:** tiles' top at 291 (the ring's top at 278). Ends: a resting press (> 400 ms after the
+  last move) wraps (200 ms); otherwise a ring bump (14 px, overshoot 6, 150 ms), once per hold
+  and direction.
+- **Drawer:** the discs centred at 818 px (1080 p, 100 %); icons in palette harmonies (light:
+  #1F7FE0, #0F9A55, #8F7C00, #E0287F, #4646FF, #5A9410; dark: the light originals), weight + 200,
+  58 design px.
+- **Header:** clock 47 px (digits about 34 px), icons 38 px, the battery percentage before its
+  icon, centred 105 px from the top, all at half rate with Interface Scale.
+- **Footer:** text 2.23 rem (capitals about 26 px), glyphs 2.25 rem.
+- **Sounds:** the click C8 (4186 Hz); `rowScroll` = the click, then the scroll tick 65 ms later
+  (G#6 about 1.7 kHz, −32 LUFS); the wrap = the click (+2 dB) and a soft sweep 60 ms later.
+

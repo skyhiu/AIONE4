@@ -22,16 +22,22 @@ import errorUrl from '../../../assets/sounds/filmcow-menu/error.wav?url';
 import wrapUrl from '../../../assets/sounds/filmcow-menu/wrap.wav?url';
 import optionsOpenUrl from '../../../assets/sounds/filmcow-menu/options_open.wav?url';
 import optionsCloseUrl from '../../../assets/sounds/filmcow-menu/options_close.wav?url';
+import scrollTickUrl from '../../../assets/sounds/filmcow-menu/scroll_tick.wav?url';
 
-export type SoundName = 'rowMove' | 'drawerMove' | 'edgeBump' | 'wrap' | 'confirm' | 'back' | 'error' | 'optionsOpen' | 'optionsClose';
+export type SoundName = 'rowMove' | 'drawerMove' | 'edgeBump' | 'wrap' | 'confirm' | 'back' | 'error' | 'optionsOpen' | 'optionsClose' | 'scrollTick';
+/** What App asks for: a file, or 'rowScroll' (the click now and the scroll tick 65 ms later). */
+export type SoundRequest = SoundName | 'rowScroll';
+/** B-1 (rev. u): the row-scroll tick comes 60-90 ms after the click (measured 44-89 ms). */
+export const SCROLL_TICK_DELAY_S = 0.065;
 
 /** AIONE's sounds by function and place (B-1 rev. q), made from FilmCow recordings by
  *  tools/sound/make_menu_family.py (one family in A major; docs/sound/SOUND_MAPPING.md). */
 export const SOUND_FILES: Record<SoundName, { file: string; source: string; url: string }> = {
-  rowMove: { file: 'row_move.wav', source: 'FilmCow "clicky button 7", cut to 8 ms (your move B)', url: rowMoveUrl },
+  rowMove: { file: 'row_move.wav', source: 'FilmCow "clicky button 7", 10 ms, C8 4186 Hz (rev. v: about 4.2 kHz like Switch)', url: rowMoveUrl },
+  scrollTick: { file: 'scroll_tick.wav', source: 'FilmCow "mouse click 2", A6, 5.5 dB below the click (rev. u; also the drag tick)', url: scrollTickUrl },
   drawerMove: { file: 'drawer_move.wav', source: 'FilmCow "mouse click 2"', url: drawerMoveUrl },
   edgeBump: { file: 'edge_bump.wav', source: 'FilmCow "mouse click 2", 30 ms, E7, -10 dB below the click (rev. s)', url: edgeBumpUrl },
-  wrap: { file: 'wrap.wav', source: 'FilmCow "clicky button 7" + "wood drop 1" (+3 dB, low tail; rev. s)', url: wrapUrl },
+  wrap: { file: 'wrap.wav', source: 'FilmCow "clicky button 7" + "small metal plate slide 1" (the click, then a soft sweep 60 ms later, about 11 dB below; rev. u / v)', url: wrapUrl },
   optionsOpen: { file: 'options_open.wav', source: 'FilmCow "switch press 3", F#7, the loudest (rev. s)', url: optionsOpenUrl },
   optionsClose: { file: 'options_close.wav', source: 'FilmCow "metal switch 1" + "wood drop 1", C#7, low tail (rev. s)', url: optionsCloseUrl },
   confirm: { file: 'confirm.wav', source: 'FilmCow "mechanical button 8" + "glass ding 4" (your select A)', url: confirmUrl },
@@ -97,7 +103,7 @@ export class MenuSounds {
     );
     const ms = Math.round(performance.now() - started);
     if (failures.length === 0) {
-      this.log(`menu sounds ready: ${this.buffers.size} sounds (FilmCow family: row move, drawer move, edge bump, wrap, confirm, back, error, options open, options close) decoded in ${ms} ms; audio ${ctx.state}`);
+      this.log(`menu sounds ready: ${this.buffers.size} sounds (FilmCow family: row move, scroll tick, drawer move, edge bump, wrap, confirm, back, error, options open, options close) decoded in ${ms} ms; audio ${ctx.state}`);
     } else {
       this.log(
         `menu sounds ${this.buffers.size ? 'partly ' : ''}unavailable: ${this.buffers.size} of ${names.length} loaded in ${ms} ms; failed: ${failures.join('; ')}`,
@@ -112,7 +118,18 @@ export class MenuSounds {
 
   /** Plays one sound for one action (B-1 rev. p: every move, every repeat included; a sound
    *  never stacks on itself). Returns 'played' or 'unavailable' (not loaded), for the log. */
-  play(name: SoundName, gainDb = 0): 'played' | 'unavailable' {
+  play(request: SoundRequest, gainDb = 0): 'played' | 'unavailable' {
+    // B-1 (rev. u): when the row scrolls, its low tick joins the click 65 ms later (scheduled on
+    // the audio clock, sample-accurate).
+    if (request === 'rowScroll') {
+      const r = this.play('rowMove', gainDb);
+      if (r === 'played') this.start('scrollTick', gainDb, SCROLL_TICK_DELAY_S);
+      return r;
+    }
+    return this.start(request, gainDb, 0);
+  }
+
+  private start(name: SoundName, gainDb: number, delayS: number): 'played' | 'unavailable' {
     const ctx = this.ctx;
     const buf = this.buffers.get(name);
     if (!ctx || !buf || !this.menu) return 'unavailable';
@@ -130,7 +147,7 @@ export class MenuSounds {
       g.disconnect();
     };
     this.voices.set(name, src);
-    src.start();
+    src.start(delayS > 0 ? ctx.currentTime + delayS : 0);
     return 'played';
   }
 

@@ -1,5 +1,28 @@
 # Changelog
 
+## 4.0.0-alpha.12 — rev. u / v: side by side with the user's Switch recordings
+
+- **B-14 (rev. u):** at the row's ends, a resting press (> 0.4 s after the last move) wraps at
+  once (200 ms whip, the wrap sound); fast scrolling or a held repeat bumps the ring (14 px,
+  overshoot 6, 150 ms), once per hold.
+- **D-019:** the pad repeats only the newest held direction (the other resumes after 400 ms
+  when it's released); the bump memory per direction.
+- **B-1 (rev. u / v):** the click at about 4.2 kHz (C8; alpha.11's 5.27 kHz); the row-scroll tick
+  (about 1.7 kHz, about 5 dB below the click) 65 ms after the click whenever the row scrolls; the
+  wrap as the click plus a soft sweep about 11 dB below, 60 ms later (99 ms; alpha.11's 183 ms).
+- **B-9 (rev. v), D-020:** the ring always brand pink #FF46A2, only slightly lighter (#FF69B4)
+  at the peak; a soft halo (8 px blur) that swells and fades; outside in: halo, ring, a 2 px
+  bright edge, a 4 px white band, the picture (the edge was inside the band in alpha.11).
+- **B-8 (rev. v):** the title and the drawer's focused label in #FF46A2.
+- **B-14 (rev. v):** the header about 2x (clock 47 px, icons 38 px, the battery percentage),
+  centred at 105 px; the footer text 1.35x; drawer icons in palette harmonies, heavier; the ring's
+  top at about 278 px; the drawer's discs centred at 818 px (measured side by side).
+- **The Options toast (rev. u):** the Options button, B or Esc close it with the close sound; the
+  timeout closes it silently; a replacement is logged.
+- **Side by side (A10):** `sound.mp4`'s 28 presses replayed on AIONE (frames and sound); the
+  comparison images in the handoff.
+- **Tests:** Rust 85; Vitest 57; Playwright 83 with 114 screenshots.
+
 ## 4.0.0-alpha.11 — the last build of T1.2 (rev. s / t)
 
 - **Release guard (alpha.10 QA-1):** a release only when app code changed, named explicitly in

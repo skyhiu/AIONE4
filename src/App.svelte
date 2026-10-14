@@ -20,7 +20,7 @@
   import { choose, flowAction, flowDone, flowProgress, initialFlow, type FlowEffect, type FlowState } from './lib/migrationFlow';
   import { isBlockedBrowserKey, isRestartShortcut } from './lib/input/shortcuts';
   import { KeyRepeater, type ReleaseInfo } from './lib/input/keyRepeat';
-  import { MenuSounds, type SoundName } from './lib/audio/sounds';
+  import { MenuSounds, type SoundRequest } from './lib/audio/sounds';
   import { PerfLog } from './lib/perf/perf';
   import { deviceAfter, type GlyphDevice } from './lib/frame/glyphs';
   import {
@@ -140,7 +140,7 @@
   }
 
   /** The log wording for one sound request (QA-6: says what really happened). */
-  function play(name: SoundName, gainDb = 0): string {
+  function play(name: SoundRequest, gainDb = 0): string {
     return sounds.play(name, gainDb) === 'played' ? `sound ${name}${gainDb ? ` (${gainDb} dB)` : ''}` : 'no sound (sounds unavailable)';
   }
 
@@ -148,17 +148,21 @@
    *  (the tile or button stays still), with the edge-bump sound. A held direction bumps once:
    *  its repeats at the same edge do nothing. */
   let bump = $state<{ dir: 'left' | 'right' | 'up' | 'down'; n: number; zone: 'row' | 'drawer' } | null>(null);
-  let bumpHeld: string | null = null;
-  /** B-14 (rev. s): a blocked move bumps the ring only (never the row), with the edge-bump sound;
-   *  once per held press. */
+  /** D-019: the directions that already bumped in their current hold (one memory per
+   *  direction, cleared when that direction is released). */
+  const bumpedHolds: Record<string, boolean> = {};
+  /** B-14 (rev. q / s / u): a blocked move bumps the ring only, with the edge-bump sound (instead
+   *  of the click, never with it); once per held direction. */
   function edge(dir: 'left' | 'right' | 'up' | 'down', kind: 'press' | 'repeat', what: string): string {
-    if (kind === 'repeat' && bumpHeld === dir) return `${what}, held: no bump`;
-    bumpHeld = dir;
+    if (kind === 'repeat' && bumpedHolds[dir]) return `${what}, held: no bump`;
+    bumpedHolds[dir] = true;
     bump = { dir, n: (bump?.n ?? 0) + 1, zone: home.zone };
     return `${what}, bump ${dir}, ${play('edgeBump')}`;
   }
-  /** B-14 (rev. s): the end where a fresh press has already bumped (the next one wraps). */
-  let endPressBumped: string | null = null;
+  /** B-14 (rev. u): a press more than about 0.4 s after the previous move is "resting": at an end
+   *  it wraps at once; sooner (fast scrolling) or a held repeat bumps. */
+  const RESTING_MS = 400;
+  let lastMoveAt = 0;
   /** The row whips to its other end in 200 ms (its normal slide is 170 ms). */
   let wrapping = $state(false);
   let wrapTimer: ReturnType<typeof setTimeout> | null = null;
@@ -183,7 +187,12 @@
   }
 
   function handleInput(ev: InputEvent) {
-    if (ev.kind === 'up') return;
+    if (ev.kind === 'up') {
+      // D-019: a released direction may bump again on its next hold.
+      const released = toAction({ ...ev, kind: 'down' });
+      if (released) bumpedHolds[released] = false;
+      return;
+    }
     // A9: the input lock. During the black hold, Boot Up and Boot Down nothing in AIONE is
     // reachable; input is discarded (never queued). Its exceptions (alpha.9 QA-4):
     //   - the Boot Up's skip (A, B, Enter, Esc, a click);
@@ -257,27 +266,22 @@
         if (home.zone === 'drawer') {
           const [next, moved] = moveDrawer(home, dir);
           home = next;
-          if (moved) bumpHeld = null;
           return moved ? `drawer ${DRAWER[home.drawer]?.label}, ${play('drawerMove')}` : edge(action, kind, 'end of drawer');
         }
         const [next, moved] = move(home, dir);
+        const sinceMove = performance.now() - lastMoveAt;
         if (moved) {
+          // B-1 (rev. u): when the row itself scrolls, its low tick joins the click.
+          const scrolled = next.first !== home.first;
           home = next;
-          bumpHeld = null;
-          endPressBumped = null;
+          lastMoveAt = performance.now();
           holdRepeats = kind === 'repeat' ? holdRepeats + 1 : 0;
           const quiet = holdRepeats > QUIET_AFTER ? QUIET_DB : 0;
-          return `${where(home.focus)}, ${play('rowMove', quiet)}`;
+          return `${where(home.focus)}${scrolled ? ' (row scrolls)' : ''}, ${play(scrolled ? 'rowScroll' : 'rowMove', quiet)}`;
         }
-        // B-14 (rev. s): at the row's end only the ring bumps. Holding: once per hold. The first
-        // fresh press at this end: another bump. The next press at the same end: the wrap.
-        if (kind === 'repeat') return edge(action, kind, 'end of row');
-        if (endPressBumped !== action) {
-          endPressBumped = action;
-          return edge(action, kind, 'end of row');
-        }
-        endPressBumped = null;
-        bumpHeld = null;
+        // B-14 (rev. u): at the row's end. Held, or fast scrolling (the previous move under about
+        // 0.4 s ago): a ring bump, once per hold. A resting press: the wrap at once, no bump.
+        if (kind === 'repeat' || sinceMove <= RESTING_MS) return edge(action, kind, `end of row${kind === 'repeat' ? '' : ` (${Math.round(sinceMove)} ms after the last move)`}`);
         wrapping = true;
         if (wrapTimer) clearTimeout(wrapTimer);
         wrapTimer = setTimeout(() => {
@@ -285,14 +289,14 @@
           wrapTimer = null;
         }, 260);
         home = wrapRow(home, dir);
-        return `wrap to ${dir > 0 ? 'the first game' : 'the last slot'}: ${where(home.focus)}, ${play('wrap')}`;
+        lastMoveAt = performance.now();
+        return `wrap to ${dir > 0 ? 'the first game' : 'the last slot'} (resting ${Math.round(sinceMove)} ms): ${where(home.focus)}, ${play('wrap')}`;
       }
       case 'up':
       case 'down': {
         const [next, moved] = moveZone(home, action);
         home = next;
         if (!moved) return edge(action, kind, home.zone === 'drawer' ? 'nothing below the drawer' : 'nothing above the row');
-        bumpHeld = null;
         // B-1 (rev. r): entering a section plays that section's own move sound.
         return home.zone === 'drawer'
           ? `to the drawer: ${DRAWER[home.drawer]?.label}, ${play('drawerMove')}`
@@ -304,9 +308,11 @@
         if (home.focus >= games.length) return 'empty slot: A does nothing';
         return start(home.focus, 'press');
       case 'options': {
-        // B-14: "+ Options" on a game; the game's options come in T4. B-1 (rev. s): the open
-        // sound now, the close sound when the toast is dismissed (B, or after 2.4 s).
+        // B-14: "+ Options" on a game; the game's options come in T4. Rev. u: ≡ / Tab while the
+        // Options toast shows closes it (like Switch's panel), with the close sound.
+        if (optionsToast) return `options: ${closeOptionsToast('the Options button')}`;
         if (home.zone !== 'row' || home.focus >= games.length) return 'options: nothing here';
+        if (toast) core?.log('info', 'toast replaced by the Options toast');
         toast = 'Coming in a later stage';
         optionsToast = true;
         if (toastTimer) clearTimeout(toastTimer);
@@ -333,9 +339,12 @@
     toast = null;
     if (toastTimer) clearTimeout(toastTimer);
     toastTimer = null;
-    const line = `closed (${how}), ${play('optionsClose')}`;
-    if (how === 'timeout') core?.log('info', `options toast ${line}`);
-    return line;
+    // Rev. u: closing by a button plays the close sound; the timeout closes silently.
+    if (how === 'timeout') {
+      core?.log('info', 'options toast closed (timeout), no sound');
+      return 'closed (timeout)';
+    }
+    return `closed (${how}), ${play('optionsClose')}`;
   }
 
   /** T1.2: the drawer's screens come in later stages (T2–T4); a press shows a plain toast. */
@@ -352,6 +361,10 @@
       drawerPressed = null;
       drawerPressTimer = null;
     }, 280);
+    if (optionsToast) {
+      optionsToast = false;
+      core?.log('info', 'options toast replaced by the drawer toast (no close sound)');
+    }
     toast = 'Coming in a later stage';
     if (toastTimer) clearTimeout(toastTimer);
     toastTimer = setTimeout(() => {

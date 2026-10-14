@@ -166,8 +166,8 @@
     // B-14 (rev. r, re-measured): snappy. The full push within one frame (16 ms), back past the
     // centre by about 66 ms (overshoot 6 px sideways, 4 px up / down), a 2–4 px wobble settled by
     // about 200 ms (sideways) or 180 ms (up / down).
-    // The row's ends (rev. s, measured): about 14 px, overshoot about 4, settled in about 150 ms.
-    const [out, back, wob, dur] = b.zone === 'row' && horizontal ? [14, 4, 2, 150] : horizontal ? [15, 6, 3, 200] : [12, 4, 2, 180];
+    // The row's ends (rev. u, measured): about 14 px, overshoot about 6, settled in about 150 ms.
+    const [out, back, wob, dur] = b.zone === 'row' && horizontal ? [14, 6, 2, 150] : horizontal ? [15, 6, 3, 200] : [12, 4, 2, 180];
     ring.dataset['bump'] = String(b.n);
     ring.animate(
       [
@@ -252,7 +252,7 @@
             </div>
             <span class="hover-line" aria-hidden="true"></span>
             <span class="ring" aria-hidden="true" data-owner="home-ring"
-              ><span class="ring-line"></span><span class="ring-line ring-alt"></span></span
+              ><span class="ring-halo"></span><span class="ring-line"></span><span class="ring-line ring-alt"></span></span
             >
 
           </div>
@@ -270,7 +270,7 @@
             role="presentation"
           >
             <span class="ring" aria-hidden="true" data-owner="home-ring"
-              ><span class="ring-line"></span><span class="ring-line ring-alt"></span></span
+              ><span class="ring-halo"></span><span class="ring-line"></span><span class="ring-line ring-alt"></span></span
             >
             <span class="hover-line" aria-hidden="true"></span>
           </div>
@@ -343,13 +343,13 @@
     left: 0;
     right: 0;
     top: 0;
-    height: calc((309 + 398 + 16) * var(--px));
+    height: calc((291 + 398 + 16) * var(--px));
     overflow: clip;
   }
   .track {
     position: absolute;
     left: calc(155 * var(--px));
-    top: calc(309 * var(--px));
+    top: calc(291 * var(--px));
     display: flex;
     gap: calc(12 * var(--px));
     transform: translateX(calc(var(--first) * -410 * var(--px)));
@@ -407,16 +407,16 @@
 
   /* B-14 / B-9 (rev. p): the focus ring is 7 px, directly around the art (no gap), and jumps
      to the next tile instantly (no fade, no slide). */
-  /* B-9 (rev. s, measured on Switch), from outside in: a faint halo (4 px, a pale accent tint at
-     low opacity), the ring (7 px), a bright edge (1.5 px, the peak tint), a 4 px pure white band
-     before the picture (both presets). 4 + 1.5 + 7 = 12.5 px outside the art. */
+  /* B-9 (rev. v), from outside in: a soft halo (an 8 px blur in the ring's colour, swelling and
+     fading), the ring (7 px, brand pink #FF46A2 always), a bright edge (2 px), a 4 px pure white
+     band, the picture (13 px in all). D-020: the edge is the TOP inset shadow, so it sits next
+     to the ring and the white band below it (alpha.11 had the two in the other order). */
   .ring {
     position: absolute;
-    inset: calc(-12.5 * var(--px));
+    inset: calc(-13 * var(--px));
     border-radius: calc(14 * var(--px));
     opacity: 0;
     pointer-events: none;
-    box-shadow: 0 0 0 calc(4 * var(--px)) var(--color-ring-halo);
   }
   .ring-line {
     position: absolute;
@@ -424,8 +424,16 @@
     border-radius: inherit;
     border: calc(7 * var(--px)) solid var(--color-ring);
     box-shadow:
-      inset 0 0 0 calc(4 * var(--px)) #ffffff,
-      inset 0 0 0 calc(5.5 * var(--px)) var(--color-ring-peak);
+      inset 0 0 0 calc(2 * var(--px)) var(--color-ring-edge),
+      inset 0 0 0 calc(6 * var(--px)) #ffffff;
+  }
+  /* The halo: a soft blur in the ring's colour around the ring, swelling and fading with the flash. */
+  .ring-halo {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: 0 0 calc(8 * var(--px)) calc(3 * var(--px)) var(--color-ring);
+    opacity: 0.08;
   }
   .tile.focused .ring {
     opacity: 1;
@@ -445,10 +453,14 @@
      every move: the focused class moves, so the animation restarts), fades slowly to the base
      over 0.75 s, then rises fast (0.2 s) back to the peak. The peak may drop below 3:1 against
      the background (the user's exception, like Switch); the base meets it. */
+  /* The flash (rev. v): the ring only slightly lighter at the peak (#FF69B4), never pastel; the
+     halo swells from almost nothing to clearly visible. Same timing (rise 0.2 s, fade 0.75 s). */
   .ring-alt {
     border-color: var(--color-ring-peak);
+    box-shadow: none;
   }
-  .tile.focused .ring-alt {
+  .tile.focused .ring-alt,
+  .tile.focused .ring-halo {
     animation: aione-ring-flash 1000ms linear infinite;
   }
   /* B-14: the empty slots: plain, a light tint of the background with a hairline. */
@@ -475,15 +487,15 @@
   /* B-8 (rev. k / l): the title above the selected tile. Positioned at the row's left and moved
      by transform (titleX), with the row's own motion, so it travels with the focus (L-16). */
   /* B-14: the title's capitals about 37 px tall (font 3.17 rem; M PLUS Rounded 1c caps are
-     0.73 em), its baseline about 21 px above the ring's top (302), so at 281. The box's top is
+     0.73 em), its baseline about 21 px above the ring's top (rev. v: 278), so at 257. The box's top is
      placed from the baseline: line-height 1, the font's ascent about 0.86 em (measured). */
   .title {
     position: absolute;
     left: 0;
-    /* B-14: the baseline 21 px above the ring's top (302) at 100 %; the gap scales with
+    /* B-14: the baseline 21 px above the ring's top (rev. v: 278, with the 12.5 px ring) at 100 %; the gap scales with
        Interface Scale (like the title), so the descenders (no longer clipped, D-017) stay clear
        of the ring at 150 %. */
-    top: calc(302 * var(--px) - 21 * var(--ui) - var(--title-ascent, 0.86) * var(--text-title));
+    top: calc(278 * var(--px) - 21 * var(--ui) - var(--title-ascent, 0.86) * var(--text-title));
     height: calc(1.4 * var(--text-title));
     /* D-017: clip sideways only (the scroll window), never below: the descenders keep their full
        depth (the font's descent); the baseline stays where B-14 puts it. */
@@ -587,7 +599,7 @@
        button, its line 1.75 rem × 1.15) runs into the footer (5.5 rem) at large Interface Scales:
        then it moves up just enough, keeping 12 px clear. */
     top: min(
-      calc((309 + 398 + 53) * var(--px)),
+      calc((291 + 398 + 74.5) * var(--px)), /* rev. v, measured side by side: the disc centre at about 818 px */
       calc(100vh - 5.5rem - 110 * var(--hdr) - 12 * var(--ui) - 2.461rem - 8 * var(--px))
     );
     display: flex;
@@ -619,10 +631,10 @@
     outline: none;
   }
   .dicon {
-    font-size: calc(48 * var(--hdr));
+    font-size: calc(58 * var(--hdr)); /* rev. v: filling more of the disc */
     line-height: 1;
     font-variation-settings:
-      'wght' var(--w, 300),
+      'wght' calc(var(--w, 300) + 200),
       'FILL' 0,
       'GRAD' 0,
       'opsz' 48;
@@ -671,6 +683,9 @@
   .dring-alt {
     border-color: var(--color-ring-peak);
   }
+  .dring {
+    box-shadow: 0 0 calc(8 * var(--hdr)) calc(3 * var(--hdr)) color-mix(in srgb, var(--color-ring) 35%, transparent);
+  }
   .dbtn.focused .dring-alt {
     animation: aione-ring-flash 1000ms linear infinite;
   }
@@ -695,7 +710,7 @@
   .message {
     position: absolute;
     left: calc(155 * var(--px));
-    top: calc(309 * var(--px));
+    top: calc(291 * var(--px));
     height: calc(398 * var(--px));
     display: flex;
     flex-direction: column;

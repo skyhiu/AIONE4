@@ -14,8 +14,8 @@ if (!existsSync(path.join(dist, 'index.html'))) fail('dist/index.html missing: r
 const assets = readdirSync(path.join(dist, 'assets'));
 const js = assets.filter((f) => f.endsWith('.js')).map((f) => readFileSync(path.join(dist, 'assets', f), 'utf8')).join('\n');
 if (/data:audio\//.test(js)) fail('a sound is inlined as a data: URL (blocked by the CSP in the app)');
-const wanted = ['row_move', 'drawer_move', 'edge_bump', 'confirm', 'back', 'error', 'wrap', 'options_open', 'options_close'];
-const refs = [...new Set(js.match(/[\w./-]*?(?:row_move|drawer_move|edge_bump|confirm|back|error|wrap|options_open|options_close)-[\w-]+\.wav/g) ?? [])];
+const wanted = ['row_move', 'drawer_move', 'edge_bump', 'confirm', 'back', 'error', 'wrap', 'options_open', 'options_close', 'scroll_tick'];
+const refs = [...new Set(js.match(/[\w./-]*?(?:row_move|drawer_move|edge_bump|confirm|back|error|wrap|options_open|options_close|scroll_tick)-[\w-]+\.wav/g) ?? [])];
 for (const name of wanted) {
   const ref = refs.find((r) => path.basename(r).startsWith(`${name}-`));
   if (!ref) fail(`no reference to ${name}.wav in the built JavaScript`);

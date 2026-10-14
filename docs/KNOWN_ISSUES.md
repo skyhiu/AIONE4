@@ -34,6 +34,17 @@ an item Fixed and Verified.
 | QA-4 (T0 test): an autostart start is not marked | **Implemented, Unverified**: the entry runs `"<exe>" --from-autostart`; logged "started by Windows at sign-in". Unit test on the command. |
 | QA-5 (T0 retest): closing logged as "the user switched away" | **Implemented, Unverified**: exit stops the guard first ("AIONE is closing"); later foreground changes are ignored. Unit test on the guard's decision. Windows code compiles first in CI. |
 
+## Rev. u / v (4.0.0-alpha.12)
+
+| Item | Status |
+|---|---|
+| D-019 (a held diagonal bumps on every repeat) | Implemented, Unverified: only the newest held direction repeats (core test); the memory per direction (UI test: 2 bumps in 32 interleaved events) |
+| D-020 (the bright edge inside the white band) | Implemented, Unverified: the cause confirmed (the two inner shadows were stacked in the wrong order); UI test reads ring → edge → 4 px white |
+| B-14 rev. u (resting press wraps; fast press bumps) | Implemented, Unverified |
+| B-1 rev. u / v (click 4.2 kHz, scroll tick, wrap) | Implemented, Unverified (measured against `sound.mp4`) |
+| B-9 / B-8 / B-14 rev. v (ring, title, header, footer, drawer) | Implemented, Unverified (side by side in the handoff) |
+| Remaining differences vs Switch | Listed in the alpha.12 handoff §5 |
+
 ## Rev. s / t (4.0.0-alpha.11, the last build of T1.2)
 
 | Item | Status |

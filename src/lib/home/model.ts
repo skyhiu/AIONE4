@@ -14,11 +14,12 @@
  *  Scale does not change tiles, which follow Tile Size; T1.1 has the default, Small). */
 export const ROW = {
   // B-14 (rev. p, measured on Switch at 1080 p): tiles 398 square, 12 apart, the first 155 from
-  // the left; the ring (7 px, no gap) has its top at 302, so the tiles' top is at 309.
+  // the left; rev. v: the ring's top at about 278 (the screen area corrected), the ring and its
+  // white band 12.5 px outside the art, so the tiles' top at 290.5.
   tile: 398,
   gap: 12,
   left: 155,
-  top: 309,
+  top: 291,
 } as const;
 
 /** B-14 (rev. r): the row always has 12 slots: the games, then plain empty slots up to 12 (all

@@ -77,7 +77,10 @@
     >
   {/if}
   {#if status?.battery}
-    <span
+    <!-- rev. v: the percentage before the battery icon, like Switch ("100%"). -->
+    {#if status.battery.percent !== null}<span class="percent" data-testid="battery-percent"
+        >{status.battery.percent}<span class="pct">%</span></span
+      >{/if}<span
       class="icon"
       data-testid="status-battery"
       style:--optical={optical('battery')}
@@ -92,11 +95,12 @@
     position: absolute;
     /* Cluster centre about 8.5 % of the height from the top, right edge about 5 % of the
        width in (reference A4 measurements), moving with the same damped factor. */
-    top: calc(91.8 * var(--hdr) - var(--header-icon) / 2);
+    /* rev. v (measured side by side with Switch): centred about 105 px from the top. */
+    top: calc(105 * var(--hdr) - var(--header-icon) / 2);
     right: 5vw;
     display: flex;
     align-items: center;
-    gap: calc(26 * var(--hdr));
+    gap: calc(34 * var(--hdr));
     color: var(--color-text);
     height: var(--header-icon);
   }
@@ -113,6 +117,17 @@
     font-size: 0.6em;
     letter-spacing: 0.04em;
     margin-left: 0.12em;
+  }
+  /* rev. v: the battery with its percentage, like Switch ("100%"), in the clock's size. */
+  .percent {
+    font-size: var(--header-text);
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    margin-right: calc(-24 * var(--hdr));
+  }
+  .pct {
+    font-size: 0.6em;
+    margin-left: 0.06em;
   }
   .icon {
     font-size: calc(var(--header-icon) * var(--optical, 1));

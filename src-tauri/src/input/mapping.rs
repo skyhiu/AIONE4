@@ -226,12 +226,39 @@ impl PadTracker {
                     self.repeat_count[i] = 0;
                     if repeats(i) {
                         self.next_repeat[i] = Some(now + self.tuning.repeat_delay);
+                        // B-3 (rev. u, D-019): only the newest held direction repeats, so a held
+                        // diagonal never repeats two directions at once ("staircase").
+                        for j in (0..CONTROLS.len()).filter(|j| *j != i && repeats(*j)) {
+                            self.next_repeat[j] = None;
+                        }
                     }
                 }
                 (true, false) => {
                     out.push(self.event(Kind::Up, i, now));
                     self.next_repeat[i] = None;
                     self.down_at[i] = None;
+                    // When the repeating direction is released, the most recent one still held
+                    // resumes repeating after the usual delay.
+                    if repeats(i) {
+                        let resume = (0..CONTROLS.len())
+                            .filter(|j| {
+                                *j != i
+                                    && repeats(*j)
+                                    && target & (1 << *j) != 0
+                                    && self.held & (1 << *j) != 0
+                            })
+                            .max_by_key(|j| self.down_at[*j]);
+                        if let Some(j) = resume {
+                            if self
+                                .next_repeat
+                                .iter()
+                                .enumerate()
+                                .all(|(k, n)| n.is_none() || !repeats(k))
+                            {
+                                self.next_repeat[j] = Some(now + self.tuning.repeat_delay);
+                            }
+                        }
+                    }
                 }
                 (true, true) => {
                     if let Some(at) = self.next_repeat[i] {
@@ -287,6 +314,45 @@ mod tests {
         ev.iter()
             .map(|e| format!("{} {}", e.kind.as_str(), CONTROLS[e.index]))
             .collect()
+    }
+
+    /// D-019 (B-3 rev. u): Up + Left held together: only the newest (Left) repeats; when Left is
+    /// released, Up resumes repeating after the 400 ms delay.
+    #[test]
+    fn only_the_newest_held_direction_repeats() {
+        let mut t = PadTracker::default();
+        let t0 = Instant::now();
+        let ms = |n: u64| t0 + Duration::from_millis(n);
+        let pad = |b: u16| RawPad {
+            buttons: b,
+            ..RawPad::default()
+        };
+        const UP: u16 = 0x0001;
+        const LEFT: u16 = 0x0004;
+        let _ = t.update(&pad(UP), ms(0));
+        let _ = t.update(&pad(UP | LEFT), ms(100));
+        let mut kinds = Vec::new();
+        for n in (110..=1500).step_by(10) {
+            for e in t.update(&pad(UP | LEFT), ms(n)) {
+                if e.kind == Kind::Repeat {
+                    kinds.push(CONTROLS[e.index]);
+                }
+            }
+        }
+        assert!(!kinds.is_empty());
+        assert!(kinds.iter().all(|c| *c == "DPadLeft"), "{kinds:?}");
+        // Left released at 1500 ms: Up resumes 400 ms later, alone.
+        let _ = t.update(&pad(UP), ms(1510));
+        let mut after = Vec::new();
+        for n in (1520..=2400).step_by(10) {
+            for e in t.update(&pad(UP), ms(n)) {
+                if e.kind == Kind::Repeat {
+                    after.push((n, CONTROLS[e.index]));
+                }
+            }
+        }
+        assert!(after.iter().all(|(_, c)| *c == "DPadUp"), "{after:?}");
+        assert!(after.first().is_some_and(|(n, _)| *n >= 1910), "{after:?}");
     }
 
     #[test]

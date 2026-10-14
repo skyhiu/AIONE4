@@ -3,7 +3,7 @@
   {
    "file": "row_move_A.wav",
    "id": "A",
-   "label": "Clicky button, tiny (your move B, cut to 8 ms)",
+   "label": "Clicky button, tiny, 4.2 kHz",
    "layers": [
     {
      "source": "rec_1_move_taps/clicky button 7.wav",
@@ -15,8 +15,8 @@
      "start_ms": 73.0,
      "length_ms": 9.0,
      "resonance_hz": 4594,
-     "tuned_semitones": 2.39,
-     "tuned_to": "E8 (5274 Hz)",
+     "tuned_semitones": -1.61,
+     "tuned_to": "C8 (4186 Hz)",
      "high_pass_hz": 1200,
      "low_pass_hz": null,
      "decay_tau_ms": 2.0,
@@ -25,10 +25,10 @@
      "offset_ms": 0
     }
    ],
-   "length_ms": 7.8,
+   "length_ms": 9.9,
    "loudest_30ms_lufs": -24.0,
-   "true_peak_dbfs": -12.94,
-   "sample_peak_dbfs": -12.95,
+   "true_peak_dbfs": -13.43,
+   "sample_peak_dbfs": -13.52,
    "wired": true,
    "proposal_only": false
   }
@@ -245,7 +245,7 @@
   {
    "file": "wrap_A.wav",
    "id": "A",
-   "label": "Click + low thump (90 ms)",
+   "label": "Click + soft metal slide, about 1.3 kHz (60 ms later)",
    "layers": [
     {
      "source": "rec_1_move_taps/clicky button 7.wav",
@@ -255,41 +255,41 @@
      "hit": 1,
      "of_hits": 1,
      "start_ms": 73.0,
-     "length_ms": 14.0,
+     "length_ms": 9.0,
      "resonance_hz": 4594,
-     "tuned_semitones": 2.39,
-     "tuned_to": "E8 (5274 Hz)",
-     "high_pass_hz": 900,
+     "tuned_semitones": -1.61,
+     "tuned_to": "C8 (4186 Hz)",
+     "high_pass_hz": 1200,
      "low_pass_hz": null,
-     "decay_tau_ms": 3.5,
+     "decay_tau_ms": 2.0,
      "hold_ms": 1,
      "gain_db": 0,
      "offset_ms": 0
     },
     {
-     "source": "rec_4_soft_bumps/wood drop 1.wav",
-     "library": "FilmCow Recorded SFX",
-     "source_rate": 48000,
-     "noise_floor_db": -200.0,
-     "hit": 3,
+     "source": "mech_5_drawer/small metal plate slide 1.wav",
+     "library": "FilmCow SFX \u2013 Mechanisms & Movement (192 kHz)",
+     "source_rate": 192000,
+     "noise_floor_db": -76.0,
+     "hit": 1,
      "of_hits": 5,
-     "start_ms": 480.5,
-     "length_ms": 90.0,
-     "resonance_hz": 357,
-     "tuned_semitones": 3.6,
-     "tuned_to": "A4 (440 Hz)",
-     "high_pass_hz": 50,
-     "low_pass_hz": 900,
-     "decay_tau_ms": 28,
-     "hold_ms": 3,
-     "gain_db": -4,
-     "offset_ms": 4
+     "start_ms": 80.0,
+     "length_ms": 35.0,
+     "resonance_hz": 1594,
+     "tuned_semitones": -3.28,
+     "tuned_to": "E6 (1319 Hz)",
+     "high_pass_hz": 500,
+     "low_pass_hz": 2400,
+     "decay_tau_ms": 10,
+     "hold_ms": 4,
+     "gain_db": -2,
+     "offset_ms": 60
     }
    ],
-   "length_ms": 77.1,
-   "loudest_30ms_lufs": -21.0,
-   "true_peak_dbfs": -12.33,
-   "sample_peak_dbfs": -12.68,
+   "length_ms": 98.7,
+   "loudest_30ms_lufs": -22.0,
+   "true_peak_dbfs": -11.44,
+   "sample_peak_dbfs": -11.52,
    "wired": true,
    "proposal_only": false
   }
@@ -377,6 +377,40 @@
    "loudest_30ms_lufs": -19.0,
    "true_peak_dbfs": -7.05,
    "sample_peak_dbfs": -7.32,
+   "wired": true,
+   "proposal_only": false
+  }
+ ],
+ "scroll_tick": [
+  {
+   "file": "scroll_tick_A.wav",
+   "id": "A",
+   "label": "Soft low button tick, about 1.6 kHz",
+   "layers": [
+    {
+     "source": "rec_1_move_taps/button pressed 3.wav",
+     "library": "FilmCow Recorded SFX",
+     "source_rate": 48000,
+     "noise_floor_db": -58.5,
+     "hit": 3,
+     "of_hits": 3,
+     "start_ms": 145.5,
+     "length_ms": 16.0,
+     "resonance_hz": 1688,
+     "tuned_semitones": -0.27,
+     "tuned_to": "G#6 (1661 Hz)",
+     "high_pass_hz": 600,
+     "low_pass_hz": 1700,
+     "decay_tau_ms": 4,
+     "hold_ms": 1,
+     "gain_db": 0,
+     "offset_ms": 0
+    }
+   ],
+   "length_ms": 16.3,
+   "loudest_30ms_lufs": -32.0,
+   "true_peak_dbfs": -21.03,
+   "sample_peak_dbfs": -21.07,
    "wired": true,
    "proposal_only": false
   }

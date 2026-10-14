@@ -63,7 +63,7 @@ test.describe('rev. r (alpha.10)', () => {
       }
 
   for (const preset of ['light', 'dark'])
-    test(`B-9 (rev. s): the 4 px white band separates the ring from a dark and a light picture (${preset})`, async ({ page }) => {
+    test(`B-9 (rev. v): the 4 px white band separates the brand-pink ring from a dark and a light picture (${preset})`, async ({ page }) => {
       await page.setViewportSize({ width: 1920, height: 1080 });
       await open(page, `preset=${preset}`);
       await page.evaluate(() => {
@@ -96,8 +96,11 @@ test.describe('rev. r (alpha.10)', () => {
         const bg = pixel(img, 1900, 160);
         out.push(`${art} art: ring vs bg ${contrast(ringC, bg).toFixed(2)}, band ${JSON.stringify(band)} vs picture ${contrast(band, artC).toFixed(2)}, ring vs band ${contrast(ringC, band).toFixed(2)}`);
         expect(band).toEqual([255, 255, 255]); // the band is pure white in both presets (rev. t)
-        expect(contrast(ringC, bg)).toBeGreaterThanOrEqual(3); // the base meets 3:1
-        await shot(page, `t16-band-${preset}-on-${art}`);
+        // Rev. v: the ring is the brand pink #FF46A2 and relies on its saturation and the white
+        // band, not on 3:1 against the background (logged); the band separates it from any picture.
+        expect(Math.abs(ringC[0] - 255) + Math.abs(ringC[1] - 70) + Math.abs(ringC[2] - 162)).toBeLessThanOrEqual(6);
+        expect(contrast(band, [32, 58, 96])).toBeGreaterThanOrEqual(3);
+        await shot(page, `t17-band-${preset}-on-${art}`);
       }
       console.warn(`B-9 band ${preset}: ${out.join(' | ')}`);
     });
@@ -139,9 +142,19 @@ test.describe('rev. r (alpha.10)', () => {
     await expect(page.getByTestId('toast')).toHaveCount(0);
     l = await logs(page);
     expect(l.some((x) => x.includes('input down Esc (keyboard) -> action back, options: closed (B), sound optionsClose'))).toBe(true);
+    // Rev. u: Tab (or ≡) while the toast shows closes it, with the close sound.
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('Tab');
+    await expect(page.getByTestId('toast')).toHaveCount(0);
+    l = await logs(page);
+    expect(l.some((x) => x.includes('input down Tab (keyboard) -> action options, options: closed (the Options button), sound optionsClose'))).toBe(true);
+    // The timeout closes it silently.
     await page.keyboard.press('ContextMenu');
     l = await logs(page);
-    expect(l.some((x) => x.includes('input down ContextMenu (keyboard) -> action options'))).toBe(true);
+    expect(l.some((x) => x.includes('input down ContextMenu (keyboard) -> action options, options: toast, sound optionsOpen'))).toBe(true);
+    await page.waitForTimeout(2700);
+    l = await logs(page);
+    expect(l.some((x) => x.includes('options toast closed (timeout), no sound'))).toBe(true);
     await shot(page, 't15-tab-options');
   });
 

@@ -96,7 +96,7 @@ describe('Home row model', () => {
 
 describe('menu sounds', () => {
   it('maps the sound set by function and place (B-1 rev. q)', () => {
-    expect(Object.keys(SOUND_FILES).sort()).toEqual(['back', 'confirm', 'drawerMove', 'edgeBump', 'error', 'optionsClose', 'optionsOpen', 'rowMove', 'wrap']);
+    expect(Object.keys(SOUND_FILES).sort()).toEqual(['back', 'confirm', 'drawerMove', 'edgeBump', 'error', 'optionsClose', 'optionsOpen', 'rowMove', 'scrollTick', 'wrap']);
     expect(SOUND_FILES.rowMove.file).toBe('row_move.wav');
     expect(SOUND_FILES.drawerMove.file).not.toBe(SOUND_FILES.rowMove.file);
     expect(Object.values(SOUND_FILES).every((s) => s.source.startsWith('FilmCow'))).toBe(true);
