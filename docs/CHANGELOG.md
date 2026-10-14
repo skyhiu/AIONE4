@@ -23,12 +23,14 @@
   delivered logo files, sounds and reference page are in `docs/brand/window-b/`.
 - **Removed:** the 50 Menu Interface SFX pack and its credit (B-1 rev. i).
 - **Moved to the next build:** the drawer (T1.2 item 5), as allowed.
-- **CI fix (same version):** CI failed 1 of 62 UI tests (the ▼ measured 0.136× the capitals at
-  1280×720 / 150 % dark). Shown by reproduction: without the Material Symbols font the ▼ is drawn
-  as the text "arrow_drop_down"; the run had measured before the 3.8 MB icon font was loaded
-  (hypothesis for that run, consistent with its 1.4 s duration). The app now loads the fonts in
-  the black hold and keeps icons hidden until their font is there (logged `fonts ready in N ms`);
-  the tests wait for the font explicitly; a regression test blocks the font.
+- **CI fix (same version, second attempt):** CI failed "Home at 1280x720, 150 %, dark" twice with
+  the ▼ measured at 0.136× the capitals. **Cause (confirmed): a test bug.** The test counted only
+  pixels with green < 100, which rejects the dark preset's own title colour #FF69B4 (G = 105), so
+  in dark it measured only some anti-aliased edge pixels; how many qualify depends on the
+  platform's text smoothing (Windows: 3 px at that size). The test now counts any pixel clearly
+  different from the background, and logs what the old rule would have read. The first attempt's
+  explanation (the icon font not yet loaded) was wrong; its change is kept as a safeguard: the
+  fonts load in the black hold and icons stay hidden until their font is there.
 - **Tests:** Rust 83; Vitest 54; Playwright 63 with 84 screenshots (boot key frames included).
 
 ## 4.0.0-alpha.6 — T1.1 fixes (D-009 to D-012, B-8 corrected, B-13)

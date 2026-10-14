@@ -92,17 +92,28 @@ test.describe('T1.1 Home (mocked core)', () => {
     const vh = page.viewportSize()?.height ?? 1080;
     const y0 = Math.max(0, box.y - 40);
     const img = decodePng(await page.screenshot({ clip: { x: box.x, y: y0, width: Math.min(box.width, 4 * fs + 2 * fs), height: box.y + box.height - (14 * vh) / 1080 - y0 } }));
-    const ink = (x0: number, x1: number) => {
+    // Ink = any pixel clearly different from the plain background (taken from the measured
+    // area's top row, above the title), so the rule works in both presets and with any text
+    // smoothing. (alpha.7 CI: the earlier rule "G < 100" rejected the dark preset's own title
+    // colour #FF69B4, G = 105, and counted only some anti-aliased edge pixels.)
+    const bg = pixel(img, Math.floor(img.width / 2), 0);
+    const differs = (p: [number, number, number]) => Math.abs(p[0] - bg[0]) + Math.abs(p[1] - bg[1]) + Math.abs(p[2] - bg[2]) > 90;
+    const oldRule = ([R, G, B]: [number, number, number]) => R > 120 && G < 100 && B > 40 && R - G > 80;
+    const ink = (x0: number, x1: number, rule: (p: [number, number, number]) => boolean = differs) => {
       let t = 1e9, b = -1;
       for (let y = 0; y < img.height; y++)
         for (let x = Math.round(x0); x < Math.min(img.width, x1); x++) {
-          const [R, G, B] = pixel(img, x, y);
-          if (R > 120 && G < 100 && B > 40 && R - G > 80) { t = Math.min(t, y); b = Math.max(b, y); }
+          if (rule(pixel(img, x, y))) { t = Math.min(t, y); b = Math.max(b, y); }
         }
       return { t, b, h: b - t + 1 };
     };
     const a = ink(0, 1.4 * fs + 1);
     const c = ink(1.6 * fs, img.width);
+    const aOld = ink(0, 1.4 * fs + 1, oldRule);
+    const cOld = ink(1.6 * fs, img.width, oldRule);
+    console.warn(
+      `arrow vs caps (${await page.evaluate(() => document.documentElement.dataset['preset'] ?? 'light')}): ▼ ${a.h} px, caps ${c.h} px, ratio ${(a.h / c.h).toFixed(2)}; the old colour rule would read ▼ ${aOld.h} px, caps ${cOld.h} px`,
+    );
     await page.evaluate(() => {
       document.getElementById('caps-probe')?.remove();
       const text = document.querySelector<HTMLElement>('[data-testid="selected-title"]');
