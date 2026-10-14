@@ -11,9 +11,11 @@ function appFiles(files) {
   return files.filter((f) => APP_CODE.test(f));
 }
 
-/** Whether a push with these changed files publishes a release. */
-function shouldRelease(files) {
-  return appFiles(files).length > 0;
+/** Whether a push publishes a release: when app code changed, or when the current version has
+ *  no release yet (alpha.12, CI run #18: the app-code push failed its tests, the follow-up test
+ *  fix changed no app code, and the version was left without a release). */
+function shouldRelease(files, releaseExists = true) {
+  return !releaseExists || appFiles(files).length > 0;
 }
 
 module.exports = { APP_CODE, appFiles, shouldRelease };

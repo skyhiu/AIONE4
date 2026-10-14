@@ -188,13 +188,23 @@ jobs:
             // A11 (alpha.10 QA-1): a release only when APP CODE changed, named explicitly in
             // scripts/release-guard.cjs (src/, src-tauri/, assets/, index.html, package.json and its
             // lockfile, the Vite and Svelte config). Compared over the whole push (before..after).
-            const { appFiles } = require(`${process.env.GITHUB_WORKSPACE}/scripts/release-guard.cjs`);
+            const { appFiles, shouldRelease } = require(`${process.env.GITHUB_WORKSPACE}/scripts/release-guard.cjs`);
+            // A version that has no release yet always gets one (e.g. its app-code push failed CI
+            // and the fix touched only tests).
+            let releaseExists = true;
+            try {
+              await github.rest.repos.getReleaseByTag({ owner, repo, tag });
+            } catch (e) {
+              if (e.status !== 404) throw e;
+              releaseExists = false;
+              core.notice(`${tag} has no release yet: publishing it.`);
+            }
             const before = context.payload.before;
-            if (before && !/^0+$/.test(before)) {
+            if (releaseExists && before && !/^0+$/.test(before)) {
               const cmp = await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${before}...${context.sha}` });
               const files = (cmp.data.files ?? []).map((f) => f.filename);
               const app = appFiles(files);
-              if (app.length === 0) {
+              if (!shouldRelease(files, releaseExists)) {
                 core.notice(`No app code changed in this push (${files.length} files, e.g. ${files.slice(0, 3).join(', ')}): no release published; ${tag} stays as it was.`);
                 return;
               }
