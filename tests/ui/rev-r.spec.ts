@@ -39,6 +39,11 @@ test.describe('rev. r (alpha.10)', () => {
             const ring = (document.querySelector('.tile.focused .ring') as HTMLElement).getBoundingClientRect();
             return { size, cap: ctx.measureText('H').actualBoundingBoxAscent, descent: ctx.measureText('gjpqy').actualBoundingBoxDescent, left: r.left, right: r.right, top: r.top, ringTop: ring.top };
           });
+          // The ring's glow (rev. v halo) extends above the ring's box into the rows scanned here:
+          // freeze the flash at its base (the halo invisible) so only the title's ink is counted.
+          // (CI run #17 counted the halo at its peak as a 410 px "descender" row.)
+          await page.evaluate(() => document.querySelectorAll('.ring-alt, .ring-halo').forEach((e) => e.getAnimations().forEach((a) => (a.pause(), (a.currentTime = 760)))));
+          await page.waitForTimeout(80);
           const img = decodePng(await page.screenshot());
           const bg = pixel(img, 1900, 160);
           const rows: number[] = [];
