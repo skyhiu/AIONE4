@@ -1,5 +1,21 @@
 # Changelog
 
+## 4.0.0-alpha.13 — rev. w / x
+
+- **B-9 (rev. x, option B):** the ring #FD007E at the base, #FF46A2 at the peak, crisp; only a
+  thin glow (4 px soft edge) at the peak, nothing at the base (alpha.12's wide halo removed); the
+  drawer's focused button gets the same ring, white band, glow and pulse.
+- **B-14 (rev. x):** tiles 386 px with 18 px between pictures (pitch 404, as before).
+- **B-14 (rev. w):** the header's digits, "%" and icons about 31 px of visible ink ("AM" about
+  20 px); the footer's glyphs 38 px, its text about 28 px. At the row's ends only a held repeat
+  bumps; every fresh press wraps (the 400 ms threshold removed); the move landing on the first
+  game or the last slot plays the click alone.
+- **D-021:** a hold after a wrap starts its repeats at full level (the wrap now resets the hold).
+- **D-022:** not a title defect: the "…nes" at the screen's edge was the plain tile "Quiet Engines"
+  cut by the edge (proven); a UI test now checks the scrolling title's window over a full loop.
+- **Side by side (A10):** 28 of 28 presses of `sound.mp4` match in their sound pattern.
+- **Tests:** Rust 85; Vitest 58; Playwright 87.
+
 ## 4.0.0-alpha.12 — rev. u / v: side by side with the user's Switch recordings
 
 - **B-14 (rev. u):** at the row's ends, a resting press (> 0.4 s after the last move) wraps at

@@ -115,18 +115,20 @@ test.describe('T1.1 Home (mocked core)', () => {
           const m = await headerMetrics(page);
           expect(new Set(m.icons.map((i) => i.vs)).size).toBe(1);
           expect(m.clockWeight).toBe('400');
-          expect(m.ampmSize / m.clockSize).toBeCloseTo(0.6, 1);
+          expect(m.ampmSize / m.clockSize).toBeCloseTo(0.65, 1); // rev. w: AM about 20 px of ink
           expect(await page.locator('.tile.focused').count()).toBe(1);
           // Sizes (QA-6 of alpha.1): footer with the scale, header at half rate, tiles fixed.
           const label = await page.getByTestId('prompt-confirm').locator('.label').evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
           // Rev. v (side by side with Switch): footer text 2.23 rem (about 1.35x), the clock 47 px
           // (digits about 34 px tall) at half rate.
-          expect(label).toBeCloseTo(2.23 * 16 * px * (scale / 100), 0);
-          expect(m.clockSize).toBeCloseTo(47 * px * (1 + (scale / 100 - 1) / 2), 0);
+          // rev. w (visible ink): footer text 2.4 rem (capitals about 28 px); clock 42.5 px (digits
+          // about 31 px of ink), at half rate.
+          expect(label).toBeCloseTo(2.4 * 16 * px * (scale / 100), 0);
+          expect(m.clockSize).toBeCloseTo(42.5 * px * (1 + (scale / 100 - 1) / 2), 0);
           // B-14 (rev. v): tiles 398 square, the first 155 from the left, their top at 291 (the
           // ring's top at about 278, 13 px outside the art).
           const firstTile = await page.getByTestId('tile').first().boundingBox();
-          expect(firstTile?.width ?? 0).toBeCloseTo(398 * px, 0);
+          expect(firstTile?.width ?? 0).toBeCloseTo(386 * px, 0); // rev. x
           expect(firstTile?.x ?? 0).toBeCloseTo(155 * px, 0);
           expect(firstTile?.y ?? 0).toBeCloseTo(291 * px, 0);
 
@@ -259,8 +261,10 @@ test.describe('T1.1 Home (mocked core)', () => {
     await pad(page, 'LStickLeft');
     await page.keyboard.press('ArrowLeft');
     expect(await focusIndex(page)).toBe(0);
-    // B-14 (rev. u): a press within about 0.4 s of the last move (fast scrolling) bumps the ring.
+    // B-14 (rev. w): every fresh press at an end wraps, however fast: to the last slot, and back.
     await pad(page, 'DPadLeft');
+    expect(await focusIndex(page)).toBe(11);
+    await pad(page, 'DPadRight');
     expect(await focusIndex(page)).toBe(0);
     // T1.2: Down enters the drawer and Up returns to the same tile (the row keeps its focus).
     await pad(page, 'DPadDown');
@@ -279,7 +283,8 @@ test.describe('T1.1 Home (mocked core)', () => {
     await page.waitForTimeout(400);
     await shot(page, 't1-home-focus-last');
     const l = await logs(page);
-    expect(l.some((x) => /^info: input down DPadLeft \(controller 1 seq 6\) -> action left, end of row \(\d+ ms after the last move\), bump left, sound edgeBump/.test(x))).toBe(true);
+    expect(l.some((x) => x.startsWith('info: input down DPadLeft (controller 1 seq 6) -> action left, wrap to the last slot: empty slot 2 (after 10 games), sound wrap'))).toBe(true);
+    expect(l.some((x) => x.startsWith('info: input down DPadRight (controller 1 seq 7) -> action right, wrap to the first game: focus 1/10, sound wrap'))).toBe(true);
     expect(l.filter((x) => x.includes('-> action right, focus 10/10')).length).toBe(1);
     // QA-6 (alpha.9): the empty slots are named as such.
     expect(l.filter((x) => x.includes('-> action right, empty slot 1 (after 10 games)')).length).toBe(1);
@@ -299,7 +304,7 @@ test.describe('T1.1 Home (mocked core)', () => {
     const box = await page.locator('.tile.focused').boundingBox();
     expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(1920);
     const track = await page.locator('.track').evaluate((el) => getComputedStyle(el).transform);
-    expect(track).toMatch(/^matrix\(1, 0, 0, 1, -820(\.\d+)?, 0\)$/);
+    expect(track).toMatch(/^matrix\(1, 0, 0, 1, -808(\.\d+)?, 0\)$/);
     // Every running animation changes only transform or opacity (A7).
     const props = await page.evaluate(() =>
       document.getAnimations().flatMap((a) => {
@@ -621,30 +626,26 @@ test.describe('T1.1 Home (mocked core)', () => {
       expect(ratios.hover).toBeGreaterThanOrEqual(3);
       expect(ratios.accentOnSurface).toBeGreaterThanOrEqual(3);
       const v = (n: string) => page.evaluate((x) => getComputedStyle(document.documentElement).getPropertyValue(x).trim(), n);
-      expect(await v('--color-ring')).toBe('#ff46a2');
+      expect(await v('--color-ring')).toBe('#fd007e'); // rev. x, option B (the base)
       expect(await v('--color-title')).toBe('#ff46a2');
       expect(ratios.soft).toBeGreaterThanOrEqual(4.5);
       expect(ratios.pressed).toBeGreaterThanOrEqual(4.5);
     }
     const ring = await page.locator('.tile.focused .ring-line:not(.ring-alt)').evaluate((el) => getComputedStyle(el).borderTopColor);
-    expect(ring).toBe('rgb(255, 70, 162)');
+    expect(ring).toBe('rgb(253, 0, 126)'); // rev. x, option B (the base)
   });
 
-  test('B-9 (rev. v): a vivid ring, slightly lighter at the peak (never pastel); the halo swells; edge then 4 px white (D-020)', async ({ page }) => {
+  test('B-9 (rev. x, option B): #FD007E → #FF46A2, crisp; a thin glow at the peak only; edge then 4 px white', async ({ page }) => {
     await page.setViewportSize({ width: 1920, height: 1080 });
     const lumOf = (c: number[]) => {
       const f = (v: number) => ((v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
       return 0.2126 * f(c[0] ?? 0) + 0.7152 * f(c[1] ?? 0) + 0.0722 * f(c[2] ?? 0);
     };
+    const dist = (a: number[], b: number[]) => Math.hypot((a[0] ?? 0) - (b[0] ?? 0), (a[1] ?? 0) - (b[1] ?? 0), (a[2] ?? 0) - (b[2] ?? 0));
     for (const preset of ['light', 'dark'] as const) {
       await open(page, `preset=${preset}`);
-      const flash = await page.evaluate(() => {
-        const a = document.querySelector('.tile.focused .ring-halo')?.getAnimations()[0] as CSSAnimation | undefined;
-        return a ? { name: a.animationName, duration: Number((a.effect as KeyframeEffect).getTiming().duration) } : null;
-      });
-      expect(flash?.name).toBe('aione-ring-flash');
-      expect(flash?.duration).toBe(1000);
-      const sample: Record<string, { ring: number[]; halo: number[] }> = {};
+      const bg = preset === 'dark' ? [45, 45, 45] : [235, 235, 235];
+      const sample: Record<string, { ring: number[]; near: number[]; far: number[] }> = {};
       for (const [end, t] of [['peak', 0], ['base', 760]] as const) {
         await page.evaluate((ms) => {
           document.querySelectorAll('.tile.focused .ring-alt, .tile.focused .ring-halo').forEach((e) =>
@@ -661,32 +662,28 @@ test.describe('T1.1 Home (mocked core)', () => {
           return { x: r.x + r.width / 2, ringTop: r.y, artTop: art.y };
         });
         const img = decodePng(await page.screenshot());
-        sample[end] = { ring: pixel(img, g.x, g.ringTop + 3.5), halo: pixel(img, g.x, g.ringTop - 3) };
+        // The glow: 2 px outside the ring (in it at the peak), 7 px outside (never: thin).
+        sample[end] = { ring: pixel(img, g.x, g.ringTop + 3.5), near: pixel(img, g.x, g.ringTop - 2), far: pixel(img, g.x, g.ringTop - 7) };
         if (end === 'base') {
-          // Outside in, down the column: ring (7) → bright edge (2) → pure white (4) → picture.
           const col = Array.from({ length: Math.round(g.artTop - g.ringTop) }, (_, k) => pixel(img, g.x, Math.round(g.ringTop) + k));
-          const white = col.filter((p) => p[0] === 255 && p[1] === 255 && p[2] === 255).length;
           const firstWhite = col.findIndex((p) => p[0] === 255 && p[1] === 255 && p[2] === 255);
-          const edge = col[firstWhite - 1] ?? [0, 0, 0];
-          expect(white).toBe(4);
+          expect(col.filter((p) => p[0] === 255 && p[1] === 255 && p[2] === 255).length).toBe(4); // the band
           expect(firstWhite).toBeGreaterThanOrEqual(8); // after the ring and the edge (D-020)
-          expect(lumOf(edge)).toBeGreaterThan(lumOf([255, 70, 162])); // the edge brighter than the ring
-          expect(edge).not.toEqual([255, 255, 255]);
         }
       }
-      const bg = preset === 'dark' ? [45, 45, 45] : [235, 235, 235];
-      const { ring: base, halo: haloBase } = sample['base'] ?? { ring: [], halo: [] };
-      const { ring: peak, halo: haloPeak } = sample['peak'] ?? { ring: [], halo: [] };
-      const dist = (a: number[], b: number[]) => Math.hypot((a[0] ?? 0) - (b[0] ?? 0), (a[1] ?? 0) - (b[1] ?? 0), (a[2] ?? 0) - (b[2] ?? 0));
-      console.warn(`B-9 rev. v ${preset}: ring ${JSON.stringify(base)} → ${JSON.stringify(peak)}; halo ${JSON.stringify(haloBase)} → ${JSON.stringify(haloPeak)} (bg ${JSON.stringify(bg)})`);
-      expect(dist(base, [255, 70, 162])).toBeLessThanOrEqual(4); // brand pink at the base
-      expect(lumOf(peak)).toBeLessThanOrEqual(lumOf([255, 105, 180]) + 0.01); // never lighter than #FF69B4
-      expect(lumOf(peak)).toBeGreaterThan(lumOf(base)); // slightly lighter at the peak
-      expect(dist(haloPeak, bg)).toBeGreaterThan(dist(haloBase, bg) + 30); // the halo swells
+      const { ring: base, near: nearBase, far: farBase } = sample['base'] ?? { ring: [], near: [], far: [] };
+      const { ring: peak, near: nearPeak, far: farPeak } = sample['peak'] ?? { ring: [], near: [], far: [] };
+      console.warn(`B-9 rev. x ${preset}: ring ${JSON.stringify(base)} → ${JSON.stringify(peak)}; glow 2 px out ${JSON.stringify(nearBase)} → ${JSON.stringify(nearPeak)}, 7 px out ${JSON.stringify(farBase)} → ${JSON.stringify(farPeak)}`);
+      expect(dist(base, [253, 0, 126])).toBeLessThanOrEqual(4); // deep at the base
+      expect(dist(peak, [255, 70, 162])).toBeLessThanOrEqual(4); // brand pink at the peak
+      expect(lumOf(peak) / lumOf(base)).toBeGreaterThan(1.2);
+      expect(dist(nearBase, bg)).toBeLessThanOrEqual(6); // no glow at the base
+      expect(dist(nearPeak, bg)).toBeGreaterThan(25); // a glow at the peak, right outside the ring
+      expect(dist(farPeak, bg)).toBeLessThanOrEqual(10); // thin: nothing 7 px out (no wide haze)
       await page.evaluate(() => document.querySelectorAll('.ring-alt, .ring-halo').forEach((e) => e.getAnimations().forEach((a) => (a.currentTime = 0))));
-      await shot(page, `t17-ring-peak-${preset}`);
+      await shot(page, `t18-ring-peak-${preset}`);
       await page.evaluate(() => document.querySelectorAll('.ring-alt, .ring-halo').forEach((e) => e.getAnimations().forEach((a) => (a.currentTime = 760))));
-      await shot(page, `t17-ring-base-${preset}`);
+      await shot(page, `t18-ring-base-${preset}`);
     }
   });
 
@@ -848,7 +845,7 @@ test.describe('T1.1 Home (mocked core)', () => {
     await expect(page.getByTestId('selected-title')).toHaveText('Amber Lighthouse');
   });
 
-  test('B-14 (rev. u): ring bumps; a resting press wraps at once; D-019 diagonal; frames mid-motion', async ({ page }) => {
+  test('B-14 (rev. w): only held repeats bump; every fresh press wraps; landing click; D-019; frames mid-motion', async ({ page }) => {
     await page.setViewportSize({ width: 1920, height: 1080 });
     await open(page);
     const isTranslate = (k: Keyframe) => String(k['transform'] ?? k['translate'] ?? '').includes('translate') || 'translate' in k;
@@ -913,22 +910,17 @@ test.describe('T1.1 Home (mocked core)', () => {
     expect(rb?.dur ?? 999).toBeLessThanOrEqual(150);
     expect(await trackX()).toBe(tx0); // the row stays
     expect(await page.locator('.tile.focused').boundingBox()).toEqual(t0);
-    await shot(page, 't17-row-end-bump-mid');
+    await shot(page, 't18-row-end-bump-mid');
     await finish('.tile.focused .ring');
     for (let i = 0; i < 3; i++) await pad(page, 'DPadLeft', 'repeat');
     let l = await logs(page);
     expect(l.filter((x) => x.includes('end of row, held: no bump'))).toHaveLength(3);
-    // 5. Fast scrolling (a press within about 0.4 s of the last move) bumps; a resting press
-    //    (> 0.4 s) wraps at once, with no bump first, and the wrap sound.
+    // 5. B-14 (rev. w): every fresh press at an end wraps, however fast (no threshold); the row
+    //    whips across in 200 ms with the wrap sound, no bump first; and back the same way.
     await pad(page, 'DPadRight');
-    await pad(page, 'DPadLeft');
-    await pad(page, 'DPadLeft'); // right after a move: a bump
-    expect(await focusIndex(page)).toBe(0);
-    l = await logs(page);
-    expect(l.some((x) => /end of row \(\d+ ms after the last move\), bump left, sound edgeBump/.test(x))).toBe(true);
-    await page.waitForTimeout(450);
+    await pad(page, 'DPadLeft'); // back on the first game
     const before = (await logs(page)).length;
-    await pad(page, 'DPadLeft'); // resting: the wrap at once
+    await pad(page, 'DPadLeft'); // a fast fresh press at the end: the wrap
     expect(await focusIndex(page)).toBe(11);
     const whip = await page.evaluate(() => {
       const a = document.querySelector('.track')?.getAnimations().find((x) => (x as CSSTransition).transitionProperty === 'transform');
@@ -938,14 +930,20 @@ test.describe('T1.1 Home (mocked core)', () => {
       return Number((a.effect as KeyframeEffect).getTiming().duration);
     });
     expect(whip).toBe(200);
-    await shot(page, 't17-wrap-mid');
+    await shot(page, 't18-wrap-mid');
     await page.evaluate(() => document.querySelector('.track')?.getAnimations().forEach((a) => a.finish()));
     l = (await logs(page)).slice(before);
-    expect(l.some((x) => /wrap to the last slot \(resting \d+ ms\): empty slot 2 \(after 10 games\), sound wrap/.test(x))).toBe(true);
+    expect(l.some((x) => x.includes('wrap to the last slot: empty slot 2 (after 10 games), sound wrap'))).toBe(true);
     expect(l.some((x) => x.includes('bump'))).toBe(false); // no bump before the wrap
-    await page.waitForTimeout(450);
     await pad(page, 'DPadRight');
-    expect(await focusIndex(page)).toBe(0); // and back the same way
+    expect(await focusIndex(page)).toBe(0); // and back at once
+    // 5a. The move landing on the first game plays the click alone, though the row scrolls.
+    for (let i = 0; i < 6; i++) await pad(page, 'DPadRight');
+    for (let i = 0; i < 6; i++) await pad(page, 'DPadLeft');
+    l = await logs(page);
+    const landing = l.filter((x) => x.includes('-> action left, focus 1/10')).pop() ?? '';
+    console.warn(`landing: ${landing}`);
+    expect(landing).toMatch(/focus 1\/10 \(row scrolls\), sound rowMove/);
     // 5b. D-019: Up and Left repeating together at the row's start (as the pad did in alpha.11):
     //     at most one bump per direction, then only "held: no bump".
     await page.waitForTimeout(100);
@@ -978,7 +976,7 @@ test.describe('T1.1 Home (mocked core)', () => {
     await page.setViewportSize({ width: 1920, height: 1080 });
     await open(page);
     expect(await page.getByTestId('empty-slot').count()).toBe(2);
-    for (let i = 0; i < 12; i++) await page.keyboard.press('ArrowRight');
+    for (let i = 0; i < 11; i++) await page.keyboard.press('ArrowRight');
     await expect(page.locator('.tile.focused')).toHaveAttribute('data-testid', 'empty-slot');
     await expect(page.getByTestId('selected-title-row')).toHaveCount(0);
     await expect(page.getByTestId('prompt-confirm')).toHaveAttribute('data-dimmed', 'true');

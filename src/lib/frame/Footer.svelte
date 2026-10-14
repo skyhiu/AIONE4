@@ -91,8 +91,9 @@
     gap: var(--space-2);
   }
   .glyph {
-    width: 2.25rem;
-    height: 2.25rem;
+    /* rev. w: the round filled glyphs about 38 px across (Switch's "A" and "+"). */
+    width: 2.375rem;
+    height: 2.375rem;
     background: currentColor;
     -webkit-mask: var(--glyph) center / contain no-repeat;
     mask: var(--glyph) center / contain no-repeat;

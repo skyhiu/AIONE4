@@ -159,10 +159,6 @@
     bump = { dir, n: (bump?.n ?? 0) + 1, zone: home.zone };
     return `${what}, bump ${dir}, ${play('edgeBump')}`;
   }
-  /** B-14 (rev. u): a press more than about 0.4 s after the previous move is "resting": at an end
-   *  it wraps at once; sooner (fast scrolling) or a held repeat bumps. */
-  const RESTING_MS = 400;
-  let lastMoveAt = 0;
   /** The row whips to its other end in 200 ms (its normal slide is 170 ms). */
   let wrapping = $state(false);
   let wrapTimer: ReturnType<typeof setTimeout> | null = null;
@@ -269,19 +265,19 @@
           return moved ? `drawer ${DRAWER[home.drawer]?.label}, ${play('drawerMove')}` : edge(action, kind, 'end of drawer');
         }
         const [next, moved] = move(home, dir);
-        const sinceMove = performance.now() - lastMoveAt;
         if (moved) {
-          // B-1 (rev. u): when the row itself scrolls, its low tick joins the click.
+          // B-1 (rev. u): when the row scrolls, its low tick joins the click; rev. w: except on
+          // the move landing on the first game or the last slot (the click alone).
           const scrolled = next.first !== home.first;
+          const landing = next.focus === 0 || next.focus === next.slots - 1;
           home = next;
-          lastMoveAt = performance.now();
           holdRepeats = kind === 'repeat' ? holdRepeats + 1 : 0;
           const quiet = holdRepeats > QUIET_AFTER ? QUIET_DB : 0;
-          return `${where(home.focus)}${scrolled ? ' (row scrolls)' : ''}, ${play(scrolled ? 'rowScroll' : 'rowMove', quiet)}`;
+          return `${where(home.focus)}${scrolled ? ' (row scrolls)' : ''}, ${play(scrolled && !landing ? 'rowScroll' : 'rowMove', quiet)}`;
         }
-        // B-14 (rev. u): at the row's end. Held, or fast scrolling (the previous move under about
-        // 0.4 s ago): a ring bump, once per hold. A resting press: the wrap at once, no bump.
-        if (kind === 'repeat' || sinceMove <= RESTING_MS) return edge(action, kind, `end of row${kind === 'repeat' ? '' : ` (${Math.round(sinceMove)} ms after the last move)`}`);
+        // B-14 (rev. w, final): at the row's end only a held repeat bumps (once per hold); EVERY
+        // fresh press wraps, however fast.
+        if (kind === 'repeat') return edge(action, kind, 'end of row');
         wrapping = true;
         if (wrapTimer) clearTimeout(wrapTimer);
         wrapTimer = setTimeout(() => {
@@ -289,8 +285,9 @@
           wrapTimer = null;
         }, 260);
         home = wrapRow(home, dir);
-        lastMoveAt = performance.now();
-        return `wrap to ${dir > 0 ? 'the first game' : 'the last slot'} (resting ${Math.round(sinceMove)} ms): ${where(home.focus)}, ${play('wrap')}`;
+        // D-021: the wrap is a fresh press: a hold continuing from it starts its repeats at full level.
+        holdRepeats = 0;
+        return `wrap to ${dir > 0 ? 'the first game' : 'the last slot'}: ${where(home.focus)}, ${play('wrap')}`;
       }
       case 'up':
       case 'down': {

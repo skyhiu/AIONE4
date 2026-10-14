@@ -114,7 +114,8 @@
     align-items: baseline;
   }
   .ampm {
-    font-size: 0.6em;
+    /* rev. w: "AM" about 20 px of visible ink against the digits' 31. */
+    font-size: 0.65em;
     letter-spacing: 0.04em;
     margin-left: 0.12em;
   }

@@ -13,11 +13,12 @@
 /** Layout in design pixels at 1080 p (the row scales with the window height only; Interface
  *  Scale does not change tiles, which follow Tile Size; T1.1 has the default, Small). */
 export const ROW = {
-  // B-14 (rev. p, measured on Switch at 1080 p): tiles 398 square, 12 apart, the first 155 from
+  // B-14 (rev. x, measured on the pictures' edges): tiles 386 square, 18 apart (pitch 404, as
+  // before), the first 155 from
   // the left; rev. v: the ring's top at about 278 (the screen area corrected), the ring and its
   // white band 12.5 px outside the art, so the tiles' top at 290.5.
-  tile: 398,
-  gap: 12,
+  tile: 386,
+  gap: 18,
   left: 155,
   top: 291,
 } as const;

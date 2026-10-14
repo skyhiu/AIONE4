@@ -103,7 +103,7 @@ test.describe('rev. r (alpha.10)', () => {
         expect(band).toEqual([255, 255, 255]); // the band is pure white in both presets (rev. t)
         // Rev. v: the ring is the brand pink #FF46A2 and relies on its saturation and the white
         // band, not on 3:1 against the background (logged); the band separates it from any picture.
-        expect(Math.abs(ringC[0] - 255) + Math.abs(ringC[1] - 70) + Math.abs(ringC[2] - 162)).toBeLessThanOrEqual(6);
+        expect(Math.abs(ringC[0] - 253) + Math.abs(ringC[1] - 0) + Math.abs(ringC[2] - 126)).toBeLessThanOrEqual(6); // rev. x base #FD007E
         expect(contrast(band, [32, 58, 96])).toBeGreaterThanOrEqual(3);
         await shot(page, `t17-band-${preset}-on-${art}`);
       }
@@ -178,8 +178,8 @@ test.describe('rev. r (alpha.10)', () => {
       return { w: r.width, dur: Number((a.effect as KeyframeEffect).getTiming().duration) };
     });
     expect(dip?.dur).toBe(180);
-    expect((dip?.w ?? 0) / 398).toBeGreaterThan(0.93);
-    expect((dip?.w ?? 0) / 398).toBeLessThan(0.95);
+    expect((dip?.w ?? 0) / 386).toBeGreaterThan(0.93); // rev. x: tiles 386 px
+    expect((dip?.w ?? 0) / 386).toBeLessThan(0.95);
     await shot(page, 't16-press-dip');
     await page.evaluate(() => document.querySelectorAll('.tile').forEach((e) => e.getAnimations().forEach((a) => a.finish())));
     // The drawer label: fades in and rises about 4 px over about 0.15 s.
@@ -197,5 +197,75 @@ test.describe('rev. r (alpha.10)', () => {
     // --extras=none: all three off for one run.
     await open(page, 'extras=none');
     expect(await page.getByTestId('home').getAttribute('data-extras')).toBe('');
+  });
+
+  for (const [slot, label] of [[0, 'slot 1'], [1, 'slot 2'], [9, 'the last game']] as const)
+    test(`D-022: a scrolling title never shows outside its window or the screen (${label})`, async ({ page }) => {
+      await page.setViewportSize({ width: 1920, height: 1080 });
+      const long = 'The Long Corridor Between Two Very Distant Stations Complete Night Edition';
+      await open(page, `rename=${slot}:${encodeURIComponent(long)}`);
+      for (let i = 0; i < slot; i++) await page.keyboard.press('ArrowRight');
+      await expect(page.getByTestId('selected-title-text')).toHaveAttribute('data-moving', 'true');
+      await page.waitForTimeout(400);
+      const dur = await page.evaluate(() => {
+        const a = document.querySelector('.ttrack')?.getAnimations().find((x) => x.id === 'marquee');
+        return a ? Number((a.effect as KeyframeEffect).getTiming().duration) : 0;
+      });
+      expect(dur).toBeGreaterThan(1000);
+      const stray: string[] = [];
+      for (let k = 0; k < 8; k++) {
+        const t = (dur * k) / 8;
+        await page.evaluate((ms) => {
+          const a = document.querySelector('.ttrack')?.getAnimations().find((x) => x.id === 'marquee');
+          if (a) {
+            a.pause();
+            a.currentTime = ms;
+          }
+          document.querySelectorAll('.ring-alt, .ring-halo').forEach((e) => e.getAnimations().forEach((x) => (x.pause(), (x.currentTime = 760))));
+        }, t);
+        await page.waitForTimeout(60);
+        const box = await page.evaluate(() => {
+          const r = (document.querySelector('[data-testid="selected-title-row"]') as HTMLElement).getBoundingClientRect();
+          return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, vw: innerWidth };
+        });
+        // The window inside the screen's margins.
+        expect(box.left).toBeGreaterThanOrEqual(box.vw * 0.03 - 1);
+        expect(box.right).toBeLessThanOrEqual(box.vw * 0.97 + 1);
+        // No title-coloured pixel (#FF46A2) in the title's rows outside the window.
+        const img = decodePng(await page.screenshot());
+        let outside = 0;
+        for (let y = Math.max(0, Math.floor(box.top)); y < Math.min(img.height, Math.ceil(box.bottom)); y++)
+          for (let x = 0; x < img.width; x++) {
+            if (x >= box.left - 1 && x <= box.right + 1) continue;
+            const p = pixel(img, x, y);
+            if (Math.abs(p[0] - 255) + Math.abs(p[1] - 70) + Math.abs(p[2] - 162) < 90) outside++;
+          }
+        if (outside) stray.push(`${Math.round(t)} ms: ${outside} px`);
+      }
+      console.warn(`D-022 ${label}: loop ${Math.round(dur)} ms, 8 moments, stray title pixels: ${stray.length ? stray.join(', ') : 'none'}`);
+      expect(stray).toEqual([]);
+    });
+
+  test('D-021: a hold after a wrap starts its repeats at full level (1-3 full, then -4 dB)', async ({ page }) => {
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    await open(page, '');
+    // A long hold first (so the old counter would be high), then back to the first game.
+    for (let i = 0; i < 3; i++) await page.evaluate(() => window.__aioneMock?.pad('DPadRight', 'down'));
+    for (let i = 0; i < 6; i++) await page.evaluate(() => window.__aioneMock?.pad('DPadRight', 'repeat'));
+    await page.evaluate(() => window.__aioneMock?.pad('DPadRight', 'up'));
+    // Back to the first game (never past it: a fresh press there would already wrap).
+    while (Number(await page.getByTestId('game-row').getAttribute('data-focus')) > 0) await page.keyboard.press('ArrowLeft');
+    await page.waitForTimeout(100);
+    const mark = (await logs(page)).length;
+    // The wrap (a fresh press at the start), then the same direction held.
+    await page.evaluate(() => window.__aioneMock?.pad('DPadLeft', 'down'));
+    for (let i = 0; i < 5; i++) await page.evaluate(() => window.__aioneMock?.pad('DPadLeft', 'repeat'));
+    const l = (await logs(page)).slice(mark).filter((x) => /input (down|repeat) DPadLeft/.test(x));
+    console.warn(`D-021:\n${l.map((x) => x.slice(x.indexOf('->') + 3, x.indexOf(', core'))).join('\n')}`);
+    expect(l[0]).toContain('sound wrap');
+    const reps = l.slice(1);
+    expect(reps).toHaveLength(5);
+    expect(reps.slice(0, 3).every((x) => !x.includes('(-4 dB)'))).toBe(true); // full level
+    expect(reps.slice(3).every((x) => x.includes('(-4 dB)'))).toBe(true); // then quieter
   });
 });

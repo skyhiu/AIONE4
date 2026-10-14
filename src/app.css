@@ -53,9 +53,9 @@
   /* (rev. m's #FD007E replaced by rev. v's brand pink below) */
   --color-ring-alt: #d9006c; /* (rev. m; kept for the B-9 contrast table) */
   /* B-9 (rev. s): the flash's peak (may drop below 3:1, the user's exception) and the halo. */
-  /* B-9 (rev. v): brand pink always, only slightly lighter at the peak; never pastel. */
-  --color-ring: #ff46a2;
-  --color-ring-peak: #ff69b4;
+  /* B-9 (rev. x, option B): deep #FD007E at the base, brand #FF46A2 at the peak; crisp. */
+  --color-ring: #fd007e;
+  --color-ring-peak: #ff46a2;
   --color-ring-edge: #ff8cc6;
   --color-ring-halo: rgba(253, 0, 126, 0.18);
   /* B-9 rev. p: the pulse restarts at the bright end on every move: in light the base ring
@@ -91,12 +91,12 @@
   --text-xs: 1.25rem; /* 20: captions, small print */
   --text-sm: 1.5rem; /* 24 */
   --text-md: 1.625rem; /* 26: body */
-  --text-label: 2.23rem; /* rev. v: footer text capitals about 26 px (1.35x alpha.11) */
+  --text-label: 2.4rem; /* rev. w: footer text about 28 px tall (capitals) */
   --text-title: 3.17rem; /* B-14: the selected game's title, capitals about 37 px at 1080 p */
   --text-lg: 2.5rem; /* 40: headings, dialog titles */
   --text-display: 4rem; /* 64 */
-  --header-text: calc(47 * var(--hdr)); /* rev. v: digits about 34 px tall (caps 0.73 em) */
-  --header-icon: calc(38 * var(--hdr)); /* rev. v: about 38 px */
+  --header-text: calc(42.5 * var(--hdr)); /* rev. w: digits about 31 px of visible ink (0.73 em) */
+  --header-icon: calc(48 * var(--hdr)); /* rev. w: icons about 31 px of visible ink (ink 0.65 of the box) */
 
   /* Spacing (8-point grid in --ui) and radii. */
   --space-1: 0.25rem;
@@ -137,8 +137,8 @@
   --color-accent: #ff46a2; /* brand pink: 4.4:1 */
   --color-ring: #ff46a2;
   --color-ring-alt: #ff69b4; /* 5.2:1 */
-  --color-ring: #ff46a2;
-  --color-ring-peak: #ff69b4;
+  --color-ring: #fd007e;
+  --color-ring-peak: #ff46a2;
   --color-ring-edge: #ff8cc6;
   --color-ring-halo: rgba(255, 70, 162, 0.22);
   /* In dark the pulse partner (#FF69B4) is the brighter one: it starts shown. */

@@ -314,7 +314,7 @@
           >
             <span class="icon dicon" style:--w={item.weight} style:color={`var(--drawer-${i + 1})`} aria-hidden="true">{item.icon}</span>
             <span class="dring" aria-hidden="true" data-owner="drawer-ring"
-              ><span class="dring-line"></span><span class="dring-line dring-alt"></span></span
+              ><span class="dring-halo"></span><span class="dring-line"></span><span class="dring-line dring-alt"></span></span
             >
           </button>
           <!-- The label sits under the button on the page's own background (not the button's). -->
@@ -343,7 +343,7 @@
     left: 0;
     right: 0;
     top: 0;
-    height: calc((291 + 398 + 16) * var(--px));
+    height: calc((291 + 386 + 16) * var(--px));
     overflow: clip;
   }
   .track {
@@ -351,8 +351,8 @@
     left: calc(155 * var(--px));
     top: calc(291 * var(--px));
     display: flex;
-    gap: calc(12 * var(--px));
-    transform: translateX(calc(var(--first) * -410 * var(--px)));
+    gap: calc(18 * var(--px)); /* rev. x: about 18 px between pictures (pitch 404) */
+    transform: translateX(calc(var(--first) * -404 * var(--px)));
     /* B-14: the row slides one tile in about 170 ms with a strong ease-out. */
     transition: transform 170ms cubic-bezier(0.16, 1, 0.3, 1);
   }
@@ -364,8 +364,8 @@
   .tile {
     position: relative;
     flex: none;
-    width: calc(398 * var(--px));
-    height: calc(398 * var(--px));
+    width: calc(386 * var(--px));
+    height: calc(386 * var(--px));
     outline: none;
     transition: transform var(--motion-release) var(--ease-out);
   }
@@ -427,13 +427,15 @@
       inset 0 0 0 calc(2 * var(--px)) var(--color-ring-edge),
       inset 0 0 0 calc(6 * var(--px)) #ffffff;
   }
-  /* The halo: a soft blur in the ring's colour around the ring, swelling and fading with the flash. */
+  /* B-9 (rev. x): only a thin glow at the peak: about 4 px of soft edge in the ring's colour,
+     nothing at the base (its opacity follows the flash); no wide haze (alpha.12's 8 px blur and
+     3 px spread are gone). It stays well clear of the title's descenders (9 px). */
   .ring-halo {
     position: absolute;
     inset: 0;
     border-radius: inherit;
-    box-shadow: 0 0 calc(8 * var(--px)) calc(3 * var(--px)) var(--color-ring);
-    opacity: 0.08;
+    box-shadow: 0 0 calc(4 * var(--px)) 0 var(--color-ring-peak);
+    opacity: 0;
   }
   .tile.focused .ring {
     opacity: 1;
@@ -599,7 +601,7 @@
        button, its line 1.75 rem × 1.15) runs into the footer (5.5 rem) at large Interface Scales:
        then it moves up just enough, keeping 12 px clear. */
     top: min(
-      calc((291 + 398 + 74.5) * var(--px)), /* rev. v, measured side by side: the disc centre at about 818 px */
+      calc((291 + 386 + 86) * var(--px)), /* rev. v, measured side by side: the disc centre at about 818 px */
       calc(100vh - 5.5rem - 110 * var(--hdr) - 12 * var(--ui) - 2.461rem - 8 * var(--px))
     );
     display: flex;
@@ -662,7 +664,7 @@
      opacity pulsing; 6 px with a 5 px gap, so 11 px outside the button. */
   .dring {
     position: absolute;
-    inset: calc(-10 * var(--hdr)); /* B-14: the ring about 10 px outside the button */
+    inset: calc(-13 * var(--hdr)); /* the ring outside the 4 px band and 2 px edge (rev. w) */
     border-radius: 50%;
     opacity: 0;
     pointer-events: none;
@@ -683,8 +685,22 @@
   .dring-alt {
     border-color: var(--color-ring-peak);
   }
-  .dring {
-    box-shadow: 0 0 calc(8 * var(--hdr)) calc(3 * var(--hdr)) color-mix(in srgb, var(--color-ring) 35%, transparent);
+  /* B-9 (rev. w / x): the drawer's focused button has the row's ring: the white band, the bright
+     edge, the thin glow and the same flash. */
+  .dring-line {
+    box-shadow:
+      inset 0 0 0 calc(2 * var(--hdr)) var(--color-ring-edge),
+      inset 0 0 0 calc(6 * var(--hdr)) #ffffff;
+  }
+  .dring-halo {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    box-shadow: 0 0 calc(4 * var(--hdr)) 0 var(--color-ring-peak);
+    opacity: 0;
+  }
+  .dbtn.focused .dring-halo {
+    animation: aione-ring-flash 1000ms linear infinite;
   }
   .dbtn.focused .dring-alt {
     animation: aione-ring-flash 1000ms linear infinite;
@@ -711,7 +727,7 @@
     position: absolute;
     left: calc(155 * var(--px));
     top: calc(291 * var(--px));
-    height: calc(398 * var(--px));
+    height: calc(386 * var(--px));
     display: flex;
     flex-direction: column;
     justify-content: center;

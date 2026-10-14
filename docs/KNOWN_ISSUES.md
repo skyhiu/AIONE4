@@ -34,6 +34,15 @@ an item Fixed and Verified.
 | QA-4 (T0 test): an autostart start is not marked | **Implemented, Unverified**: the entry runs `"<exe>" --from-autostart`; logged "started by Windows at sign-in". Unit test on the command. |
 | QA-5 (T0 retest): closing logged as "the user switched away" | **Implemented, Unverified**: exit stops the guard first ("AIONE is closing"); later foreground changes are ignored. Unit test on the guard's decision. Windows code compiles first in CI. |
 
+## Rev. w / x (4.0.0-alpha.13)
+
+| Item | Status |
+|---|---|
+| D-021 (a hold after a wrap starts quiet) | Implemented, Unverified: the cause confirmed (the wrap path didn't reset the hold); UI test |
+| D-022 (a stray title piece) | Not a title defect (the plain tile "Quiet Engines" cut by the screen edge, proven); UI test over a full loop: no stray title pixels |
+| B-9 rev. x (option B, thin glow; the drawer's ring pulses) | Implemented, Unverified |
+| B-14 rev. w / x (header / footer ink, tiles 386 + 18, row ends, landing click) | Implemented, Unverified |
+
 ## Rev. u / v (4.0.0-alpha.12)
 
 | Item | Status |

@@ -261,3 +261,13 @@ scales text; tiles follow the window only).
 - **Sounds:** the click C8 (4186 Hz); `rowScroll` = the click, then the scroll tick 65 ms later
   (G#6 about 1.7 kHz, −32 LUFS); the wrap = the click (+2 dB) and a soft sweep 60 ms later.
 
+## Rev. w / x (alpha.13) — current values, superseding the sections above where they differ
+- **Ring (option B):** 7 px, #FD007E at the base, #FF46A2 at the peak (crisp); a thin glow at the
+  peak only (`0 0 4px` in #FF46A2, its opacity following the flash); 2 px edge #FF8CC6, 4 px white
+  band; the drawer's focused button the same, with the same flash.
+- **Row:** tiles 386 px, 18 px apart (pitch 404), the first at 155, top 291. Ends: a held repeat
+  bumps the ring once; every fresh press wraps (200 ms, the wrap sound); the landing move on the
+  first game or the last slot plays the click alone.
+- **Header:** clock 42.5 px (digits about 31 px of ink), "AM" 0.65 em, icons 48 px (about 31 px of
+  ink). **Footer:** text 2.4 rem (about 28 px), glyphs 38 px.
+
