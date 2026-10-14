@@ -26,15 +26,22 @@ test.describe('T1.2 Boot Up and Boot Down (mocked core)', () => {
     await waitLog(page, 'Boot Up clamp:');
     const clamp = (await logs(page)).find((l) => l.includes('Boot Up clamp:')) ?? '';
     const after = Number(/target 2550 ms, (-?[\d.]+) ms after/.exec(clamp)?.[1]);
+    const drawnAt = Number(/frame drawn at ([\d.]+) ms/.exec(clamp)?.[1]);
     const prevT = Number(/previous frame at ([\d.]+) ms/.exec(clamp)?.[1]);
     const interval = Number(/frame interval ([\d.]+) ms/.exec(clamp)?.[1]);
+    // D-015: each frame is drawn for its predicted refresh, so a frame's step in sound time is the
+    // page-clock interval plus the small change in the refresh estimate (CI run #13: 16.8 ms after
+    // with a 16.7 ms page interval). The clamp is the first frame at or after the hit: "after" is
+    // less than that frame's own step, and the step is one frame (within 1 ms of the interval).
+    const step = drawnAt - prevT;
     console.warn(`boot clamp: ${clamp}`);
     // The clamp is drawn on the first frame at or after the hit (the previous one was before it),
     // so it is never more than one frame late. On the PC at 60 fps one frame is 16.7 ms; the
     // sandbox's frame interval varies with load, so the test compares against the measured one.
     expect(after).toBeGreaterThanOrEqual(0);
     expect(prevT).toBeLessThan(2550);
-    expect(after).toBeLessThanOrEqual(interval);
+    expect(after).toBeLessThan(step);
+    expect(Math.abs(step - interval)).toBeLessThanOrEqual(Math.max(1, interval * 0.1)); // one frame
     await waitLog(page, 'Boot Up outcome: Completed');
     await expect(page.getByTestId('home')).toBeVisible();
     const l = await logs(page);
