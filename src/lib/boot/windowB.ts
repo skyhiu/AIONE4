@@ -10,6 +10,19 @@
 // colour so no background shows through at rest.
 //
 // The caller drives the frames from the sound's clock, so the clamp (2550 ms) lands with the hit.
+//
+// B-5 (rev. o): the letters "A I O N E" are about twice the reference's size (44 instead of 22
+// units, spacing 50 instead of 25), in M PLUS Rounded 1c (the brand font). To keep the
+// composition centred, the mark sits at y −33 instead of −20: the mark spans −133…67, the
+// letters' capitals (0.73 em = 32) start 34 below it, baseline at 133, so the whole spans
+// −133…133. The letters' timing is unchanged.
+export const LETTER_SIZE = 44;
+const LETTER_STEP = 50;
+const MARK_Y = -33;
+const LETTER_BASELINE = 133;
+/** The letters' rise (Boot Up) and drop (Boot Down), doubled with their size (reference 14 / 16). */
+const RISE = 28;
+const DROP = 32;
 
 export const OFF_WHITE = '#F5F3EE';
 export const BRAND_PINK = '#FF46A2';
@@ -46,9 +59,9 @@ export function createWindowB(fontFamily: string): WindowB {
   const svg = el('svg', { viewBox: '-340 -230 680 460', preserveAspectRatio: 'xMidYMid meet', 'aria-hidden': 'true' });
   svg.style.overflow = 'visible';
   const all = el('g', { id: 'wb-all' });
-  const amb = el('g', { transform: 'translate(0 -20)' });
+  const amb = el('g', { transform: `translate(0 ${MARK_Y})` });
   const SH = el('g', {});
-  const inner = el('g', { transform: 'translate(0 -20)' });
+  const inner = el('g', { transform: `translate(0 ${MARK_Y})` });
   const RING = el('circle', { r: 100, fill: 'none', stroke: OFF_WHITE, 'stroke-width': 6, opacity: 0 });
   const MK = el('g', { fill: OFF_WHITE, stroke: OFF_WHITE, 'stroke-width': 0.8 });
   const Q: [SVGPathElement, number, number, number][] = QUARTERS.map(([id, d, dx, dy, side]) => {
@@ -63,10 +76,10 @@ export function createWindowB(fontFamily: string): WindowB {
   MK.append(CT, CB, shards, D);
   inner.append(RING, MK);
   SH.appendChild(inner);
-  const word = el('g', { fill: OFF_WHITE, 'font-size': 22, 'font-weight': 500, 'text-anchor': 'middle' });
+  const word = el('g', { fill: OFF_WHITE, 'font-size': LETTER_SIZE, 'font-weight': 500, 'text-anchor': 'middle', 'data-part': 'letters' });
   word.style.fontFamily = fontFamily;
   const LT = ['A', 'I', 'O', 'N', 'E'].map((ch, i) => {
-    const t = el('text', { x: -50 + i * 25, y: 132, opacity: 0 });
+    const t = el('text', { x: (i - 2) * LETTER_STEP, y: LETTER_BASELINE, opacity: 0 });
     t.textContent = ch;
     word.appendChild(t);
     return t;
@@ -220,7 +233,7 @@ export function createWindowB(fontFamily: string): WindowB {
     });
     LT.forEach((e, i) => {
       const z = p(t, M1 + 100 + i * 90, M1 + 600 + i * 90);
-      e.setAttribute('transform', `translate(0 ${14 * (1 - spring(z, 6, 10))})`);
+      e.setAttribute('transform', `translate(0 ${RISE * (1 - spring(z, 6, 10))})`);
       e.setAttribute('opacity', String(eo(z)));
     });
   }
@@ -239,7 +252,7 @@ export function createWindowB(fontFamily: string): WindowB {
     SHD.forEach((o) => o.el.setAttribute('opacity', '0'));
     LT.forEach((e, i) => {
       const z = p(t, (4 - i) * 50, (4 - i) * 50 + 300);
-      e.setAttribute('transform', `translate(0 ${16 * eo(z)})`);
+      e.setAttribute('transform', `translate(0 ${DROP * eo(z)})`);
       e.setAttribute('opacity', String(1 - eo(z)));
     });
     const rot = 25 * (1 - io(p(t, 250, 700))) + 4 * Math.sin(Math.PI * p(t, 200, 380));

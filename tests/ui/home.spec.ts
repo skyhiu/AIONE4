@@ -11,6 +11,8 @@ async function open(page: Page, query = ''): Promise<void> {
   await page.goto(`./?${BASE}${query ? `&${query}` : ''}`);
   await expect(page.getByTestId('screen')).toHaveAttribute('data-version', pkg.version);
   await expect(page.getByTestId('screen')).not.toHaveAttribute('data-library', 'loading');
+  // Home takes input only once it is live (A9: the input lock until then; D-014 adds two frames).
+  await expect(page.locator('main')).toHaveAttribute('data-phase', 'home');
   await page.evaluate(() => document.fonts.ready);
   await waitForIcons(page);
 }
@@ -72,56 +74,6 @@ test.describe('T1.1 Home (mocked core)', () => {
     });
   }
 
-  /** B-8 (rev. l): the ▼'s visible triangle about the capitals' height, centred on them. */
-  async function arrowVsCaps(page: Page) {
-    // A probe "HHHH" on the title's own line (same font, size and line height); the real text
-    // is hidden meanwhile. Svelte's nodes are never touched.
-    await page.evaluate(() => {
-      const row = document.querySelector<HTMLElement>('[data-testid="selected-title-row"]');
-      const text = document.querySelector<HTMLElement>('[data-testid="selected-title"]');
-      if (!row || !text) return;
-      const probe = document.createElement('span');
-      probe.id = 'caps-probe';
-      probe.textContent = 'HHHH';
-      probe.style.cssText = `position:absolute;left:${text.offsetLeft}px;top:${text.offsetTop}px;height:${text.offsetHeight}px;line-height:${getComputedStyle(text).lineHeight};white-space:nowrap`;
-      text.style.visibility = 'hidden';
-      row.appendChild(probe);
-    });
-    const fs = await page.getByTestId('selected-title-row').evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
-    const box = (await page.getByTestId('selected-title-row').boundingBox()) ?? { x: 0, y: 0, width: 0, height: 0 };
-    const vh = page.viewportSize()?.height ?? 1080;
-    const y0 = Math.max(0, box.y - 40);
-    const img = decodePng(await page.screenshot({ clip: { x: box.x, y: y0, width: Math.min(box.width, 4 * fs + 2 * fs), height: box.y + box.height - (14 * vh) / 1080 - y0 } }));
-    // Ink = any pixel clearly different from the plain background (taken from the measured
-    // area's top row, above the title), so the rule works in both presets and with any text
-    // smoothing. (alpha.7 CI: the earlier rule "G < 100" rejected the dark preset's own title
-    // colour #FF69B4, G = 105, and counted only some anti-aliased edge pixels.)
-    const bg = pixel(img, Math.floor(img.width / 2), 0);
-    const differs = (p: [number, number, number]) => Math.abs(p[0] - bg[0]) + Math.abs(p[1] - bg[1]) + Math.abs(p[2] - bg[2]) > 90;
-    const oldRule = ([R, G, B]: [number, number, number]) => R > 120 && G < 100 && B > 40 && R - G > 80;
-    const ink = (x0: number, x1: number, rule: (p: [number, number, number]) => boolean = differs) => {
-      let t = 1e9, b = -1;
-      for (let y = 0; y < img.height; y++)
-        for (let x = Math.round(x0); x < Math.min(img.width, x1); x++) {
-          if (rule(pixel(img, x, y))) { t = Math.min(t, y); b = Math.max(b, y); }
-        }
-      return { t, b, h: b - t + 1 };
-    };
-    const a = ink(0, 1.4 * fs + 1);
-    const c = ink(1.6 * fs, img.width);
-    const aOld = ink(0, 1.4 * fs + 1, oldRule);
-    const cOld = ink(1.6 * fs, img.width, oldRule);
-    console.warn(
-      `arrow vs caps (${await page.evaluate(() => document.documentElement.dataset['preset'] ?? 'light')}): ▼ ${a.h} px, caps ${c.h} px, ratio ${(a.h / c.h).toFixed(2)}; the old colour rule would read ▼ ${aOld.h} px, caps ${cOld.h} px`,
-    );
-    await page.evaluate(() => {
-      document.getElementById('caps-probe')?.remove();
-      const text = document.querySelector<HTMLElement>('[data-testid="selected-title"]');
-      if (text) text.style.visibility = '';
-    });
-    return { ratio: a.h / c.h, offsetEm: Math.abs((a.t + a.b - c.t - c.b) / 2 / fs) };
-  }
-
   for (const vp of [
     { w: 1280, h: 720 },
     { w: 1920, h: 1080 },
@@ -156,20 +108,30 @@ test.describe('T1.1 Home (mocked core)', () => {
           expect(m.clockSize).toBeCloseTo(25 * px * (1 + (scale / 100 - 1) / 2), 0);
           expect((await page.getByTestId('tile').first().boundingBox())?.width ?? 0).toBeCloseTo(384 * px, 0);
 
-          // B-8: the icon is the ▼ (Material Symbols Rounded arrow_drop_down), in the title colour.
-          const arrow = await page.getByTestId('title-arrow').evaluate((el) => ({
-            text: el.textContent,
-            font: getComputedStyle(el).fontFamily,
-            colour: getComputedStyle(el).color,
-            title: getComputedStyle(el.closest('.title') as Element).color,
-          }));
-          expect(arrow.text).toBe('arrow_drop_down');
-          expect(arrow.font).toContain('Material Symbols Rounded');
-          expect(arrow.colour).toBe(arrow.title);
-          const av = await arrowVsCaps(page);
-          expect(av.ratio).toBeGreaterThan(0.85);
-          expect(av.ratio).toBeLessThan(1.25);
-          expect(av.offsetEm).toBeLessThan(0.08);
+          // B-8 (rev. o): just like Switch, the title alone (no ▼, no icon), in the accent text colour.
+          await expect(page.getByTestId('title-arrow')).toHaveCount(0);
+          expect(await page.locator('[data-testid="selected-title-row"] .icon').count()).toBe(0);
+
+          // B-5 (rev. o): the footer mark about 64 px at 1080 p / 100 % (twice the prompt text),
+          // scaled with Interface Scale; two-tone: halves in the footer's text colour, the
+          // diamond in the accent; each part ≥ 3:1 on the background.
+          const mark = await page.getByTestId('footer-mark').evaluate((el) => {
+            const r = el.getBoundingClientRect();
+            const half = getComputedStyle(el.querySelector('.half') as Element).fill;
+            const diamond = getComputedStyle(el.querySelector('.diamond') as Element).fill;
+            const text = getComputedStyle(el.parentElement as Element).color;
+            const accent = getComputedStyle(document.documentElement).getPropertyValue('--color-accent').trim();
+            return { h: r.height, half, diamond, text, accent };
+          });
+          expect(mark.h).toBeCloseTo(64 * px * (scale / 100), 0);
+          expect(mark.half).toBe(mark.text);
+          const hex = (c: string) => c.replace(/^#?(\w)(\w)(\w)$/, '#$1$1$2$2$3$3').toLowerCase();
+          const rgbOf = (h: string) => `rgb(${[1, 3, 5].map((i) => parseInt(hex(h).slice(i, i + 2), 16)).join(', ')})`;
+          expect(mark.diamond).toBe(rgbOf(mark.accent));
+          const bgRgb = preset === 'dark' ? [45, 45, 45] : [235, 235, 235];
+          const num = (c: string) => (c.match(/\d+/g) ?? []).slice(0, 3).map(Number) as [number, number, number];
+          expect(contrast(num(mark.half), bgRgb as [number, number, number])).toBeGreaterThanOrEqual(3);
+          expect(contrast(num(mark.diamond), bgRgb as [number, number, number])).toBeGreaterThanOrEqual(3);
 
           // Focus on the first tile: the title's left edge = the tile's left edge.
           let t = await titleVsTile(page);
@@ -205,6 +167,33 @@ test.describe('T1.1 Home (mocked core)', () => {
           if (!t.shifted) expect(Math.abs(t.titleLeft - t.tileLeft)).toBeLessThan(1.5);
           else expect(t.titleLeft).toBeLessThan(t.tileLeft);
           await shot(page, `t1-home-${vp.w}x${vp.h}-${scale}-${preset}-last`);
+
+          // T1.2: the drawer. Down: the focus in the drawer (one active context): no game title,
+          // no tile ring; the focused button's ring and its label under it, in the accent.
+          await page.keyboard.press('ArrowDown');
+          for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowRight');
+          await expect(page.getByTestId('drawer')).toHaveAttribute('data-zone', 'drawer');
+          await expect(page.getByTestId('selected-title-row')).toHaveCount(0);
+          await expect(page.locator('.tile.focused')).toHaveCount(0);
+          await expect(page.locator('.dbtn.focused')).toHaveAttribute('data-id', 'theme');
+          const lab = page.getByTestId('drawer-label');
+          await expect(lab).toHaveText('Theme Settings');
+          expect(await contrastOf(page, '[data-testid="drawer-label"]')).toBeGreaterThanOrEqual(4.5);
+          const geo = await page.evaluate(() => {
+            const b = document.querySelector('.dbtn.focused')?.getBoundingClientRect();
+            const l = document.querySelector('[data-testid="drawer-label"]')?.getBoundingClientRect();
+            const f = document.querySelector('[data-testid="footer"]')?.getBoundingClientRect();
+            const row = document.querySelector('[data-testid="tile"]')?.getBoundingClientRect();
+            return { b, l, f, row, vw: innerWidth };
+          });
+          // Centred under the button, never clipped, above the footer, below the row.
+          expect(Math.abs((geo.l?.left ?? 0) + (geo.l?.width ?? 0) / 2 - ((geo.b?.left ?? 0) + (geo.b?.width ?? 0) / 2))).toBeLessThan(2);
+          expect(geo.l?.left ?? -1).toBeGreaterThanOrEqual(0);
+          expect(geo.l?.right ?? 1e9).toBeLessThanOrEqual(geo.vw);
+          expect(geo.l?.bottom ?? 1e9).toBeLessThanOrEqual(geo.f?.top ?? 0);
+          expect(geo.b?.top ?? 0).toBeGreaterThan(geo.row?.bottom ?? 1e9);
+          expect(geo.b?.width ?? 0).toBeCloseTo(108 * px * (scale / 100), 0);
+          await shot(page, `t1-home-${vp.w}x${vp.h}-${scale}-${preset}-drawer`);
         });
       }
     }
@@ -245,8 +234,11 @@ test.describe('T1.1 Home (mocked core)', () => {
     // A press at the end moves nothing and makes no sound.
     await pad(page, 'DPadLeft');
     expect(await focusIndex(page)).toBe(0);
-    // Up / down do nothing yet (the drawer comes in T1.2).
+    // T1.2: Down enters the drawer and Up returns to the same tile (the row keeps its focus).
     await pad(page, 'DPadDown');
+    await expect(page.getByTestId('drawer')).toHaveAttribute('data-zone', 'drawer');
+    await pad(page, 'DPadUp');
+    await expect(page.getByTestId('drawer')).toHaveAttribute('data-zone', 'row');
     expect(await focusIndex(page)).toBe(0);
     // Repeats move one tile each.
     await pad(page, 'DPadRight');
@@ -643,26 +635,93 @@ test.describe('T1.1 Home (mocked core)', () => {
     }
   });
 
-  test('B-8 (rev. m): the ▼ never moves; a long title scrolls only to its right, clipped at both ends', async ({ page }) => {
+  test('B-8 (rev. o): no ▼; a long title scrolls within its own space, clipped at both ends', async ({ page }) => {
     await page.setViewportSize({ width: 1920, height: 1080 });
     await open(page);
     for (let i = 0; i < 7; i++) await page.keyboard.press('ArrowRight');
     await expect(page.getByTestId('selected-title-text')).toHaveAttribute('data-moving', 'true');
-    const sample = () =>
+    await page.waitForTimeout(600); // the title's own move with the focus is over
+    const box = () =>
       page.evaluate(() => {
-        const arrow = document.querySelector('.arrow')?.getBoundingClientRect();
-        const box = document.querySelector('[data-testid="selected-title-text"]')?.getBoundingClientRect();
-        return { arrowLeft: arrow?.left ?? 0, arrowRight: arrow?.right ?? 0, boxLeft: box?.left ?? 0 };
+        const row = document.querySelector('[data-testid="selected-title-row"]')?.getBoundingClientRect();
+        const text = document.querySelector('[data-testid="selected-title"]')?.getBoundingClientRect();
+        return { rowLeft: row?.left ?? 0, textLeft: text?.left ?? 0, textRight: text?.right ?? 0, vw: innerWidth };
       });
-    await page.waitForTimeout(600); // the title's own move with the focus (260 ms) is over
-    const first = await sample();
-    await page.waitForTimeout(2500); // the marquee has moved by now
-    const later = await sample();
-    expect(later.arrowLeft).toBeCloseTo(first.arrowLeft, 1);
-    // The text's clipping box starts after the ▼ and its gap; overflow is clipped there.
-    expect(later.boxLeft).toBeGreaterThan(later.arrowRight);
-    expect(await page.locator('[data-testid="selected-title-text"]').evaluate((el) => getComputedStyle(el).overflow)).toBe('hidden');
-    await shot(page, 't1-home-marquee-fixed-arrow');
+    const a = await box();
+    await page.waitForTimeout(2500);
+    const b = await box();
+    // The clipping box stays put (only the text inside moves), starts at the title's own start
+    // (no icon before it) and ends inside the right margin.
+    expect(b.textLeft).toBeCloseTo(a.textLeft, 1);
+    expect(Math.abs(b.textLeft - b.rowLeft)).toBeLessThan(1);
+    expect(b.textRight).toBeLessThanOrEqual(b.vw * 0.95 + 1);
+    expect(await page.getByTestId('selected-title').evaluate((el) => getComputedStyle(el).overflow)).toBe('hidden');
+    await shot(page, 't1-home-marquee-no-arrow');
+  });
+
+  test('the drawer: one press = one move; sounds per action; Up back to the tile; the toast; mouse', async ({ page }) => {
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    await open(page);
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+    const marker = (await logs(page)).length;
+    await pad(page, 'DPadDown');
+    await expect(page.locator('.dbtn.focused')).toHaveAttribute('data-index', '0');
+    await pad(page, 'DPadRight');
+    await expect(page.locator('.dbtn.focused')).toHaveAttribute('data-index', '1');
+    await page.keyboard.press('ArrowRight');
+    await expect(page.locator('.dbtn.focused')).toHaveAttribute('data-index', '2');
+    await pad(page, 'DPadLeft');
+    await pad(page, 'DPadLeft');
+    await pad(page, 'DPadLeft'); // stops at the first button
+    await expect(page.locator('.dbtn.focused')).toHaveAttribute('data-index', '0');
+    await pad(page, 'DPadDown'); // nothing below
+    await pad(page, 'A');
+    await expect(page.getByTestId('toast')).toHaveText('Coming in a later stage');
+    // The toast never covers the drawer's label, and stays inside the footer band.
+    const ov = await page.evaluate(() => {
+      const t = document.querySelector('[data-testid="toast"]')?.getBoundingClientRect();
+      const l = document.querySelector('[data-testid="drawer-label"]')?.getBoundingClientRect();
+      const f = document.querySelector('[data-testid="footer"]')?.getBoundingClientRect();
+      return { tTop: t?.top ?? 0, tBottom: t?.bottom ?? 0, lBottom: l?.bottom ?? 1e9, fTop: f?.top ?? 0, fBottom: f?.bottom ?? 0 };
+    });
+    expect(ov.tTop).toBeGreaterThanOrEqual(ov.lBottom);
+    expect(ov.tTop).toBeGreaterThanOrEqual(ov.fTop);
+    expect(ov.tBottom).toBeLessThanOrEqual(ov.fBottom);
+    await shot(page, 't12-drawer-toast');
+    await pad(page, 'DPadUp');
+    await expect(page.locator('.tile.focused')).toHaveAttribute('data-index', '2'); // the last focused tile
+    let l = (await logs(page)).slice(marker);
+    const lines = l.filter((x) => x.startsWith('info: input down'));
+    expect(lines).toHaveLength(9); // one line per press
+    expect(lines.filter((x) => x.includes('sound move'))).toHaveLength(6); // down, right, right, left, left, up (the third left stops)
+    expect(lines.some((x) => x.includes('end of drawer, no sound'))).toBe(true);
+    expect(lines.some((x) => x.includes('nothing below the drawer, no sound'))).toBe(true);
+    expect(lines.some((x) => x.includes('drawer Search: toast, sound select'))).toBe(true);
+    expect(l.some((x) => x.includes('drawer: Search (press): its screen comes in T4'))).toBe(true);
+    // Mouse: hover shows only an outline and the label; a click opens at once; nothing stays.
+    const btn = (i: number) => page.locator(`[data-testid="drawer-button"][data-index="${i}"]`);
+    await btn(4).hover();
+    await page.mouse.move(900, 900, { steps: 4 });
+    await btn(4).hover();
+    await expect(page.getByTestId('screen')).toHaveAttribute('data-input', 'mouse');
+    await expect(page.locator('.dbtn.focused')).toHaveCount(0);
+    await expect(btn(4)).toHaveClass(/hovered/);
+    await shot(page, 't12-drawer-mouse-hover');
+    await btn(4).click();
+    await expect(page.getByTestId('toast')).toBeVisible();
+    l = await logs(page);
+    expect(l.some((x) => x.includes('input click (mouse) -> drawer Settings: toast, sound select'))).toBe(true);
+    // Away along the bottom (the path crosses no tile or button: hovering a tile would rightly
+    // make the row the remembered place, A7).
+    const b4 = (await btn(4).boundingBox()) ?? { x: 0, y: 0, width: 0, height: 0 };
+    await page.mouse.move(b4.x + b4.width / 2, 1040, { steps: 4 }); // straight down
+    await page.mouse.move(1750, 1040, { steps: 4 }); // then along the footer
+    await expect(page.locator('.dbtn.hovered, .dbtn.focused')).toHaveCount(0); // nothing left highlighted
+    // B-10: the first pad press after the mouse brings the ring back on the drawer button.
+    await pad(page, 'DPadRight');
+    await expect(page.locator('.dbtn.focused')).toHaveAttribute('data-index', '4');
+    expect((await logs(page)).some((x) => x.includes('ring back on drawer button "Settings" (after mouse)'))).toBe(true);
   });
 
   test('D-010: Home appears at once with the original pictures; the copies are swapped in later', async ({ page }) => {

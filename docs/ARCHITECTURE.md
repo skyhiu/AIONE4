@@ -1,6 +1,6 @@
 # AIONE 4 — Architecture
 
-Current as of **4.0.0-alpha.7 (T1.2, part 1)**. Rules: Master Prompt Part A (A3 technology, A4 input, A5 window and lifecycle, A9 data).
+Current as of **4.0.0-alpha.8 (T1.2, part 2)**. Rules: Master Prompt Part A (A3 technology, A4 input, A5 window and lifecycle, A9 data).
 
 ## Overview
 
@@ -301,4 +301,18 @@ removed); `/_boot/up|down` served with HTTP ranges (4 MB at most per answer). On
 
 **Preview:** `npm run build:boot-preview` builds `dist-boot-preview/` (the same `windowB.ts`, opens
 from the file system) for comparison with the reference page.
+
+## 4.0.0-alpha.8
+
+**Home's focus (one active context):** `HomeState.zone` is `row` or `drawer`; `moveZone`,
+`moveDrawer`, `hoverDrawer` (model.ts, unit-tested). App routes up / down / left / right / A by
+zone; the drawer's buttons call `openDrawer` (toast, sound, log, press feedback).
+
+**Boot timing:** `BootPresenter` draws Window B for the predicted next refresh from the audio
+output timestamp (D-015), records each slow frame with its time (D-013), cancels its timers at
+its end (D-016), and calls `onFade` at 4.65 s so App mounts Home under the black layer (D-014);
+`<main data-phase>` says when Home is live.
+
+**Tiles:** a copy's key includes the recipe (2: Lanczos3 for enlarging), so copies are remade
+once after a recipe change.
 

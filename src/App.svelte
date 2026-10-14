@@ -33,6 +33,10 @@
     wheel,
     withCount,
     withVisible,
+    DRAWER,
+    hoverDrawer,
+    moveDrawer,
+    moveZone,
     type HomeState,
   } from './lib/home/model';
   import Home from './lib/home/Home.svelte';
@@ -51,6 +55,9 @@
   let phase = $state<'black' | 'boot' | 'home' | 'bootdown'>('black');
   let bootHost: HTMLDivElement | undefined = $state();
   let presenter: BootPresenter | null = null;
+  /** D-014: Home is mounted under the black boot layer before it is shown, so its first
+   *  frames (layout, pictures) are drawn while the screen is still black. */
+  let homeEarly = $state(false);
   let bootMedia: BootMedia | null = null;
   /** Icons (Material Symbols) are shown only once their font is really there; without it the
    *  browser would draw the ligature names ("arrow_drop_down") as large text (alpha.7 CI). */
@@ -178,7 +185,9 @@
         const where = dialogOpen
           ? 'in the dialog'
           : loadState === 'loaded'
-            ? `on tile ${home.focus + 1}`
+            ? home.zone === 'drawer'
+              ? `on drawer button "${DRAWER[home.drawer]?.label}"`
+              : `on tile ${home.focus + 1}`
             : 'on Home';
         core?.log('info', `input ${ev.kind} ${ev.control} (${inputWhere(ev)}) -> ring back ${where} (after mouse), no move, no sound${waited}`);
         core?.log('info', `ring back ${where} (after mouse)`);
@@ -188,7 +197,7 @@
     }
     const action = toAction(ev);
     const outcome = action ? act(action, ev.kind === 'repeat' ? 'repeat' : 'press') : undefined;
-    perf.action(`${ev.kind} ${ev.control} → ${action ?? 'no action'}${loadState === 'loaded' && !dialogOpen ? `, focus ${home.focus + 1}/${games.length} "${games[home.focus]?.name ?? ''}"` : ''}`);
+    perf.action(`${ev.kind} ${ev.control} → ${action ?? 'no action'}${loadState === 'loaded' && !dialogOpen ? (home.zone === 'drawer' ? `, drawer ${DRAWER[home.drawer]?.label}` : `, focus ${home.focus + 1}/${games.length} "${games[home.focus]?.name ?? ''}"`) : ''}`);
     core?.log('info', describeInput(ev, action, `${outcome ?? ''}${waited}`.replace(/^, /, '')));
   }
 
@@ -209,17 +218,68 @@
     switch (action) {
       case 'left':
       case 'right': {
-        const [next, moved] = move(home, action === 'left' ? -1 : 1);
+        const dir = action === 'left' ? -1 : 1;
+        if (home.zone === 'drawer') {
+          const [next, moved] = moveDrawer(home, dir);
+          home = next;
+          return moved ? `drawer ${DRAWER[home.drawer]?.label}, ${play('move', kind)}` : 'end of drawer, no sound';
+        }
+        const [next, moved] = move(home, dir);
         home = next;
         return moved ? `focus ${home.focus + 1}/${games.length}, ${play('move', kind)}` : 'end of row, no sound';
       }
+      case 'up':
+      case 'down': {
+        const [next, moved] = moveZone(home, action);
+        home = next;
+        if (!moved) return home.zone === 'drawer' ? 'nothing below the drawer, no sound' : 'nothing above the row, no sound';
+        return home.zone === 'drawer'
+          ? `to the drawer: ${DRAWER[home.drawer]?.label}, ${play('move', kind)}`
+          : `back to the row: focus ${home.focus + 1}/${games.length}, ${play('move', kind)}`;
+      }
       case 'confirm':
-        return start(home.focus, 'press');
+        return home.zone === 'drawer' ? openDrawer(home.drawer, 'press') : start(home.focus, 'press');
       case 'back':
         return 'home: nothing to go back to';
-      default:
-        return 'home: nothing there yet (the drawer comes in T1.2)';
     }
+  }
+
+  /** T1.2: the drawer's screens come in later stages (T2–T4); a press shows a plain toast. */
+  let drawerPressed = $state<number | null>(null);
+  let toast = $state<string | null>(null);
+  let toastTimer: ReturnType<typeof setTimeout> | null = null;
+  let drawerPressTimer: ReturnType<typeof setTimeout> | null = null;
+  function openDrawer(index: number, how: string): string {
+    const item = DRAWER[index];
+    if (!item) return 'no such drawer button';
+    drawerPressed = index;
+    if (drawerPressTimer) clearTimeout(drawerPressTimer);
+    drawerPressTimer = setTimeout(() => {
+      drawerPressed = null;
+      drawerPressTimer = null;
+    }, 280);
+    toast = 'Coming in a later stage';
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      toast = null;
+      toastTimer = null;
+    }, 2400);
+    core?.log('info', `drawer: ${item.label} (${how}): its screen comes in ${item.stage}; toast "Coming in a later stage"`);
+    return `drawer ${item.label}: toast, ${play('select')}`;
+  }
+
+  function onDrawerHover(index: number | null) {
+    if (inputMode !== 'mouse' || dialogOpen || phase !== 'home') return;
+    home = hoverDrawer(home, index);
+  }
+
+  function onDrawerClick(index: number) {
+    if (dialogOpen || phase !== 'home') return;
+    setMode('mouse');
+    home = { ...hoverDrawer(home, index), drawerHover: null };
+    perf.action(`click drawer ${DRAWER[index]?.label}`);
+    // A click activates at once (no game is started from the drawer); nothing stays highlighted.
+    core?.log('info', `input click (mouse) -> ${openDrawer(index, 'click')}`);
   }
 
   /** Starting a game comes in T1.3: for now the press is shown, sounded and logged. */
@@ -422,6 +482,16 @@
       .catch((err: unknown) => c.log('warn', `tile copy for "${id}" could not be decoded: ${String(err)}`));
   }
 
+  /** D-014: mount Home under the black layer (Window B: when its fade to black begins). */
+  function prepareHome() {
+    if (homeEarly) return;
+    homeEarly = true;
+    core?.log('info', 'Home prepared under the black screen (its first frames drawn before it shows)');
+  }
+
+  /** Two animation frames: Home's first frames are drawn (still covered) before it shows. */
+  const twoFrames = () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+
   /** A9: one Boot Up presentation, decided once: the custom video, or the default Window B
    *  (and once only, the default as the controlled fallback when the custom one cannot start). */
   async function bootUp(c: Core) {
@@ -444,11 +514,11 @@
       });
       if (outcome.startsWith('Failed') && !outcome.includes('mid-playback') && phase === 'boot') {
         c.log('warn', `Boot Up: the custom video failed (${outcome.slice(8)}); the default Window B plays instead (the one fallback)`);
-        outcome = await p.playDefault('up', bootUpSound);
+        outcome = await p.playDefault('up', bootUpSound, prepareHome);
       }
     } else {
       c.log('info', `Boot Up: default Window B (${info?.bootDefault ? '--boot=default for this run' : 'no custom video'})`);
-      outcome = await p.playDefault('up', bootUpSound);
+      outcome = await p.playDefault('up', bootUpSound, prepareHome);
     }
     c.log('info', `Boot Up outcome: ${outcome}`);
   }
@@ -554,6 +624,14 @@
       }
       if (phase === 'black') await bootUp(c);
       if (phase !== 'bootdown') {
+        // D-014: if Home isn't mounted yet (custom video, skip, no Boot Up), mount it under the
+        // black layer and let it draw its first frames before the layer goes.
+        if (!homeEarly) {
+          prepareHome();
+          await twoFrames();
+          await Promise.all([...document.querySelectorAll<HTMLImageElement>('[data-testid="tile"] img')].map((i) => i.decode().catch(() => undefined)));
+        }
+        await twoFrames();
         phase = 'home';
         perf.setScreen('home');
         if (pendingTiles.length) c.log('info', `tile pictures: ${pendingTiles.length} copies made during the Boot Up are swapped in now`);
@@ -589,7 +667,7 @@
 />
 
 <!-- D-010: black (the html background) until the library is loaded; then Home. -->
-<main data-icons-ready={iconsReady} class:icons-ready={iconsReady} data-input={inputMode} data-testid="screen" data-version={info?.version ?? ''} data-library={library?.state ?? 'loading'}>
+<main data-phase={phase} data-icons-ready={iconsReady} class:icons-ready={iconsReady} data-input={inputMode} data-testid="screen" data-version={info?.version ?? ''} data-library={library?.state ?? 'loading'}>
   <!-- A9: black from the first frame; the Boot Up / Boot Down draw here, over everything. -->
   <!-- Always mounted (the presenter keeps drawing into it); hidden on Home. -->
   <div
@@ -606,7 +684,7 @@
         }
       }}
     ></div>
-  {#if loadState !== 'loading' && (phase === 'home' || phase === 'bootdown')}<Home
+  {#if loadState !== 'loading' && (phase === 'home' || phase === 'bootdown' || homeEarly)}<Home
     {games}
     state={home}
     mode={inputMode}
@@ -622,7 +700,13 @@
     onPicture={(what, w, h) => perf.picture(what, w, h)}
     {onHover}
     onClick={onTileClick}
+    {onDrawerHover}
+    {onDrawerClick}
+    {drawerPressed}
   />{/if}
+  {#if toast && phase === 'home'}
+    <div class="toast" role="status" data-testid="toast">{toast}</div>
+  {/if}
 
   {#if flow.phase !== 'hidden'}
     <CopyDialog
@@ -644,6 +728,23 @@
   /* Icons only with their font (never their ligature names as text). */
   main:not(.icons-ready) :global(.icon) {
     visibility: hidden;
+  }
+  /* T1.2: a plain toast in the footer band's empty centre (between the branding and the
+     prompts), so it never covers the drawer's label. */
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: 1.1rem;
+    transform: translateX(-50%);
+    z-index: 50;
+    padding: 0.6rem 1.4rem;
+    line-height: 1.15;
+    border-radius: 0.75rem;
+    background: var(--color-surface-raised);
+    color: var(--color-text);
+    border: 1px solid var(--color-divider);
+    font-size: var(--text-label);
+    white-space: nowrap;
   }
   .boot.hidden {
     display: none;

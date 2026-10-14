@@ -29,10 +29,50 @@ export interface HomeState {
   armed: number | null;
   /** Mouse: the tile under the pointer, or null. */
   hover: number | null;
+  /** T1.2: which part of Home has the focus (one active context): the game row or the drawer. */
+  zone: 'row' | 'drawer';
+  /** The drawer's focused button (remembered while the row has the focus). */
+  drawer: number;
+  /** Mouse: the drawer button under the pointer, or null. */
+  drawerHover: number | null;
+}
+
+/** The System Drawer (reference Part B; Switch-style, B-9 rev. o). Icons from Material Symbols
+ *  Rounded (outlined, light, like the header). Their screens come in later stages (T2–T4). */
+// `weight`: each icon's Material Symbols weight, balanced so every icon carries about the same
+// ink (reference KD-81: within about ±25 % of the median at the same box size; measured).
+export const DRAWER = [
+  { id: 'search', label: 'Search', icon: 'search', stage: 'T4', weight: 480 },
+  { id: 'activity', label: 'Activity', icon: 'leaderboard', stage: 'T4', weight: 300 },
+  { id: 'surprise', label: 'Surprise Me', icon: 'casino', stage: 'T4', weight: 300 },
+  { id: 'theme', label: 'Theme Settings', icon: 'palette', stage: 'T3', weight: 300 },
+  { id: 'settings', label: 'Settings', icon: 'settings', stage: 'T3', weight: 250 },
+  { id: 'power', label: 'Power', icon: 'power_settings_new', stage: 'T2', weight: 380 },
+] as const;
+export type DrawerItem = (typeof DRAWER)[number];
+
+/** Down from the row enters the drawer (on its remembered button); Up from the drawer returns
+ *  to the last focused tile (reference Part B). Returns whether the focus moved. */
+export function moveZone(s: HomeState, dir: 'up' | 'down'): [HomeState, boolean] {
+  if (dir === 'down' && s.zone === 'row') return [{ ...s, zone: 'drawer' }, true];
+  if (dir === 'up' && s.zone === 'drawer') return [{ ...s, zone: 'row' }, true];
+  return [s, false];
+}
+
+/** Left / right in the drawer; stops at its ends. */
+export function moveDrawer(s: HomeState, dir: -1 | 1): [HomeState, boolean] {
+  const next = Math.max(0, Math.min(DRAWER.length - 1, s.drawer + dir));
+  return next === s.drawer ? [s, false] : [{ ...s, drawer: next }, true];
+}
+
+/** Mouse over a drawer button (null when it leaves). */
+export function hoverDrawer(s: HomeState, index: number | null): HomeState {
+  // The last hovered button is remembered for the pad (reference A7).
+  return index === null ? { ...s, drawerHover: null } : { ...s, drawerHover: index, drawer: index, zone: 'drawer' };
 }
 
 export function initialHome(count: number, visible: number): HomeState {
-  return { count, focus: 0, first: 0, visible: Math.max(1, visible), armed: null, hover: null };
+  return { count, focus: 0, first: 0, visible: Math.max(1, visible), armed: null, hover: null, zone: 'row', drawer: 0, drawerHover: null };
 }
 
 /** How many tiles fit fully, for a window of `width` × `height` CSS pixels. */
@@ -77,7 +117,7 @@ export function hoverTile(s: HomeState, index: number | null): HomeState {
   if (index === null) return { ...s, hover: null };
   if (index < 0 || index >= s.count) return s;
   // A7: the hovered item is remembered for the pad.
-  return { ...s, hover: index, focus: index };
+  return { ...s, hover: index, focus: index, zone: 'row' };
 }
 
 export type ClickResult = 'select' | 'start';
@@ -99,6 +139,7 @@ export function wheel(s: HomeState, dir: -1 | 1): [HomeState, boolean] {
  *  selected tile (none when nothing is hovered or selected). */
 export function titleIndex(s: HomeState, mode: 'pad' | 'mouse'): number | null {
   if (s.count === 0) return null;
-  if (mode === 'pad') return s.focus;
+  // Like Switch: while the drawer has the focus, no game title is shown.
+  if (mode === 'pad') return s.zone === 'drawer' ? null : s.focus;
   return s.hover ?? s.armed;
 }

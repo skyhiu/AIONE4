@@ -146,3 +146,32 @@ describe('perf and glyphs', () => {
     expect(deviceAfter('keyboard', 'controller')).toBe('xbox');
   });
 });
+
+describe('the drawer (T1.2)', () => {
+  it('Down enters the drawer on its remembered button; Up returns to the last tile; ends stop', async () => {
+    const { DRAWER, initialHome, move, moveDrawer, moveZone, titleIndex, hoverDrawer } = await import('../../src/lib/home/model');
+    let s = initialHome(10, 4);
+    [s] = move(s, 1);
+    [s] = move(s, 1);
+    expect(s.focus).toBe(2);
+    let moved: boolean;
+    [s, moved] = moveZone(s, 'up');
+    expect(moved).toBe(false); // nothing above the row
+    [s, moved] = moveZone(s, 'down');
+    expect(moved && s.zone === 'drawer' && s.drawer === 0).toBe(true);
+    expect(titleIndex(s, 'pad')).toBeNull(); // no game title while in the drawer
+    [s, moved] = moveDrawer(s, -1);
+    expect(moved).toBe(false); // the first button stops
+    for (let i = 0; i < 10; i++) [s] = moveDrawer(s, 1);
+    expect(s.drawer).toBe(DRAWER.length - 1); // the last button stops
+    [s, moved] = moveZone(s, 'down');
+    expect(moved).toBe(false); // nothing below the drawer
+    [s] = moveZone(s, 'up');
+    expect(s.zone === 'row' && s.focus === 2).toBe(true); // back on the last focused tile
+    [s] = moveZone(s, 'down');
+    expect(s.drawer).toBe(DRAWER.length - 1); // the drawer remembers its button
+    s = hoverDrawer(s, 1);
+    expect(s.zone === 'drawer' && s.drawer === 1 && s.drawerHover === 1).toBe(true);
+    expect(DRAWER.map((d) => d.label)).toEqual(['Search', 'Activity', 'Surprise Me', 'Theme Settings', 'Settings', 'Power']);
+  });
+});

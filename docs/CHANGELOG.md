@@ -1,5 +1,26 @@
 # Changelog
 
+## 4.0.0-alpha.8 — T1.2 part 2: the drawer; D-013 to D-016; title, footer mark and letters (rev. o)
+
+- **The drawer** (Switch-style, in the palette): six round buttons under the game row: Search,
+  Activity, Surprise Me, Theme Settings, Settings, Power. Down enters it (on its remembered
+  button), Up returns to the last tile; left / right stop at its ends; while it has the focus,
+  no game title or tile ring shows (one active context). The focused button's ring pulses like
+  the tiles'; its label is under it in the accent text colour. A or a click shows a plain
+  "Coming in a later stage" toast (their screens come in T2–T4); the icon's squash-and-zoom on
+  press. Proportions measured on the Switch reference (disc / tile 0.28); icons balanced to one
+  ink weight (KD-81, ±10 % measured).
+- **D-013:** each slow Boot Up frame logged with its place in the timeline.
+- **D-014:** Home prepared under the black screen before it shows.
+- **D-015:** frames drawn for the predicted next refresh, from the audio output timestamp.
+- **D-016:** a presentation's timers cancelled at its end.
+- **B-8 (rev. o):** no ▼: the title alone, like Switch.
+- **B-5 (rev. o):** the footer mark two-tone (diamond in the accent), 64 px at 1080 p / 100 %;
+  "AIONE" and the Boot Up letters in M PLUS Rounded 1c; the letters twice as large, the
+  composition re-centred (timing unchanged); the Boot Up preview updated.
+- **B-13 (rev. o):** small icons enlarged with Lanczos3 (every copy remade once).
+- **Tests:** Rust 84; Vitest 55; Playwright 68 with 99 screenshots.
+
 ## 4.0.0-alpha.7 — T1.2 (part 1): the Boot Up and Boot Down, the ring's pulse
 
 - **Boot Up (A9, B-5 final):** black from the first frame; a black hold (at most 4 s) in which

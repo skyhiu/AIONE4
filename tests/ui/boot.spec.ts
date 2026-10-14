@@ -141,4 +141,53 @@ test.describe('T1.2 Boot Up and Boot Down (mocked core)', () => {
       await shot(page, `t12-boot-down-${String(t).padStart(4, '0')}ms`);
     });
   }
+
+  test('D-016: after a skip, no line from the skipped presentation', async ({ page }) => {
+    await page.goto(`./?${BASE}&boot=custom`);
+    await waitLog(page, 'custom Boot Up: playing');
+    await pad(page, 'B'); // before its "after the first frames" timer (700 ms)
+    await waitLog(page, 'Boot Up outcome: Skipped');
+    await page.waitForTimeout(1500);
+    const l = await logs(page);
+    const i = l.findIndex((x) => x.includes('Boot Up outcome: Skipped'));
+    const after = l.slice(i + 1).filter((x) => x.includes('custom Boot Up'));
+    expect(after).toEqual([]);
+  });
+
+  test('D-014 / D-013: Home prepared under the black screen; slow frames listed with their time', async ({ page }) => {
+    await page.goto(`./?${BASE}&boot=default`);
+    await waitLog(page, 'Boot Up outcome: Completed');
+    const l = await logs(page);
+    const prep = l.findIndex((x) => x.includes('Home prepared under the black screen'));
+    const done = l.findIndex((x) => x.includes('Boot Up outcome: Completed'));
+    expect(prep).toBeGreaterThanOrEqual(0);
+    expect(prep).toBeLessThan(done);
+    const frames = l.find((x) => x.startsWith('info: Boot Up: Completed;')) ?? '';
+    console.warn(`boot frames: ${frames}`);
+    const over = Number(/over 33 ms: (\d+)/.exec(frames)?.[1]);
+    if (over > 0) expect(frames).toMatch(/\(at \d+\.\d\d s: [\d.]+ ms/);
+    const clamp = l.find((x) => x.includes('Boot Up clamp:')) ?? '';
+    expect(clamp).toMatch(/for the refresh predicted [\d.]+ ms ahead/);
+    expect(clamp).toMatch(/clock: /);
+    console.warn(`clamp: ${clamp}`);
+  });
+
+  test('B-5 (rev. o): the letters about twice as large, in M PLUS Rounded 1c, the composition centred', async ({ page }) => {
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    await page.goto(`./?${BASE}&bootframe=up:4400`);
+    await expect(page.getByTestId('boot-up-default')).toBeVisible();
+    await page.evaluate(() => document.fonts.load('500 44px "M PLUS Rounded 1c"', 'AIONE'));
+    const r = await page.evaluate(() => {
+      const g = document.querySelector('[data-part="letters"]') as SVGGElement;
+      const mark = document.querySelector('[data-part="diamond"]')?.closest('g')?.parentElement as SVGGElement | null;
+      const lb = g.getBoundingClientRect();
+      const mb = (mark ?? g).getBoundingClientRect();
+      return { size: g.getAttribute('font-size'), family: getComputedStyle(g).fontFamily, top: Math.min(lb.top, mb.top), bottom: Math.max(lb.bottom, mb.bottom), letters: lb.height, vh: innerHeight };
+    });
+    expect(r.size).toBe('44');
+    expect(r.family).toContain('M PLUS Rounded 1c');
+    // The mark and the name together sit centred (within 3 % of the height).
+    expect(Math.abs((r.top + r.bottom) / 2 - r.vh / 2)).toBeLessThan(r.vh * 0.03);
+    await shot(page, 't12-boot-up-letters-4400ms');
+  });
 });

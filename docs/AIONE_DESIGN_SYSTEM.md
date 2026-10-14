@@ -38,10 +38,10 @@ run with `AIONE4.exe --interface-scale=150` (never stored). Default 100 %.
   heading 2.5 (40) · display 4 (64).
 - **Header:** clock 25 `--hdr` px, Regular, letter spacing 0.06 em, tabular figures; AM / PM at
   60 % on the same baseline. Clock cap height 18 px at 1080 p / 100 %.
-- **Footer branding (B-5 final):** the one-colour "Window B" mark, 1.375 rem (22 px at 1080 p,
-  100 %), then "AIONE", Medium, letter spacing 0.08 em, 0.6 rem apart. The mark is drawn in the
-  footer's text colour: off-white on dark; dark on the light preset, where the off-white mark
-  would be invisible (about 1.1:1).
+- **Footer branding (B-5 rev. o):** the "Window B" mark, **4 rem** (64 px at 1080 p and 100 %,
+  about twice the prompt text; scaled with Interface Scale), two-tone: the halves in the footer's
+  text colour, the diamond in the accent (light #FD007E, dark #FF46A2; each ≥ 3:1), then "AIONE"
+  in M PLUS Rounded 1c, Medium, letter spacing 0.08 em, 0.75 rem apart.
 
 ## Icons
 - **Pack:** Material Symbols Rounded (variable font, Apache-2.0), weight 300, FILL 0, opsz 24:
@@ -85,20 +85,32 @@ tints #FF58AB … #FFC2E0).
 
 The light preset is the default (B-11).
 
-## The selected game's title (B-8, rev. k / l)
-- **Where:** above the **selected tile**, **left-aligned with that tile's left edge**, moving
-  with the focus. It is one element moved by `transform: translateX` with the row's own motion
-  (260 ms, ease-out), never by layout (L-16). Its width is measured once per title / size change.
-- **Near the right edge:** when the title would run past 95 % of the width, it shifts left just
-  enough to fit (never past the row's start); a title longer than the row's width scrolls (the
-  shared marquee, by transform).
-- **The ▼:** Material Symbols Rounded **`arrow_drop_down`**, FILL 1, in the title colour, pointing
-  at the tile. Its visible triangle is 0.19 × 0.365 em of its own size (measured), so the glyph is
-  set at **3.84 × the title size**, giving a triangle as tall as the capitals (0.73 em) and
-  1.4 em wide, with 0.32 em before the text. Measured in the UI tests at every size: height
-  0.85–1.25 × the capitals (measured 1.00–1.05), centred within 0.08 em (measured ≤ 0.025 em).
-- Title: accent text colour, Regular, `--text-title`. Hidden under a dialog and in mouse mode
-  when nothing is hovered or selected (then it follows the hovered or selected tile).
+## The selected game's title (B-8, rev. o)
+- **Just like Switch:** the game's name alone, in the accent text colour, above the selected
+  tile, starting at its left edge. No ▼ and no icon (rev. o removed alpha.6–7's ▼).
+- It moves with the focus by transform (260 ms, the row's motion), never by layout; near the right
+  margin (95 % of the width) it shifts left just enough to fit; a longer title scrolls within its
+  own space (the shared marquee, by transform), clipped at both ends.
+- Hidden under a dialog, and while the drawer has the focus (like Switch).
+
+## The drawer (T1.2; Switch-style, B-9 rev. o)
+- **Buttons:** Search (`search`), Activity (`leaderboard`), Surprise Me (`casino`), Theme Settings
+  (`palette`), Settings (`settings`), Power (`power_settings_new`): Material Symbols Rounded,
+  outlined, 48 design px; each icon's weight balanced so all carry the same ink (Search 480,
+  Settings 250, Power 380, others 300; measured within ±10 % of the median, KD-81).
+- **Geometry** (design px at 1080 p, scaled with Interface Scale): discs 108 across, 28 apart,
+  centred (Switch's proportions: disc / tile 0.28, measured on the reference); 86 px under the
+  row, moved up only as much as needed to keep the label 12 px clear of the footer at large
+  Interface Scales.
+- **Colours:** the disc in the surface colour (white on light, #3A3A3A on dark), the icon in the
+  text colour. **Focused:** the tiles' ring (6 px, 5 px gap, pulsing between the two accent
+  shades), and the label under the button in the accent text colour (light #B5005A, dark
+  #FF69B4), 1.75 rem, Medium, centred under it, never clipped. **Hover (mouse):** a 4 px outline
+  in the hover colour and the label. **Press:** the icon's squash-and-zoom (260 ms).
+- **Focus:** Down from the row enters the drawer on its remembered button; Up returns to the
+  last focused tile; left / right stop at the ends.
+- **The toast:** "Coming in a later stage", 2.4 s, in the footer band's empty centre (never over
+  the drawer's label).
 
 ## The tile picture (B-13, rev. k)
 - The game's **`Icon`** (the largest size inside an `.ico`), **filling** the square tile.
@@ -107,6 +119,8 @@ The light preset is the default (B-11).
 - Without any picture: a plain tile with the name.
 - The core's 640 × 640 copy is shown once made (D-007 / D-010); until then the original (an icon
   fills; another picture is shown whole on #161616).
+- **Small pictures (B-13 rev. o):** enlarged with Lanczos3 (never blocky); scaling down uses
+  CatmullRom.
 
 ## States and focus (reference A5, A7)
 - **Pad / keyboard mode:** one focus ring on the focused tile: 6 px ring with a 5 px gap, 11 px
@@ -165,7 +179,9 @@ in. Before Home, the window and the page are black (#000000), never grey or whit
   (the reference page draws it 744 px tall in a 1080 px window); the shake, ring and shards are
   never clipped (the layer shows its overflow).
 - Colours: off-white #F5F3EE, the diamond #FF46A2 (one brand pink), black. Flat.
-- Letters "A I O N E": Segoe UI (system-ui) 500, as in the reference page.
+- Letters "A I O N E" (B-5 rev. o): M PLUS Rounded 1c 500, **44 units** (twice the reference's
+  22), 50 apart; the mark at y −33 and the baseline at 133, so the mark and the name are centred
+  together; their rise 28 and drop 32 units (doubled with the size); timing unchanged.
 - The custom video is shown whole (`object-fit: contain`) on black.
 - Home appears when the Boot Up ends (its last 0.35 s fade to black).
 

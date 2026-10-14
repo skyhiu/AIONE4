@@ -12,7 +12,7 @@
   import Footer from '../frame/Footer.svelte';
   import Marquee from '../frame/Marquee.svelte';
   import type { GlyphDevice } from '../frame/glyphs';
-  import { titleIndex, type HomeState } from './model';
+  import { DRAWER, titleIndex, type HomeState } from './model';
 
   let {
     games,
@@ -29,6 +29,9 @@
     fixedTime = null,
     hour12,
     onHover,
+    onDrawerHover = () => {},
+    onDrawerClick = () => {},
+    drawerPressed = null,
     onClick,
   }: {
     games: GameView[];
@@ -47,6 +50,11 @@
     hour12?: boolean;
     onHover: (index: number | null) => void;
     onClick: (index: number) => void;
+    /** T1.2: the drawer (mouse). */
+    onDrawerHover?: (index: number | null) => void;
+    onDrawerClick?: (index: number) => void;
+    /** The drawer button showing its press (squash-and-zoom), or null. */
+    drawerPressed?: number | null;
   } = $props();
 
   let broken = $state(new Set<string>());
@@ -88,8 +96,9 @@
   <div class="row" data-testid="game-row" data-first={home.first} data-focus={home.focus} data-count={games.length}>
     {#if loadState === 'loaded' && shownTitle !== null && games[shownTitle]}
       {@const tg = games[shownTitle]}
-      <!-- B-8 (rev. k / l): above the selected tile, left-aligned with it, after a downward arrow;
-           moved by transform only; shifted left near the right margin; long titles scroll. -->
+      <!-- B-8 (rev. o): just like Switch, the title alone in the accent text colour, above the
+           selected tile from its left edge; moved by transform only; shifted left near the right
+           margin; a long title scrolls within its own space, clipped at both ends. -->
       <div
         class="title"
         class:placed
@@ -101,7 +110,6 @@
         data-shifted={shifted}
         data-owner="home-title"
       >
-        <span class="arrow" aria-hidden="true"><span class="icon glyph" data-testid="title-arrow">arrow_drop_down</span></span>
         <span class="title-text" data-testid="selected-title"
           ><Marquee text={tg.name} align="start" testid="selected-title-text" /></span
         >
@@ -119,7 +127,7 @@
             aria-label={g.name}
             data-testid="tile"
             data-index={i}
-            class:focused={!suspended && mode === 'pad' && home.focus === i}
+            class:focused={!suspended && mode === 'pad' && home.zone === 'row' && home.focus === i}
             class:hovered={!suspended && mode === 'mouse' && (home.hover === i || home.armed === i)}
             class:pressed={pressed === i}
             onmouseenter={() => onHover(i)}
@@ -168,7 +176,46 @@
   </div>
 
   <!-- While a dialog is open its own prompts apply; Home's are hidden (they would not act). -->
-  <Footer prompts={loadState === 'loaded' && !suspended ? [{ button: 'confirm', label: 'Start' }] : []} {device} branding />
+  {#if loadState === 'loaded'}
+    <!-- T1.2: the System Drawer (reference Part B; Switch-style in the palette, B-9 rev. o). -->
+    <nav class="drawer" data-testid="drawer" data-zone={home.zone} data-focus={home.drawer} aria-label="System">
+      {#each DRAWER as item, i (item.id)}
+        {@const focused = mode === 'pad' && !suspended && home.zone === 'drawer' && home.drawer === i}
+        {@const hovered = mode === 'mouse' && !suspended && home.drawerHover === i}
+        <div class="ditem">
+          <button
+            type="button"
+            class="dbtn"
+            class:focused
+            class:hovered
+            class:pressed={drawerPressed === i}
+            data-testid="drawer-button"
+            data-id={item.id}
+            data-index={i}
+            aria-label={item.label}
+            tabindex="-1"
+            onmouseenter={() => onDrawerHover(i)}
+            onmouseleave={() => onDrawerHover(null)}
+            onclick={() => onDrawerClick(i)}
+          >
+            <span class="icon dicon" style:--w={item.weight} aria-hidden="true">{item.icon}</span>
+            <span class="dring" aria-hidden="true" data-owner="drawer-ring"
+              ><span class="dring-line"></span><span class="dring-line dring-alt"></span></span
+            >
+          </button>
+          <!-- The label sits under the button on the page's own background (not the button's). -->
+          {#if focused || hovered}
+            <span class="dlabel" data-testid="drawer-label">{item.label}</span>
+          {/if}
+        </div>
+      {/each}
+    </nav>
+  {/if}
+  <Footer
+    prompts={loadState === 'loaded' && !suspended ? [{ button: 'confirm', label: home.zone === 'drawer' && mode === 'pad' ? 'OK' : 'Start' }] : []}
+    {device}
+    branding
+  />
 </section>
 
 <style>
@@ -321,41 +368,116 @@
   .title.placed {
     transition: transform var(--motion-row) var(--ease-out);
   }
-  /* The ▼ (Material Symbols Rounded arrow_drop_down). Its visible triangle is 0.19 × 0.365 em of
-     its own size, 0.39–0.58 em above its baseline (measured); the title's capitals are 0.73 em.
-     So the glyph is set at 0.73 / 0.19 = 3.84 × the title size and placed so that the triangle
-     fills this 1.4 × 0.73 em box: cap height, on the title's line. */
-  .arrow {
-    position: relative;
-    flex: none;
-    width: 1.4em;
-    height: 0.73em;
-    margin-right: 0.32em;
-    overflow: visible;
-    /* Cap-centre of the text sits above the line box's centre; move the box up to it. */
-    transform: translateY(var(--arrow-dy, -0.06em));
-  }
-  .glyph {
-    position: absolute;
-    font-size: 3.84em;
-    line-height: 1;
-    /* Glyph box → triangle: left 0.315 em, ink top 0.58 em above the baseline. */
-    left: -0.315em;
-    /* Measured in the real render (alpha.6): this puts the triangle's top on the capitals' top. */
-    top: -0.3915em;
-    width: 1em;
-    height: 1em;
-    color: var(--color-title);
-    font-variation-settings:
-      'wght' 400,
-      'FILL' 1,
-      'GRAD' 0,
-      'opsz' 24;
-  }
   .title-text {
     flex: 0 1 auto;
     min-width: 0;
     overflow: hidden;
+  }
+
+  /* ---- The drawer (T1.2). Design px at 1080 p, scaled with Interface Scale (--ui): buttons
+     108 across, 28 apart, centred (Switch's proportions: disc / tile 0.28, measured on the
+     reference image); 86 px under the game row where it fits; the label 12 under the button. ---- */
+  .drawer {
+    position: absolute;
+    left: 0;
+    right: 0;
+    /* Like Switch: 86 px under the row (at 1080 p); but never so low that the label (12 under the
+       button, its line 1.75 rem × 1.15) runs into the footer (5.5 rem) at large Interface Scales:
+       then it moves up just enough, keeping 12 px clear. */
+    top: min(
+      calc((292 + 384 + 86) * var(--px)),
+      calc(100vh - 5.5rem - 120 * var(--ui) - 2.0125rem - 12 * var(--px))
+    );
+    display: flex;
+    justify-content: center;
+    gap: calc(28 * var(--ui));
+  }
+  .ditem {
+    position: relative;
+  }
+  .dbtn {
+    position: relative;
+    width: calc(108 * var(--ui));
+    height: calc(108 * var(--ui));
+    border-radius: 50%;
+    border: none;
+    padding: 0;
+    background: var(--color-surface);
+    color: var(--color-text);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: default;
+    outline: none;
+  }
+  .dicon {
+    font-size: calc(48 * var(--ui));
+    line-height: 1;
+    font-variation-settings:
+      'wght' var(--w, 300),
+      'FILL' 0,
+      'GRAD' 0,
+      'opsz' 48;
+    transition: transform var(--motion-press) var(--ease-out);
+  }
+  /* Press: the icon's squash-and-zoom (reference Part B), never delaying the action. */
+  .dbtn.pressed .dicon {
+    animation: squash 260ms var(--ease-out);
+  }
+  @keyframes squash {
+    0% {
+      transform: scale(1);
+    }
+    35% {
+      transform: scale(0.84);
+    }
+    70% {
+      transform: scale(1.1);
+    }
+    100% {
+      transform: scale(1);
+    }
+  }
+  /* The focus ring: like the tiles' (B-9 rev. m): two shades of the accent, the top one's
+     opacity pulsing; 6 px with a 5 px gap, so 11 px outside the button. */
+  .dring {
+    position: absolute;
+    inset: calc(-11 * var(--ui));
+    border-radius: 50%;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .dring-line {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: calc(6 * var(--ui)) solid var(--color-ring);
+  }
+  .dring-alt {
+    border-color: var(--color-ring-alt);
+    opacity: 0;
+  }
+  .dbtn.focused .dring {
+    opacity: 1;
+  }
+  .dbtn.focused .dring-alt {
+    animation: ring-pulse calc(var(--motion-blink) / 2) ease-in-out var(--motion-focus) infinite alternate;
+  }
+  .dbtn.hovered {
+    box-shadow: 0 0 0 calc(4 * var(--ui)) var(--color-hover);
+  }
+  /* The label under the focused button, in the accent text colour, centred, never clipped. */
+  .dlabel {
+    position: absolute;
+    top: calc(100% + 12 * var(--ui));
+    left: 50%;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    color: var(--color-title);
+    font-size: var(--text-label);
+    font-weight: 500;
+    line-height: 1.15;
+    pointer-events: none;
   }
 
   .message {

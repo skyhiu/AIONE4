@@ -30,8 +30,22 @@ use std::time::{Instant, UNIX_EPOCH};
 
 pub const TILE_PX: u32 = 640;
 const FAILED_FILE: &str = "failed.json";
-/// The scaling filter: CatmullRom (sharp, about 25 % cheaper than Lanczos3; measured).
+/// Scaling down: CatmullRom (sharp, about 25 % cheaper than Lanczos3; measured).
 const FILTER: FilterType = FilterType::CatmullRom;
+/// B-13 (rev. o): enlarging small pictures (e.g. 128 px icons to 640) uses Lanczos3, the
+/// highest-quality filter here, so they are never blocky.
+const ENLARGE: FilterType = FilterType::Lanczos3;
+/// The copy recipe. Part of each copy's key, so a change of recipe remakes every copy once
+/// (2: Lanczos3 for enlarging, alpha.8).
+const RECIPE: u8 = 2;
+
+fn filter_for(src_side: u32, out_side: u32) -> FilterType {
+    if src_side < out_side {
+        ENLARGE
+    } else {
+        FILTER
+    }
+}
 
 /// How a source picture becomes a tile (B-13).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -127,7 +141,7 @@ pub fn key_of(src: &Path, mode: Mode) -> Option<String> {
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    let tag = [if mode == Mode::Fill { 1u8 } else { 2u8 }];
+    let tag = [if mode == Mode::Fill { 1u8 } else { 2u8 }, RECIPE];
     for b in m
         .len()
         .to_le_bytes()
@@ -271,7 +285,7 @@ pub fn fill(img: &DynamicImage, px: u32) -> RgbImage {
     let (w, h) = img.dimensions();
     let side = w.min(h).max(1);
     img.crop_imm((w - side) / 2, (h - side) / 2, side, side)
-        .resize_exact(px, px, FILTER)
+        .resize_exact(px, px, filter_for(side, px))
         .to_rgb8()
 }
 
@@ -285,7 +299,8 @@ pub fn fit(img: &DynamicImage, px: u32) -> RgbImage {
             *c = (*c as f32 * 0.45) as u8;
         }
     }
-    let fg = img.resize(px, px, FILTER).to_rgba8();
+    let (w, h) = img.dimensions();
+    let fg = img.resize(px, px, filter_for(w.max(h), px)).to_rgba8();
     let x = (px - fg.width()) / 2;
     let y = (px - fg.height()) / 2;
     let mut out = DynamicImage::ImageRgb8(bg).to_rgba8();
@@ -573,6 +588,27 @@ mod tests {
         assert!(!a.replaced);
         assert!(!a.path.exists());
         assert!(!cache_dir(data).join("G-icon-0123.png").exists());
+    }
+
+    /// B-13 (rev. o): a 128 px icon enlarged to 640 is smooth, never blocky: Lanczos3 leaves
+    /// no 5-pixel steps (a nearest-neighbour enlargement would repeat each pixel 5 times).
+    #[test]
+    fn small_icons_are_enlarged_smoothly() {
+        let src = DynamicImage::ImageRgb8(RgbImage::from_fn(128, 128, |x, y| {
+            if (x / 8 + y / 8) % 2 == 0 {
+                Rgb([250, 250, 250])
+            } else {
+                Rgb([20, 20, 20])
+            }
+        }));
+        assert!(matches!(filter_for(128, TILE_PX), FilterType::Lanczos3));
+        assert!(matches!(filter_for(1024, TILE_PX), FilterType::CatmullRom));
+        let out = fill(&src, TILE_PX);
+        // Across one edge of the checkerboard (every 40 output px), the values pass through
+        // several intermediate greys instead of jumping in one step.
+        let row: Vec<u8> = (30..50).map(|x| out.get_pixel(x, 20)[0]).collect();
+        let mids = row.iter().filter(|v| **v > 40 && **v < 230).count();
+        assert!(mids >= 2, "{row:?}");
     }
 
     #[test]

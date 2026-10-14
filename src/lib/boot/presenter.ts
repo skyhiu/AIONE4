@@ -23,7 +23,12 @@ interface FrameStats {
   frames: number;
   longest: number;
   over33: number;
+  /** D-013: each frame over 33 ms with its place in the timeline (ms) and its length. */
+  slow: { at: number; dt: number }[];
 }
+
+/** Window B's fade to black begins here (B-5 final: 4.65–5.00 s). */
+export const FADE_START_MS = 4650;
 
 export class BootPresenter {
   private raf = 0;
@@ -33,18 +38,32 @@ export class BootPresenter {
   private finish: ((o: Outcome) => void) | null = null;
   private paused = false;
   private last = 0;
-  private stats: FrameStats = { frames: 0, longest: 0, over33: 0 };
+  private stats: FrameStats = { frames: 0, longest: 0, over33: 0, slow: [] };
+  /** D-016: every timer of the current presentation, cancelled when it ends. */
+  private timers: ReturnType<typeof setTimeout>[] = [];
   /** Each presentation's timers and listeners act only while it is the current one. */
   private gen = 0;
 
   constructor(
     private readonly host: HTMLElement,
     private readonly log: Log,
-    private readonly fontFamily = "'Segoe UI', system-ui, sans-serif",
+    // B-5 (rev. o): the brand name in M PLUS Rounded 1c everywhere.
+    private readonly fontFamily = "'M PLUS Rounded 1c', 'Segoe UI', sans-serif",
   ) {}
 
-  /** The default Window B presentation with its sound. */
-  async playDefault(which: 'up' | 'down', soundUrl: string): Promise<Outcome> {
+  /** A timer that belongs to the current presentation (D-016). */
+  private later(fn: () => void, ms: number): void {
+    const gen = this.gen;
+    this.timers.push(
+      setTimeout(() => {
+        if (gen === this.gen) fn();
+      }, ms),
+    );
+  }
+
+  /** The default Window B presentation with its sound. `onFade` runs once when the fade to
+   *  black begins (D-014: Home's first frames are prepared while the screen is still black). */
+  async playDefault(which: 'up' | 'down', soundUrl: string, onFade?: () => void): Promise<Outcome> {
     this.clear();
     const wb = createWindowB(this.fontFamily);
     wb.svg.setAttribute('data-testid', `boot-${which}-default`);
@@ -53,8 +72,10 @@ export class BootPresenter {
     frame(0);
     const total = which === 'up' ? BOOT_UP_MS : BOOT_DOWN_SOUND_MS;
     const label = which === 'up' ? 'Boot Up' : 'Boot Down';
-    let clock: () => number;
+    /** The heard position (ms of the sound) at a page time `at` (performance.now() ms). */
+    let clock: (at: number) => number;
     let latency = 0;
+    let clockNote = 'frame clock (no sound)';
     try {
       const ctx = new AudioContext({ latencyHint: 'interactive' });
       this.ctx = ctx;
@@ -72,34 +93,54 @@ export class BootPresenter {
       const startAt = ctx.currentTime + 0.06;
       src.start(startAt);
       latency = ((ctx as AudioContext & { outputLatency?: number }).outputLatency || ctx.baseLatency || 0) * 1000;
-      clock = () => (ctx.currentTime - startAt) * 1000 - latency;
+      // D-015: the output timestamp says which sample is heard at which page time; between its
+      // updates the position is interpolated with the page clock (sub-millisecond), instead of
+      // the audio clock's 8–11 ms blocks. Fallback: currentTime minus the output latency.
+      clock = (at: number) => {
+        const ts = ctx.getOutputTimestamp?.();
+        if (ts && ts.contextTime && ts.performanceTime) {
+          clockNote = 'audio output timestamp, interpolated with the page clock (resolution about 0.01 ms)';
+          return (ts.contextTime + (at - ts.performanceTime) / 1000 - startAt) * 1000;
+        }
+        clockNote = `audio currentTime minus output latency (resolution: the audio block, about ${((128 / ctx.sampleRate) * 1000).toFixed(1)} ms or more)`;
+        return (ctx.currentTime - startAt) * 1000 - latency;
+      };
       this.log('info', `${label} (Window B): sound ${Math.round(buf.duration * 1000)} ms decoded; audio ${ctx.state}; output latency ${latency.toFixed(1)} ms`);
     } catch (err) {
       // Never stuck: without sound the animation runs on the frame clock.
       const t0 = performance.now();
-      clock = () => (this.paused ? this.last : performance.now() - t0);
+      clock = (at: number) => (this.paused ? this.last : at - t0);
       this.log('warn', `${label} (Window B): sound unavailable (${String(err)}); animation without sound`);
     }
     return new Promise<Outcome>((resolve) => {
       this.finish = resolve;
       let clampLogged = which === 'down';
+      let faded = false;
       let prev = performance.now();
       let prevT = 0;
+      let interval = 1000 / 60;
       const gen = this.gen;
       const step = (now: number) => {
         if (gen !== this.gen) return;
-        const t = Math.max(0, clock());
-        this.last = t;
-        this.count(now - prev);
+        const dt = now - prev;
+        // The refresh interval, smoothed (60 Hz → 16.7 ms); ignore pauses and hitches.
+        if (dt > 4 && dt < 40) interval = interval * 0.9 + dt * 0.1;
         prev = now;
+        // D-015: draw the frame for the refresh it will be shown on (the next one).
+        const t = Math.max(0, clock(now + interval));
+        this.last = t;
+        this.count(dt, t);
         frame(t);
         if (!clampLogged && t >= CLAMP_MS) {
           clampLogged = true;
-          const soundPos = t + latency;
           this.log(
             'info',
-            `Boot Up clamp: frame drawn at ${t.toFixed(1)} ms of the heard sound (target ${CLAMP_MS} ms, ${(t - CLAMP_MS).toFixed(1)} ms after; previous frame at ${prevT.toFixed(1)} ms, frame interval ${(t - prevT).toFixed(1)} ms; sound clock ${soundPos.toFixed(1)} ms; output latency ${latency.toFixed(1)} ms)`,
+            `Boot Up clamp: frame drawn at ${t.toFixed(1)} ms of the heard sound, for the refresh predicted ${interval.toFixed(1)} ms ahead (target ${CLAMP_MS} ms, ${(t - CLAMP_MS).toFixed(1)} ms after; previous frame at ${prevT.toFixed(1)} ms, frame interval ${dt.toFixed(1)} ms; clock: ${clockNote}; output latency ${latency.toFixed(1)} ms)`,
           );
+        }
+        if (!faded && which === 'up' && t >= FADE_START_MS) {
+          faded = true;
+          onFade?.();
         }
         prevT = t;
         if (t >= total) return this.end('Completed', label);
@@ -136,12 +177,12 @@ export class BootPresenter {
         lastCheck = now;
         if (started || !this.finish || !mine()) return;
         if (waited >= CUSTOM_START_TIMEOUT_MS) return this.end(`Failed: did not start within ${CUSTOM_START_TIMEOUT_MS / 1000} s`, label);
-        setTimeout(startTimer, 100);
+        this.later(startTimer, 100);
       };
-      setTimeout(startTimer, 100);
+      this.later(startTimer, 100);
       let prev = performance.now();
       const tick = (now: number) => {
-        this.count(now - prev);
+        this.count(now - prev, v.currentTime * 1000);
         prev = now;
         if (!mine()) return;
         if (opts.capMs && v.currentTime * 1000 >= opts.capMs) return this.end('Completed', label);
@@ -152,7 +193,7 @@ export class BootPresenter {
         started = true;
         this.log('info', `${label}: playing (${v.videoWidth}×${v.videoHeight}, ${v.duration.toFixed(2)} s)`);
         this.raf = requestAnimationFrame(tick);
-        setTimeout(() => {
+        this.later(() => {
           const decoded = (v as HTMLVideoElement & { webkitAudioDecodedByteCount?: number }).webkitAudioDecodedByteCount;
           this.log(
             'info',
@@ -166,7 +207,7 @@ export class BootPresenter {
       v.play().catch((err: unknown) => {
         if (!started && mine()) this.log('warn', `${label}: play() refused (${String(err)})`);
       });
-      if (which === 'down') setTimeout(() => mine() && this.end('Completed', `${label} (cap ${CUSTOM_DOWN_CAP_MS / 1000} s)`), CUSTOM_DOWN_CAP_MS);
+      if (which === 'down') this.later(() => this.end('Completed', `${label} (cap ${CUSTOM_DOWN_CAP_MS / 1000} s)`), CUSTOM_DOWN_CAP_MS);
     });
   }
 
@@ -208,10 +249,13 @@ export class BootPresenter {
     return this.finish !== null;
   }
 
-  private count(dt: number): void {
+  private count(dt: number, at: number): void {
     if (this.stats.frames > 0 && !this.paused) {
       this.stats.longest = Math.max(this.stats.longest, dt);
-      if (dt > 33) this.stats.over33 += 1;
+      if (dt > 33) {
+        this.stats.over33 += 1;
+        this.stats.slow.push({ at, dt });
+      }
     }
     this.stats.frames += 1;
   }
@@ -220,6 +264,10 @@ export class BootPresenter {
     const done = this.finish;
     if (!done) return;
     this.finish = null;
+    // D-016: nothing of this presentation runs after its outcome.
+    this.gen += 1;
+    this.timers.forEach((id) => clearTimeout(id));
+    this.timers = [];
     cancelAnimationFrame(this.raf);
     try {
       this.source?.stop();
@@ -231,7 +279,14 @@ export class BootPresenter {
     const s = this.stats;
     this.log(
       outcome.startsWith('Failed') ? 'warn' : 'info',
-      `${label}: ${outcome}; ${s.frames} frames, longest ${s.longest.toFixed(1)} ms, over 33 ms: ${s.over33}`,
+      `${label}: ${outcome}; ${s.frames} frames, longest ${s.longest.toFixed(1)} ms, over 33 ms: ${s.over33}${
+        s.slow.length
+          ? ` (at ${s.slow
+              .slice(0, 12)
+              .map((x) => `${(x.at / 1000).toFixed(2)} s: ${x.dt.toFixed(1)} ms`)
+              .join(', ')}${s.slow.length > 12 ? `, and ${s.slow.length - 12} more` : ''})`
+          : ''
+      }`,
     );
     this.ctx = null;
     this.source = null;
@@ -248,7 +303,7 @@ export class BootPresenter {
     }
     this.host.replaceChildren();
     this.video = null;
-    this.stats = { frames: 0, longest: 0, over33: 0 };
+    this.stats = { frames: 0, longest: 0, over33: 0, slow: [] };
     this.paused = false;
   }
 }

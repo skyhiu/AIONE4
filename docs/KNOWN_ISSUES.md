@@ -15,6 +15,10 @@ an item Fixed and Verified.
 | D-005 | Low | Focus line wording. | **Fixed and Verified**, both wordings (alpha.3, PC). |
 | D-007 | Medium | Home freezes for 0.1–0.5 s in quick pad use, then plays the waiting presses at once (alpha.4 QA-1). | **Implemented, Unverified.** Cause: **hypothesis** (not reproduced in the sandbox): large tile pictures (full-size `Thumbnail` files) decoded and scaled on the main thread as the row scrolls. Fix: tile-sized 640 × 640 copies made once by the core, and every tile and icon decoded before Home takes input. Diagnostics: each long task is logged with the last action, the focused tile and the pictures loaded or decoded around it (with pixel sizes). UI test with 3000 × 3000 pictures: 36 quick presses, longest core → UI 1 ms, no long task during navigation (sandbox, Chromium). Needs the user's quick pad session. |
 | D-008 | Low | The perf line hides freezes (alpha.4 QA-2). | **Implemented, Unverified.** Each perf line adds the longest frame, frames over 33 ms, "JANKY" when a frame is over 50 ms, and the longest core → UI input delay; unit test shows a D-007-like freeze (p95 16.7 ms) as "longest 510 ms … JANKY". Note: frames are sampled 5 s of every 10 s; long tasks and input delays are recorded all the time. |
+| D-013 | Low | Small hitches in the Window B Boot Up: 1–2 frames over 33 ms in 9 of 11 runs, once 69 ms before the clamp (alpha.7 QA-1). | **Diagnostics added (alpha.8).** Each slow frame is logged with its place in the timeline (`over 33 ms: N (at 2.48 s: 69.3 ms, …)`, up to 12 listed). The heavy work is out of the animation (QA-2 of alpha.6, D-014). Cause still unknown; the PC's lines will show where. A GPU-composited form only if the lines point there. |
+| D-014 | Low | A 64–95 ms freeze as Home first appears, every start (alpha.7 QA-2). | **Implemented, Unverified.** Home is mounted under the black boot layer when Window B's fade to black begins (4.65 s), so its first frames (layout, the tile pictures) are drawn while black; after a custom video, two frames under black first. Logged `Home prepared under the black screen`. |
+| D-015 | Low | The clamp once 19.3 ms late; the heard time moved in 8–11 ms steps (alpha.7 QA-3). | **Implemented, Unverified.** Each frame is drawn for the predicted next refresh; the sound position comes from the audio output timestamp, interpolated with the page clock (resolution about 0.01 ms; stated in the clamp line, with the fallback named when the browser lacks it). |
+| D-016 | Low | After a skip, the skipped video's "after the first frames" line still appeared (alpha.7 QA-4). | **Implemented, Unverified.** Every timer of a presentation is cancelled at its end (skip, completion, fallback), and a per-presentation counter blocks any late callback. UI test: no line from the skipped presentation after its outcome. |
 | D-009 | High | No menu sounds in the release (alpha.5 QA-1). | **Implemented, Unverified.** Cause **confirmed**: `move.wav` (3.6 KB, under Vite's 4 KB inline limit) was built into the JavaScript as a `data:` URL; the CSP's `connect-src` doesn't allow `data:`, so its fetch failed and `Promise.all` silenced all three. Fix: no inlined sounds; each loads separately; failures log the address and the reason; lines say "no sound (sounds unavailable)". Checks on the real build: `npm run check:built` (fails on alpha.5's config, passes now) and a Playwright test serving `dist/` with the real CSP (all 3 fetch and decode; a `data:` sound is blocked). |
 | D-010 | Medium | First start after an update took 11.2 s with an empty grey / white window (alpha.5 QA-2). | **Implemented, Unverified.** Home no longer waits for copies (load 1 ms with 20 new pictures in a Rust test; Home in about 0.3 s in the UI test); copies in the background on 4 threads, swapped in. The window and page are black until Home is drawn. Time per copy: about 50 ms in a sandbox benchmark (release settings); the 0.5 s seen on the PC is about 10× that, cause still a **hypothesis** (Windows Defender scanning each new file is the leading candidate); each copy now logs decode / scale / encode / write. |
 | D-011 | Low | The ring blinked below 3:1 (alpha.5 QA-3). | **Implemented, Unverified.** Solid ring, glow pulsing outside. UI test samples the ring at the glow's lowest and highest points: 3.22:1 light, 4.36:1 dark. |
@@ -27,6 +31,16 @@ an item Fixed and Verified.
 |---|---|
 | QA-4 (T0 test): an autostart start is not marked | **Implemented, Unverified**: the entry runs `"<exe>" --from-autostart`; logged "started by Windows at sign-in". Unit test on the command. |
 | QA-5 (T0 retest): closing logged as "the user switched away" | **Implemented, Unverified**: exit stops the guard first ("AIONE is closing"); later foreground changes are ignored. Unit test on the guard's decision. Windows code compiles first in CI. |
+
+## T1.2 part 2 (4.0.0-alpha.8)
+
+| Item | Status |
+|---|---|
+| The drawer (Switch-style, B-9 rev. o) | Implemented, Unverified (UI tests and 12 screenshots with the focus in the drawer) |
+| B-8 rev. o: the title alone, no ▼ | Implemented, Unverified |
+| B-5 rev. o: footer mark (two-tone, 64 px), M PLUS Rounded 1c, Boot Up letters ×2 | Implemented, Unverified |
+| B-13 rev. o: small icons enlarged with Lanczos3 | Implemented, Unverified (Rust test; every copy remade once, logged) |
+| A11 rev. o: annotations, screenshots on the release | Done in alpha.7 (`aed4477`; proof run #10 on a deleted throwaway branch) |
 
 ## T1.2 (4.0.0-alpha.7)
 

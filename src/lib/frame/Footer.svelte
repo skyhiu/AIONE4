@@ -3,7 +3,6 @@
   // and the button prompts at the right, each a Kenney glyph plus a short label, bolder and
   // larger than body text, on one baseline, scaling with Interface Scale.
   import { GLYPHS, type GlyphDevice, type Prompt } from './glyphs';
-  import markUrl from '../../../assets/brand/aione_mark_white.svg?url';
 
   let {
     prompts,
@@ -15,9 +14,15 @@
 <footer class="footer" data-testid="footer" data-owner="footer">
   <div class="brand" data-testid="footer-branding">
     {#if branding}
-      <!-- B-5 final: the one-colour "Window B" mark + "AIONE". Drawn in the footer's text colour
-           (off-white on dark; dark on the light preset, where off-white would be invisible). -->
-      <span class="mark" data-testid="footer-mark" style:--mark={`url(${JSON.stringify(markUrl)})`} aria-hidden="true"></span>
+      <!-- B-5 (rev. o): the "Window B" mark, two-tone in the palette: the halves in the footer's
+           text colour, the diamond in the accent; about twice the prompt text's height. -->
+      <svg class="mark" data-testid="footer-mark" viewBox="-104 -104 208 208" aria-hidden="true">
+        <g transform="rotate(25)">
+          <path class="half" d="M -6 -99.82 L -6 -59 L -65 0 L -6 59 L -6 99.82 A 100 100 0 0 1 -6 -99.82 Z" />
+          <path class="half" d="M 6 -99.82 L 6 -59 L 65 0 L 6 59 L 6 99.82 A 100 100 0 0 0 6 -99.82 Z" />
+          <polygon class="diamond" points="0,-48 48,0 0,48 -48,0" />
+        </g>
+      </svg>
       <span class="name" data-testid="system-name">AIONE</span>
     {/if}
   </div>
@@ -53,15 +58,20 @@
   .brand {
     display: flex;
     align-items: center;
-    gap: 0.6rem;
+    gap: 0.75rem;
   }
-  /* 22 design px at 100 % (16–24 px, B-5 final). */
+  /* B-5 (rev. o): 4 rem = 64 px at 1080 p and 100 %, scaled with Interface Scale (rem). */
   .mark {
-    width: 1.375rem;
-    height: 1.375rem;
-    background: currentColor;
-    -webkit-mask: var(--mark) center / contain no-repeat;
-    mask: var(--mark) center / contain no-repeat;
+    width: 4rem;
+    height: 4rem;
+    flex: none;
+    display: block;
+  }
+  .mark .half {
+    fill: currentColor;
+  }
+  .mark .diamond {
+    fill: var(--color-accent);
   }
   .name {
     font-size: var(--text-label);

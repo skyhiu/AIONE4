@@ -3,8 +3,14 @@
 import { BOOT_DOWN_MS, BOOT_UP_MS, CLAMP_MS, createWindowB } from '../../../src/lib/boot/windowB';
 import upUrl from '../../../assets/sounds/boot/aione_boot_up.wav?url';
 import downUrl from '../../../assets/sounds/boot/aione_boot_down.wav?url';
+// B-5 (rev. o): the brand name in M PLUS Rounded 1c (the repository's own font file, OFL).
+import mplusUrl from '../../../assets/fonts/m-plus-rounded-1c/MPLUSRounded1c-Medium.ttf?url';
 
-const wb = createWindowB("system-ui, -apple-system, 'Segoe UI', sans-serif");
+const brandFont = new FontFace('M PLUS Rounded 1c', `url(${JSON.stringify(mplusUrl)})`, { weight: '500' });
+document.fonts.add(brandFont);
+void brandFont.load();
+
+const wb = createWindowB("'M PLUS Rounded 1c', 'Segoe UI', sans-serif");
 const stage = document.getElementById('stage') as HTMLDivElement;
 stage.appendChild(wb.svg);
 const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
