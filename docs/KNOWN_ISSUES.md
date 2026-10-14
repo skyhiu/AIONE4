@@ -28,6 +28,21 @@ an item Fixed and Verified.
 | QA-4 (T0 test): an autostart start is not marked | **Implemented, Unverified**: the entry runs `"<exe>" --from-autostart`; logged "started by Windows at sign-in". Unit test on the command. |
 | QA-5 (T0 retest): closing logged as "the user switched away" | **Implemented, Unverified**: exit stops the guard first ("AIONE is closing"); later foreground changes are ignored. Unit test on the guard's decision. Windows code compiles first in CI. |
 
+## T1.2 (4.0.0-alpha.7)
+
+| Item | Status |
+|---|---|
+| B-9 rev. m: the ring pulses between two shades, no glow (D-011 stays met) | Implemented, Unverified (UI test: light 3.22 → 4.23:1, dark 4.36 → 5.20:1 at the two ends) |
+| B-8 rev. m: the ▼ fixed; the title scrolls only to its right | Implemented, Unverified (UI test) |
+| B-13 rev. m: a changed source remade and logged | Implemented, Unverified (Rust test) |
+| alpha.6 QA-2: no heavy work during the Boot Up | Implemented, Unverified: the pictures are decoded in the black hold before the animation; in the UI test, 0 long tasks during the Boot Up (the first one comes when Home appears) |
+| Window B Boot Up / Boot Down (B-5 final) | Implemented, Unverified: frames match the reference page (≤ 0.016 % of pixels differ at 12 moments); the clamp drawn on the first frame at or after 2550 ms of the heard sound (logged) |
+| The custom Boot Up / Boot Down (A9, KD-01, KD-02, L-01) | Implemented, Unverified: copied once into `Boot\`; custom first, Window B as the one fallback; sound read back after the first frames |
+| Input lock and skip (A9, L-03 partly) | Implemented, Unverified (UI tests) |
+| L-02 (Alt-Tab during the boot video) | Implemented, Unverified (pause / resume at the same position in the UI test) |
+| L-19 | Moved to the later stage that shows game background videos (user decision, rev. m answer) |
+| The drawer | **Moved to the next build** (allowed) |
+
 ## T1.1 changes (rev. h)
 
 | Item | Status (4.0.0-alpha.5) |

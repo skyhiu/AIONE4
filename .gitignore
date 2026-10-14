@@ -12,3 +12,4 @@ src-tauri/gen/schemas/
 Thumbs.db
 __pycache__/
 *.pyc
+dist-boot-preview/

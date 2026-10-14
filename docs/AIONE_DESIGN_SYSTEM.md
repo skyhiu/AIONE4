@@ -38,8 +38,10 @@ run with `AIONE4.exe --interface-scale=150` (never stored). Default 100 %.
   heading 2.5 (40) · display 4 (64).
 - **Header:** clock 25 `--hdr` px, Regular, letter spacing 0.06 em, tabular figures; AM / PM at
   60 % on the same baseline. Clock cap height 18 px at 1080 p / 100 %.
-- **Footer branding:** the System Name "AIONE", Medium, letter spacing 0.08 em. The logo joins it
-  once chosen (B-5).
+- **Footer branding (B-5 final):** the one-colour "Window B" mark, 1.375 rem (22 px at 1080 p,
+  100 %), then "AIONE", Medium, letter spacing 0.08 em, 0.6 rem apart. The mark is drawn in the
+  footer's text colour: off-white on dark; dark on the light preset, where the off-white mark
+  would be invisible (about 1.1:1).
 
 ## Icons
 - **Pack:** Material Symbols Rounded (variable font, Apache-2.0), weight 300, FILL 0, opsz 24:
@@ -107,12 +109,13 @@ The light preset is the default (B-11).
   fills; another picture is shown whole on #161616).
 
 ## States and focus (reference A5, A7)
-- **Pad / keyboard mode:** one focus ring on the focused tile: 6 px ring in the ring colour (hot
-  pink) with a 5 px gap, 11 px outside the tile. The new ring fades in and settles from 102.5 %
-  while the old one fades out (240 ms). **D-011 (B-9 rev. k):** the ring itself is solid at full
-  colour and never fades; a soft glow (box-shadow 18 px blur, 5 px spread, ring colour) pulses
-  **outside** it, opacity 0.15 → 0.75 → 0.15 over 1.4 s, starting after the focus-in. Measured
-  ring contrast at the glow's lowest and highest points: 3.22:1 (light), 4.36:1 (dark). The mouse
+- **Pad / keyboard mode:** one focus ring on the focused tile: 6 px ring with a 5 px gap, 11 px
+  outside the tile. The new ring fades in and settles from 102.5 % while the old one fades out
+  (240 ms). **B-9 (rev. m):** like Switch's selection frame, the ring itself pulses between two
+  shades of the accent, with no glow: light **#FD007E ↔ #D9006C** (3.22 and 4.23:1), dark
+  **#FF46A2 ↔ #FF69B4** (4.36 and 5.20:1); 0.7 s each way (1.4 s per cycle), ease-in-out,
+  starting after the focus-in. Made with two solid ring layers and the top one's opacity
+  (opacity only, A7), so every moment is a blend of two passing colours (D-011). The mouse
   cursor is hidden.
 - **From mouse to pad or keys (B-10):** the first pad or key press after mouse use only brings
   the ring back, on the tile last hovered or clicked; it does not move and plays no sound. The
@@ -155,6 +158,16 @@ left on Home only). Full screens get the title row in T3 / T4.
 Tiles show the core's 640 × 640 JPEG copy (B-13 above), made in the background; Home decodes the
 pictures it shows before it takes input (at most 1.5 s), and decodes each copy before swapping it
 in. Before Home, the window and the page are black (#000000), never grey or white.
+
+## Boot Up and Boot Down (B-5 final, A9)
+- Full screen on black (#000000) from the first frame. The Window B animation keeps the reference
+  page's proportions: its 680 × 460 view is drawn 69 % of the screen height tall, centred
+  (the reference page draws it 744 px tall in a 1080 px window); the shake, ring and shards are
+  never clipped (the layer shows its overflow).
+- Colours: off-white #F5F3EE, the diamond #FF46A2 (one brand pink), black. Flat.
+- Letters "A I O N E": Segoe UI (system-ui) 500, as in the reference page.
+- The custom video is shown whole (`object-fit: contain`) on black.
+- Home appears when the Boot Up ends (its last 0.35 s fade to black).
 
 ## Effects
 None in the app: no blur, shadow or filter on Home. The dialog keeps its one shadow from T0. The

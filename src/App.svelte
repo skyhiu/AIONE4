@@ -36,6 +36,10 @@
     type HomeState,
   } from './lib/home/model';
   import Home from './lib/home/Home.svelte';
+  import { BootPresenter, type Outcome } from './lib/boot/presenter';
+  import bootUpSound from '../assets/sounds/boot/aione_boot_up.wav?url';
+  import bootDownSound from '../assets/sounds/boot/aione_boot_down.wav?url';
+  import type { BootMedia } from './lib/core/types';
   import CopyDialog from './lib/components/CopyDialog.svelte';
 
   /** Mouse movement that counts as deliberate (A7): beyond this many CSS pixels. */
@@ -43,6 +47,13 @@
   const params = new URLSearchParams(globalThis.location?.search ?? '');
 
   let core: Core | null = null;
+  /** The lifecycle (A9): black hold → Boot Up → Home; Boot Down before closing. */
+  let phase = $state<'black' | 'boot' | 'home' | 'bootdown'>('black');
+  let bootHost: HTMLDivElement | undefined = $state();
+  let presenter: BootPresenter | null = null;
+  let bootMedia: BootMedia | null = null;
+  /** The black hold is bounded (reference A9: at most 4 s). */
+  const BLACK_HOLD_MAX_MS = 4000;
   let info = $state<AppInfo | null>(null);
   let pads = $state(initialPads());
   let status = $state<PcStatus | null>(null);
@@ -101,6 +112,18 @@
 
   function handleInput(ev: InputEvent) {
     if (ev.kind === 'up') return;
+    // A9: the input lock. During the black hold, Boot Up and Boot Down nothing in AIONE is
+    // reachable; input is discarded (never queued). The only input is the Boot Up's skip.
+    if (phase !== 'home') {
+      const action = toAction(ev);
+      if (phase === 'boot' && ev.kind === 'down' && (action === 'confirm' || action === 'back') && presenter?.running) {
+        core?.log('info', `${describeInput(ev, action, 'Boot Up skipped')}`);
+        presenter.skip();
+      } else {
+        core?.log('info', `${describeInput(ev, null, `discarded (${phase === 'bootdown' ? 'Boot Down' : phase === 'boot' ? 'Boot Up' : 'starting'}: input lock)`)}`);
+      }
+      return;
+    }
     perf.input(ev.source);
     sounds.resume();
     // D-008: how long the press waited between the core reading it and the UI acting on it.
@@ -338,8 +361,91 @@
   }
 
   $effect(() => {
-    perf.setScreen(dialogOpen ? 'home + copy dialog' : 'home');
+    if (phase === 'home') perf.setScreen(dialogOpen ? 'home + copy dialog' : 'home');
   });
+
+  function bootPresenter(c: Core): BootPresenter | null {
+    if (!bootHost) return null;
+    presenter ??= new BootPresenter(bootHost, (level, line) => c.log(level, line));
+    return presenter;
+  }
+
+  /** D-010: a copy made in the background is decoded first, then swapped in. QA-2: copies that
+   *  arrive before Home (during the black hold or the Boot Up) wait, so nothing is decoded while
+   *  the boot animation plays. */
+  const pendingTiles: { id: string; tile: string }[] = [];
+  function swapTile(c: Core, { id, tile }: { id: string; tile: string }) {
+    const url = c.mediaUrl(id, 'tile', tile);
+    const img = new Image();
+    img.src = url;
+    img
+      .decode()
+      .then(() => {
+        decoded = [...decoded, img];
+        perf.picture(`tile "${id}" copy (decoded before the swap)`, img.naturalWidth, img.naturalHeight);
+        games = games.map((g) => (g.id === id ? { ...g, tile } : g));
+      })
+      .catch((err: unknown) => c.log('warn', `tile copy for "${id}" could not be decoded: ${String(err)}`));
+  }
+
+  /** A9: one Boot Up presentation, decided once: the custom video, or the default Window B
+   *  (and once only, the default as the controlled fallback when the custom one cannot start). */
+  async function bootUp(c: Core) {
+    const m = bootMedia;
+    const p = bootPresenter(c);
+    if (!m || !p) return;
+    if (!m.settings.showSplash) {
+      c.log('info', 'Boot Up: none (the Boot Up is switched off in the settings)');
+      return;
+    }
+    phase = 'boot';
+    perf.setScreen('Boot Up');
+    perf.action('Boot Up');
+    let outcome: Outcome;
+    if (m.up && !info?.bootDefault) {
+      c.log('info', `Boot Up: custom video (${m.up.source}, AIONE 4's copy), sound ${m.settings.splashAudio ? 'on' : 'off'}${m.settings.playToEnd ? ', to the end' : `, ${m.settings.durationMs} ms`}`);
+      outcome = await p.playVideo('up', c.bootUrl('up', m.up.key), {
+        muted: !m.settings.splashAudio,
+        capMs: m.settings.playToEnd ? undefined : m.settings.durationMs,
+      });
+      if (outcome.startsWith('Failed') && !outcome.includes('mid-playback') && phase === 'boot') {
+        c.log('warn', `Boot Up: the custom video failed (${outcome.slice(8)}); the default Window B plays instead (the one fallback)`);
+        outcome = await p.playDefault('up', bootUpSound);
+      }
+    } else {
+      c.log('info', `Boot Up: default Window B (${info?.bootDefault ? '--boot=default for this run' : 'no custom video'})`);
+      outcome = await p.playDefault('up', bootUpSound);
+    }
+    c.log('info', `Boot Up outcome: ${outcome}`);
+  }
+
+  /** A9 (Close AIONE): the Boot Down plays, then AIONE closes; the screen stays black until the
+   *  Boot Down sound ends. Starts once, from any phase. */
+  async function bootDown(c: Core) {
+    if (phase === 'bootdown') return;
+    phase = 'bootdown';
+    perf.setScreen('Boot Down');
+    perf.action('Boot Down');
+    c.log('info', 'Close AIONE: the Boot Down starts (input locked)');
+    const p = bootPresenter(c);
+    p?.stop();
+    const m = bootMedia;
+    let outcome: Outcome = 'Completed';
+    if (p) {
+      if (m?.settings.showSplash !== false && m?.down && !info?.bootDefault) {
+        c.log('info', `Boot Down: custom video (${m.down.source}, AIONE 4's copy)`);
+        outcome = await p.playVideo('down', c.bootUrl('down', m.down.key), { muted: !m.settings.splashAudio });
+        if (outcome.startsWith('Failed') && !outcome.includes('mid-playback')) {
+          c.log('warn', `Boot Down: the custom video failed (${outcome.slice(8)}); the default Window B plays instead`);
+          outcome = await p.playDefault('down', bootDownSound);
+        }
+      } else {
+        c.log('info', `Boot Down: default Window B (${info?.bootDefault ? '--boot=default for this run' : 'no custom video'})`);
+        outcome = await p.playDefault('down', bootDownSound);
+      }
+    }
+    await c.closeNow(`Boot Down ${outcome}`);
+  }
 
   onMount(() => {
     const unlisteners: Unlisten[] = [];
@@ -365,19 +471,7 @@
         }),
         await c.onStatus((s) => (status = s)),
         // D-010: a copy made in the background is decoded first, then swapped in.
-        await c.onTile(({ id, tile }) => {
-          const url = c.mediaUrl(id, 'tile', tile);
-          const img = new Image();
-          img.src = url;
-          img
-            .decode()
-            .then(() => {
-              decoded = [...decoded, img];
-              perf.picture(`tile "${id}" copy (decoded before the swap)`, img.naturalWidth, img.naturalHeight);
-              games = games.map((g) => (g.id === id ? { ...g, tile } : g));
-            })
-            .catch((err: unknown) => c.log('warn', `tile copy for "${id}" could not be decoded: ${String(err)}`));
-        }),
+        await c.onTile((t) => (phase === 'home' ? swapTile(c, t) : pendingTiles.push(t))),
       );
       const slots = await c.padSlots();
       pads = applyPadSlots(
@@ -389,25 +483,51 @@
       info = await c.appInfo();
       document.documentElement.style.setProperty('--scale', String(info.interfaceScale / 100));
       if (params.get('preset') === 'dark') document.documentElement.dataset['preset'] = 'dark';
+      unlisteners.push(await c.onCloseRequested(() => void bootDown(c)));
       status = await c.statusNow();
-      await reloadLibrary(c);
-      void sounds.init();
-      perf.start(() => [
-        ...(keys.active ? ['keyboard repeat'] : []),
-        'header clock (to the next minute)',
-        ...(pressTimer ? ['home press'] : []),
-      ]);
-      // Show the window only once the first real frame is drawn, then the core takes the
-      // foreground (L-20).
+      // The window is shown on its first frame, which is black (A9, D-010).
       requestAnimationFrame(() =>
         requestAnimationFrame(() => {
           c.uiReady().catch((err: unknown) => c.log('error', `ui_ready failed: ${String(err)}`));
         }),
       );
-      try {
-        flow = initialFlow(await c.migrationStatus());
-      } catch (err) {
-        c.log('error', `migration_status failed: ${String(err)}`);
+      // The black hold: the work that would make the Boot Up stutter happens now (alpha.6 QA-2:
+      // the pictures are decoded ahead here, not during the animation), at most 4 s.
+      const held = performance.now();
+      const work = Promise.all([
+        c.bootMedia().then(
+          (m) => (bootMedia = m),
+          (err: unknown) => c.log('error', `boot_media failed: ${String(err)}`),
+        ),
+        reloadLibrary(c),
+        sounds.init(),
+      ]);
+      const hold = await Promise.race([work.then(() => 'done'), new Promise<string>((r) => setTimeout(() => r('timeout'), BLACK_HOLD_MAX_MS))]);
+      c.log('info', `boot: black hold ${Math.round(performance.now() - held)} ms (${hold === 'done' ? 'library, pictures decoded ahead and boot media ready' : 'the 4 s limit was reached; the rest continues behind the Boot Up'})`);
+      perf.start(() => [
+        ...(keys.active ? ['keyboard repeat'] : []),
+        'header clock (to the next minute)',
+        ...(pressTimer ? ['home press'] : []),
+      ]);
+      // Tests (mocked build only): ?bootframe=up:2550 draws that moment of Window B and holds.
+      const frameAt = import.meta.env.MODE === 'mock' ? params.get('bootframe') : null;
+      if (frameAt) {
+        const [which, t] = frameAt.split(':');
+        phase = 'boot';
+        bootPresenter(c)?.showFrame(which === 'down' ? 'down' : 'up', Number(t));
+        return;
+      }
+      if (phase === 'black') await bootUp(c);
+      if (phase !== 'bootdown') {
+        phase = 'home';
+        perf.setScreen('home');
+        if (pendingTiles.length) c.log('info', `tile pictures: ${pendingTiles.length} copies made during the Boot Up are swapped in now`);
+        pendingTiles.splice(0).forEach((t) => swapTile(c, t));
+        try {
+          flow = initialFlow(await c.migrationStatus());
+        } catch (err) {
+          c.log('error', `migration_status failed: ${String(err)}`);
+        }
       }
     })().catch((err: unknown) => console.error('startup failed', err));
 
@@ -426,12 +546,32 @@
   onmousemove={onMouseMove}
   onresize={onResize}
   oncontextmenu={(e) => e.preventDefault()}
-  onblur={() => keys.releaseAll()}
+  onblur={() => {
+    keys.releaseAll();
+    presenter?.setForeground(false);
+  }}
+  onfocus={() => presenter?.setForeground(true)}
 />
 
 <!-- D-010: black (the html background) until the library is loaded; then Home. -->
 <main data-input={inputMode} data-testid="screen" data-version={info?.version ?? ''} data-library={library?.state ?? 'loading'}>
-  {#if loadState !== 'loading'}<Home
+  <!-- A9: black from the first frame; the Boot Up / Boot Down draw here, over everything. -->
+  <!-- Always mounted (the presenter keeps drawing into it); hidden on Home. -->
+  <div
+      class="boot"
+      class:hidden={phase === 'home'}
+      role="presentation"
+      data-testid="boot-layer"
+      data-phase={phase}
+      bind:this={bootHost}
+      onclick={() => {
+        if (phase === 'boot' && presenter?.running) {
+          core?.log('info', 'input click (mouse) -> Boot Up skipped');
+          presenter.skip();
+        }
+      }}
+    ></div>
+  {#if loadState !== 'loading' && (phase === 'home' || phase === 'bootdown')}<Home
     {games}
     state={home}
     mode={inputMode}
@@ -465,5 +605,27 @@
   main {
     position: relative;
     height: 100%;
+  }
+  .boot.hidden {
+    display: none;
+  }
+  .boot {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    background: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+  /* The mark keeps the reference page's proportions: on a 1920 × 1080 window the reference draws
+     its 680 × 460 view 744 px tall, i.e. 69 % of the height. Nothing clips the shake, ring or
+     shards (the layer and the SVG show their overflow). */
+  .boot :global(svg) {
+    height: 69%;
+    width: auto;
+    aspect-ratio: 680 / 460;
+    overflow: visible;
   }
 </style>

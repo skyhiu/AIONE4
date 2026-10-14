@@ -504,7 +504,7 @@ pub fn make_tiles(
                             let t = m.timing.unwrap_or_default();
                             let (w, h) = m.source_px.unwrap_or((0, 0));
                             format!(
-                                "tile copy: {} from {file} ({w}×{h}, {}; {}) in {:.0} ms (decode {:.0}, scale {:.0}, encode {:.0}, write {:.0})",
+                                "tile copy: {} from {file} ({w}×{h}, {}; {}) in {:.0} ms (decode {:.0}, scale {:.0}, encode {:.0}, write {:.0}){}",
                                 job.id,
                                 m.source_note,
                                 job.mode.name(),
@@ -512,7 +512,12 @@ pub fn make_tiles(
                                 t.decode_ms,
                                 t.scale_ms,
                                 t.encode_ms,
-                                t.write_ms
+                                t.write_ms,
+                                if m.replaced {
+                                    "; remade: the source changed since the last copy"
+                                } else {
+                                    ""
+                                }
                             )
                         } else {
                             c.1 += 1;

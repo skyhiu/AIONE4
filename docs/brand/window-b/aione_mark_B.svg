@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-128 -128 256 256" width="1024" height="1024">
+  <!-- AIONE mark ("Window B"). Geometry before rotation: circle r=100; centre window half-diagonal 65; diamond half-diagonal 48; cut gap 12. Whole mark rotated 25deg clockwise. Halves #F5F3EE, diamond #F5F3EE. -->
+  <g id="aione-mark" transform="rotate(25)">
+    <path id="part1-left-half" fill="#F5F3EE" d="M -6 -99.82 L -6 -59 L -65 0 L -6 59 L -6 99.82 A 100 100 0 0 1 -6 -99.82 Z"/>
+    <path id="part2-right-half" fill="#F5F3EE" d="M 6 -99.82 L 6 -59 L 65 0 L 6 59 L 6 99.82 A 100 100 0 0 0 6 -99.82 Z"/>
+    <polygon id="part3-diamond" fill="#F5F3EE" points="0,-48 48,0 0,48 -48,0"/>
+  </g>
+</svg>

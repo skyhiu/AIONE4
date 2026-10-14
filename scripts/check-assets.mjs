@@ -8,7 +8,11 @@ const need = (path) => {
   if (!existsSync(path)) errors.push(`missing ${path}`);
 };
 need('assets/glyphs/kenney-input-prompts/License.txt');
-need('assets/sounds/50-menu-interface-sfx/CREDIT.txt');
+// FilmCow menu sounds (B-1 rev. h) and the Window B boot sounds (B-5 final; the 50 Menu
+// Interface SFX pack was removed in T1.2, B-1 rev. i). Credits in docs/THIRD_PARTY_ASSETS.md.
+for (const f of ['move.wav', 'select.wav', 'back.wav', 'family.json']) need(`assets/sounds/filmcow-menu/${f}`);
+for (const f of ['aione_boot_up.wav', 'aione_boot_down.wav']) need(`assets/sounds/boot/${f}`);
+for (const f of ['aione_mark_white.svg', 'aione_mark_color.svg', 'aione_app_icon.svg']) need(`assets/brand/${f}`);
 need('assets/icons/material-symbols-rounded/LICENSE');
 for (const family of readdirSync('assets/fonts')) need(`assets/fonts/${family}/OFL.txt`);
 
@@ -18,8 +22,7 @@ const pkg = 'node_modules/material-symbols/material-symbols-rounded.woff2';
 if (existsSync(pkg) && existsSync(ours) && sha(ours) !== sha(pkg)) {
   errors.push(`${ours} differs from the pinned npm package material-symbols`);
 }
-const wavs = readdirSync('assets/sounds/50-menu-interface-sfx').filter((f) => f.endsWith('.wav'));
-if (wavs.length !== 50) errors.push(`expected 50 WAV files, found ${wavs.length}`);
+if (existsSync('assets/sounds/50-menu-interface-sfx')) errors.push('the 50 Menu Interface SFX pack is back (removed in T1.2)');
 
 if (errors.length) {
   console.error(errors.join('\n'));

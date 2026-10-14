@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-128 -128 256 256" width="1024" height="1024">
+  <!-- AIONE mark, ANIMATION version: identical final look to aione_mark_B_color.svg, but the circle is split into 4 quarters by hidden seams on y=0 (no gap, must never show at rest).
+       Geometry before rotation: circle r=100; centre window half-diagonal 65; diamond half-diagonal 48; cut gap 12. Whole mark rotated 25deg clockwise. The centre starts as a #FF3D7F circle (r=44) and morphs into the diamond at the clamp; see aione_boot_animation_reference.html. -->
+  <g id="aione-mark" transform="rotate(25)">
+    <path id="part1-top-left" fill="#F5F3EE" d="M -6 -99.82 L -6 -59 L -65 0 L -100 0 A 100 100 0 0 1 -6 -99.82 Z"/>
+    <path id="part2-top-right" fill="#F5F3EE" d="M 6 -99.82 L 6 -59 L 65 0 L 100 0 A 100 100 0 0 0 6 -99.82 Z"/>
+    <path id="part3-bottom-right" fill="#F5F3EE" d="M 100 0 L 65 0 L 6 59 L 6 99.82 A 100 100 0 0 0 100 0 Z"/>
+    <path id="part4-bottom-left" fill="#F5F3EE" d="M -100 0 L -65 0 L -6 59 L -6 99.82 A 100 100 0 0 1 -100 0 Z"/>
+    <polygon id="part5-diamond" fill="#FF3D7F" points="0,-48 48,0 0,48 -48,0"/>
+  </g>
+</svg>

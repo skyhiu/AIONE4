@@ -51,6 +51,7 @@
   /* B-9: hot pink accent (brand #FF46A2), light preset values for A8 contrast. */
   --color-accent: #fd007e; /* ring and accent shapes: 3.2:1 on the background */
   --color-ring: #fd007e;
+  --color-ring-alt: #d9006c; /* B-9 rev. m: the ring's pulse partner, 4.2:1 */
   --color-ring-gap: #ffffff;
   --color-title: #b5005a; /* accent text: 5.7:1 */
   --color-hover: #b5005a; /* mouse hover outline: 5.7:1 */
@@ -115,6 +116,7 @@
   --color-divider: #6e6e6e;
   --color-accent: #ff46a2; /* brand pink: 4.4:1 */
   --color-ring: #ff46a2;
+  --color-ring-alt: #ff69b4; /* 5.2:1 */
   --color-ring-gap: #2d2d2d;
   --color-title: #ff69b4; /* 5.2:1 */
   --color-hover: #ff69b4;

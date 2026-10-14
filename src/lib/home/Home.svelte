@@ -148,7 +148,7 @@
             </div>
             <span class="hover-line" aria-hidden="true"></span>
             <span class="ring" aria-hidden="true" data-owner="home-ring"
-              ><span class="ring-glow"></span><span class="ring-line"></span></span
+              ><span class="ring-line"></span><span class="ring-line ring-alt"></span></span
             >
 
           </div>
@@ -267,24 +267,23 @@
     opacity: 1;
     transform: scale(1);
   }
-  /* D-011 (B-9 rev. k): the ring itself never fades; a soft glow pulses outside it. */
-  .ring-glow {
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    box-shadow: 0 0 calc(18 * var(--px)) calc(5 * var(--px)) var(--color-ring);
+  /* B-9 (rev. m): like Switch's selection frame, the ring itself pulses smoothly between two
+     shades of the accent, with no glow. Two solid rings in the two shades; only the top one's
+     opacity changes (A7: opacity only), so every moment is a blend of two colours that both meet
+     3:1 (D-011 stays met). 1.4 s per cycle, eased, starting after the focus-in. */
+  .ring-alt {
+    border-color: var(--color-ring-alt);
     opacity: 0;
   }
-  .tile.focused .ring-glow {
-    animation: ring-glow var(--motion-blink) ease-in-out var(--motion-focus) infinite;
+  .tile.focused .ring-alt {
+    animation: ring-pulse calc(var(--motion-blink) / 2) ease-in-out var(--motion-focus) infinite alternate;
   }
-  @keyframes ring-glow {
-    0%,
-    100% {
-      opacity: 0.15;
+  @keyframes ring-pulse {
+    from {
+      opacity: 0;
     }
-    50% {
-      opacity: 0.75;
+    to {
+      opacity: 1;
     }
   }
 

@@ -1,5 +1,30 @@
 # Changelog
 
+## 4.0.0-alpha.7 — T1.2 (part 1): the Boot Up and Boot Down, the ring's pulse
+
+- **Boot Up (A9, B-5 final):** black from the first frame; a black hold (at most 4 s) in which
+  the library loads, the tile pictures are decoded and the boot media are prepared (alpha.6
+  QA-2: nothing heavy runs during the animation); then one presentation: the user's custom
+  video (copied once into `Boot\`) with its own sound, or the default **Window B** animation
+  with its sound; one controlled fallback; then Home. The input lock discards input during the
+  black hold, Boot Up and Boot Down; A / B / Enter / Esc / a click skip the Boot Up. Alt-Tab
+  pauses and resumes the boot in sync (L-02).
+- **Window B:** a line-for-line port of the design chat's reference animation, driven by the
+  boot sound's own clock (the clamp's frame logged against 2550 ms); the diamond in #FF46A2.
+- **Boot Down (Close AIONE):** Alt+F4 plays the custom `suspend.mp4` or Window B's Boot Down; the
+  screen stays black until its sound ends; then AIONE closes (an 8 s safety exit in the core).
+- **Custom boot media:** `Assets\Splash\splash.mp4` and `Assets\Suspend\suspend.mp4` copied
+  once from the WPF copy into AIONE 4's `Boot` folder, remade when the source changes; only the
+  four boot entries of the WPF settings are read. The media protocol serves video ranges.
+- **`--boot=default`:** this run shows Window B even with a custom video.
+- **The ring (B-9 rev. m):** pulses between two shades of the accent, no glow.
+- **Tile copies (B-13 rev. m):** a changed source is remade and logged "remade".
+- **Branding:** the footer shows the Window B mark + "AIONE"; the app icon is Window B; the
+  delivered logo files, sounds and reference page are in `docs/brand/window-b/`.
+- **Removed:** the 50 Menu Interface SFX pack and its credit (B-1 rev. i).
+- **Moved to the next build:** the drawer (T1.2 item 5), as allowed.
+- **Tests:** Rust 83; Vitest 54; Playwright 62 with 84 screenshots (boot key frames included).
+
 ## 4.0.0-alpha.6 — T1.1 fixes (D-009 to D-012, B-8 corrected, B-13)
 
 - **D-009 (no menu sounds in the release):** cause confirmed: Vite inlined `move.wav` (3.6 KB)

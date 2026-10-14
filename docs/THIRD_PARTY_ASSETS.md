@@ -1,15 +1,14 @@
 # Third-party assets and licences
 
-Assets live in `assets/` (A3), each licence or credit file next to its files. In 4.0.0-alpha.2
-they are in the repository only: **the UI does not use them yet**, and the portable zip carries
-only this document and the README credits. `npm run check:assets` (CI) checks that each licence
+Assets live in `assets/` (A3), each licence or credit file next to its files. The portable zip
+carries this document and the README credits. `npm run check:assets` (CI) checks that each licence
 file is present and that Material Symbols matches its pinned npm package.
 
 | Asset | Source | Licence | Files in the repository | Changes |
 |---|---|---|---|---|
 | **Kenney Input Prompts 1.5** (Kenney, www.kenney.nl) | the user's download `kenney_input-prompts_1.5.zip` | CC0 1.0 (`License.txt`) | `assets/glyphs/kenney-input-prompts/`: the `Vector` (SVG) folders of Xbox Series (99), PlayStation Series (136), Generic (36), Keyboard & Mouse (257) | none; set folders renamed only |
-| **50 Menu Interface SFX** by **ColorAlpha** | https://coloralpha.itch.io/50-menu-interface-sfx (user's download) | **CC BY 4.0**. The download has no licence file; the credit is the itch.io address with "CC BY 4.0" (the user's decision, B-1 rev. d; `CREDIT.txt`). | `assets/sounds/50-menu-interface-sfx/`: the 50 WAV files | none (FLAC, MP3 and Ableton `.asd` files not added) |
-| **Startup-sound variants A, B, C** (adaptations of 50 Menu Interface SFX) | made by `tools/sound/make_startup.py` from the pack | CC BY 4.0, **modified** | not in the repository; **not chosen** (alpha.2), superseded by the Boot Up variants (B-5) | See below and `docs/sound/SOUND_MAPPING.md` |
+| ~~50 Menu Interface SFX~~ by ColorAlpha | — | — | **Removed in 4.0.0-alpha.7** (B-1 rev. i): no longer in the repository or the app | — |
+| **Startup-sound variants A, B, C** (adaptations of 50 Menu Interface SFX) | made by `tools/sound/make_startup.py` from the pack | CC BY 4.0, **modified** | historical (the pack is removed; their tools no longer run); **not chosen** (alpha.2), superseded by the Boot Up variants (B-5) | See below and `docs/sound/SOUND_MAPPING.md` |
 | **Boot Up sound variants A (Bloom), B (Steps), C (Sweep)** (adaptations of 50 Menu Interface SFX), 5 s each | made by `tools/sound/make_bootup.py` from the pack | CC BY 4.0, **modified** | not in the repository (delivered for listening; the chosen one is added in T1) | See below and `docs/sound/BOOTUP_SOUNDS.md` |
 | **AIONE logo proposals** (the name as outlines) | `tools/brand/make_logos.py`, glyph outlines of Quicksand, Figtree and Nunito from `assets/fonts` | marks: the project's own; name outlines: SIL OFL 1.1 fonts, used as artwork (allowed by the OFL) | not in the repository (proposals delivered with the handoff) | `docs/brand/LOGO_PROPOSALS.md` |
 | **Material Symbols Rounded** (Google) | npm `material-symbols` **0.47.5** (published 2026-09-22, pinned in `package.json`) | Apache-2.0 (`LICENSE`) | `assets/icons/material-symbols-rounded/`: `material-symbols-rounded.woff2`, `rounded.css` | none |
@@ -18,9 +17,17 @@ file is present and that Material Symbols matches its pinned npm package.
 | **Figtree** | same | SIL OFL 1.1 | `assets/fonts/figtree/`: variable upright and italic | none |
 | **Quicksand** | same | SIL OFL 1.1 | `assets/fonts/quicksand/`: variable | none |
 | **M PLUS Rounded 1c** | same | SIL OFL 1.1 | `assets/fonts/m-plus-rounded-1c/`: Regular, Medium, Bold | none (Thin, Light, ExtraBold and Black, about 3.4 MB each, not added) |
-| App icon (ring and "4") | original, drawn for AIONE 4 | the project's own | `src-tauri/icons/` | — |
+| **AIONE logo "Window B"** (mark, app icon, Boot Up / Boot Down animation) | the design chat (`docs/brand/window-b/`, `AIONE_Logo_Decision_Summary.md`); lookalike checks found nothing | the project's own | `assets/brand/` (white and colour mark, app icon SVG), `src-tauri/icons/` (rendered from the app icon), `docs/brand/window-b/` (the delivered files and the reference page) | the diamond in **#FF46A2** instead of #FF3D7F (B-9, one brand pink); geometry unchanged |
+| **Boot sounds** `aione_boot_up.wav` (5.0 s), `aione_boot_down.wav` (2.6 s) | the design chat; a sound logo in A major (synthesized bells, pad, sub: **AIONE's own**) with foley from **FilmCow Recorded SFX** by FilmCow, royalty free (as the user reports): tube tv turn on 1, fudge pop 1, rope tighten 2, anvil hit 2, metal latch 2, ceramic statue breaking 1, swoosh 2, swoosh 1, tube tv turn off 1 | the project's own + FilmCow (royalty free) | `assets/sounds/boot/` and `docs/brand/window-b/` | **none** (final; 44.1 kHz 16-bit stereo, played as delivered) |
+| Boot test clips `mock-boot-up.webm`, `mock-boot-down.webm` | made with ffmpeg (a coloured frame and a sine tone) | the project's own | `tests/fixtures/boot/` (tests only) | — |
 
 Not used: "Cute, Cozy & Magical UI SFX" (B-1, may return in T8); the WPF startup `e.wav`.
+
+## History (alpha.2–alpha.4): the removed pack and its variants
+
+The sections below describe sounds made from the 50 Menu Interface SFX pack, which was removed in
+4.0.0-alpha.7. They are kept as the record; `tools/sound/make_startup.py`, `make_bootup.py` and
+`analyse.py` needed the pack and no longer run.
 
 ## Boot Up sound variants: credit and changes
 "AIONE 4 Boot Up sound (variant A / B / C)" is adapted from **"50 Menu Interface SFX" by
@@ -89,6 +96,5 @@ The marks are original (designed in this build); no console maker's shapes.
 - **Alternatives and proposals** (listening page only, not in the repository): made the same way
   from "clicky squeaky knob 17", "mechanical button 7", "plastic toy mechanism snap 6", "mechanism snap together 6", "tape recorder eject 5", "metal switch 7", "old metal switch 1", "camera lens contract 4", "camera lens extend 2", "plastic case slide off 1", "plastic case slide on 9", "tin pop 2", "tin pop 5", "light switch on", "metal button pop up 7", "metal latch 4", "wood hit 4".
 
-The 50 Menu Interface SFX pack (above) stays in the repository until T1.2, as instructed; the app
-no longer plays it.
+The 50 Menu Interface SFX pack was removed in 4.0.0-alpha.7 (T1.2), as planned.
 

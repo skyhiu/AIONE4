@@ -3,6 +3,7 @@
   // and the button prompts at the right, each a Kenney glyph plus a short label, bolder and
   // larger than body text, on one baseline, scaling with Interface Scale.
   import { GLYPHS, type GlyphDevice, type Prompt } from './glyphs';
+  import markUrl from '../../../assets/brand/aione_mark_white.svg?url';
 
   let {
     prompts,
@@ -14,7 +15,9 @@
 <footer class="footer" data-testid="footer" data-owner="footer">
   <div class="brand" data-testid="footer-branding">
     {#if branding}
-      <!-- The logo joins the name once it is chosen (B-5; proposals in this build). -->
+      <!-- B-5 final: the one-colour "Window B" mark + "AIONE". Drawn in the footer's text colour
+           (off-white on dark; dark on the light preset, where off-white would be invisible). -->
+      <span class="mark" data-testid="footer-mark" style:--mark={`url(${JSON.stringify(markUrl)})`} aria-hidden="true"></span>
       <span class="name" data-testid="system-name">AIONE</span>
     {/if}
   </div>
@@ -46,6 +49,19 @@
     justify-content: space-between;
     padding: 0 var(--space-5);
     color: var(--color-text);
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  /* 22 design px at 100 % (16–24 px, B-5 final). */
+  .mark {
+    width: 1.375rem;
+    height: 1.375rem;
+    background: currentColor;
+    -webkit-mask: var(--mark) center / contain no-repeat;
+    mask: var(--mark) center / contain no-repeat;
   }
   .name {
     font-size: var(--text-label);

@@ -581,47 +581,76 @@ test.describe('T1.1 Home (mocked core)', () => {
       expect(ratios.soft).toBeGreaterThanOrEqual(4.5);
       expect(ratios.pressed).toBeGreaterThanOrEqual(4.5);
     }
-    const ring = await page.locator('.tile.focused .ring-line').evaluate((el) => getComputedStyle(el).borderTopColor);
+    const ring = await page.locator('.tile.focused .ring-line:not(.ring-alt)').evaluate((el) => getComputedStyle(el).borderTopColor);
     expect(ring).toBe('rgb(255, 70, 162)');
   });
 
-  test('D-011: the ring itself never fades; at the glow\'s lowest point it is ≥ 3:1 (light and dark)', async ({ page }) => {
+  test('B-9 (rev. m) / D-011: the ring pulses between two shades, no glow; ≥ 3:1 at both ends', async ({ page }) => {
     await page.setViewportSize({ width: 1920, height: 1080 });
-    for (const preset of ['light', 'dark']) {
+    const expected = { light: [[253, 0, 126], [217, 0, 108]], dark: [[255, 70, 162], [255, 105, 180]] } as const;
+    for (const preset of ['light', 'dark'] as const) {
       await open(page, `preset=${preset}`);
-      // The ring line has no animation; the glow does.
       const anims = await page.evaluate(() =>
         document.getAnimations().map((a) => ({
           name: (a as CSSAnimation).animationName,
-          target: ((a.effect as KeyframeEffect).target as Element | null)?.className ?? '',
+          duration: Number((a.effect as KeyframeEffect).getTiming().duration),
+          dir: (a.effect as KeyframeEffect).getTiming().direction,
         })),
       );
-      expect(anims.some((a) => String(a.target).includes('ring-line'))).toBe(false);
-      expect(anims.some((a) => a.name.endsWith('ring-glow'))).toBe(true);
-      for (const phase of ['lowest', 'highest'] as const) {
-        // Hold the glow at its lowest (0 %) or highest (50 %) point.
-        await page.evaluate((ph) => {
+      const pulse = anims.find((a) => a.name.endsWith('ring-pulse'));
+      expect(pulse).toBeTruthy();
+      expect(anims.some((a) => a.name.includes('glow'))).toBe(false);
+      // 0.7 s each way, alternating: 1.4 s per cycle, eased.
+      expect((pulse?.duration ?? 0) * 2).toBeGreaterThanOrEqual(1200);
+      expect((pulse?.duration ?? 0) * 2).toBeLessThanOrEqual(1500);
+      expect(pulse?.dir).toBe('alternate');
+      // CSS applies the easing per keyframe: read it from the ring itself.
+      expect(await page.evaluate(() => getComputedStyle(document.querySelector('.tile.focused .ring-alt') as Element).animationTimingFunction)).toBe('ease-in-out');
+      expect(await page.evaluate(() => getComputedStyle(document.querySelector('.tile.focused .ring') as Element).boxShadow)).toBe('none');
+      for (const [i, end] of (['start', 'end'] as const).entries()) {
+        await page.evaluate((e) => {
           for (const a of document.getAnimations()) {
-            if (!(a as CSSAnimation).animationName.endsWith('ring-glow')) continue;
-            const d = Number((a.effect as KeyframeEffect).getTiming().duration);
-            const delay = Number((a.effect as KeyframeEffect).getTiming().delay ?? 0);
+            if (!(a as CSSAnimation).animationName.endsWith('ring-pulse')) continue;
+            const t = (a.effect as KeyframeEffect).getTiming();
             a.pause();
-            a.currentTime = delay + (ph === 'lowest' ? 0 : d / 2);
+            a.currentTime = Number(t.delay ?? 0) + (e === 'start' ? 0 : Number(t.duration) - 0.01);
           }
-        }, phase);
+        }, end);
         await page.waitForTimeout(100);
-        const ring = await page.locator('.tile.focused .ring-line').boundingBox();
+        const ring = await page.locator('.tile.focused .ring-line').first().boundingBox();
         const img = decodePng(await page.screenshot());
-        // The middle of the ring's 6 px top stroke, and the page background far from any tile.
         const strokeY = (ring?.y ?? 0) + 3;
-        const xs = [0.3, 0.5, 0.7].map((f) => (ring?.x ?? 0) + (ring?.width ?? 0) * f);
         const bg = pixel(img, 1900, 700);
-        const ratios = xs.map((x) => contrast(pixel(img, x, strokeY), bg));
-        console.warn(`D-011 ${preset} ${phase}: ring ${JSON.stringify(pixel(img, xs[1] ?? 0, strokeY))} vs bg ${JSON.stringify(bg)}: ${ratios.map((r) => r.toFixed(2)).join(', ')}`);
-        for (const r of ratios) expect(r).toBeGreaterThanOrEqual(3);
+        const c = pixel(img, (ring?.x ?? 0) + (ring?.width ?? 0) / 2, strokeY);
+        console.warn(`ring ${preset} ${end}: ${JSON.stringify(c)} vs bg ${JSON.stringify(bg)}: ${contrast(c, bg).toFixed(2)}`);
+        expect(contrast(c, bg)).toBeGreaterThanOrEqual(3);
+        const want = expected[preset][i] ?? [0, 0, 0];
+        for (let k = 0; k < 3; k++) expect(Math.abs((c[k] ?? 0) - (want[k] ?? 0))).toBeLessThanOrEqual(3);
       }
-      await shot(page, `t1-home-ring-glow-${preset}`);
+      await shot(page, `t1-home-ring-pulse-${preset}`);
     }
+  });
+
+  test('B-8 (rev. m): the ▼ never moves; a long title scrolls only to its right, clipped at both ends', async ({ page }) => {
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    await open(page);
+    for (let i = 0; i < 7; i++) await page.keyboard.press('ArrowRight');
+    await expect(page.getByTestId('selected-title-text')).toHaveAttribute('data-moving', 'true');
+    const sample = () =>
+      page.evaluate(() => {
+        const arrow = document.querySelector('.arrow')?.getBoundingClientRect();
+        const box = document.querySelector('[data-testid="selected-title-text"]')?.getBoundingClientRect();
+        return { arrowLeft: arrow?.left ?? 0, arrowRight: arrow?.right ?? 0, boxLeft: box?.left ?? 0 };
+      });
+    await page.waitForTimeout(600); // the title's own move with the focus (260 ms) is over
+    const first = await sample();
+    await page.waitForTimeout(2500); // the marquee has moved by now
+    const later = await sample();
+    expect(later.arrowLeft).toBeCloseTo(first.arrowLeft, 1);
+    // The text's clipping box starts after the ▼ and its gap; overflow is clipped there.
+    expect(later.boxLeft).toBeGreaterThan(later.arrowRight);
+    expect(await page.locator('[data-testid="selected-title-text"]').evaluate((el) => getComputedStyle(el).overflow)).toBe('hidden');
+    await shot(page, 't1-home-marquee-fixed-arrow');
   });
 
   test('D-010: Home appears at once with the original pictures; the copies are swapped in later', async ({ page }) => {

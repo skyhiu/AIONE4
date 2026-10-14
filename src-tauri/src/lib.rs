@@ -3,6 +3,7 @@
 //! background rule), the game library (T1.1) and its media, and the header's status values.
 //! See docs/ARCHITECTURE.md.
 
+pub mod boot;
 pub mod foreground;
 pub mod games;
 pub mod input;
@@ -28,6 +29,11 @@ pub const EVENT_COPY_DONE: &str = "aione://copy-done";
 pub const EVENT_STATUS: &str = "aione://status";
 /// D-010: a tile copy made in the background: `{ id, tile }` (the copy's cache key).
 pub const EVENT_TILE: &str = "aione://tile";
+/// A9: Close AIONE (Alt+F4 / the window's close): the UI plays the Boot Down, then calls
+/// `close_now`. If it doesn't within `CLOSE_SAFETY`, the core exits anyway.
+pub const EVENT_CLOSE_REQUESTED: &str = "aione://close-requested";
+const CLOSE_SAFETY: std::time::Duration = std::time::Duration::from_secs(8);
+static CLOSE_STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// The game media protocol: `http://aione-media.localhost/<game id>/<slot>` on Windows.
 pub const MEDIA_SCHEME: &str = "aione-media";
 const MAIN_WINDOW: &str = "main";
@@ -45,6 +51,7 @@ struct AppState {
     copy_running: AtomicBool,
     interface_scale: u32,
     from_autostart: bool,
+    boot_default: bool,
 }
 
 #[derive(Serialize)]
@@ -58,6 +65,8 @@ struct AppInfo {
     /// Interface Scale in percent for this run (100 until Settings exist; `--interface-scale`).
     interface_scale: u32,
     from_autostart: bool,
+    /// `--boot=default`: show Window B even when a custom video exists (this run only).
+    boot_default: bool,
 }
 
 #[tauri::command]
@@ -70,7 +79,42 @@ fn app_info(state: tauri::State<'_, AppState>) -> AppInfo {
         pid: std::process::id(),
         interface_scale: state.interface_scale,
         from_autostart: state.from_autostart,
+        boot_default: state.boot_default,
     }
+}
+
+/// The custom Boot Up / Boot Down copies (made once from the WPF copy) and the boot settings.
+#[tauri::command]
+async fn boot_media(app: AppHandle) -> Result<boot::BootMedia, String> {
+    let data = app.state::<AppState>().data_dir.clone();
+    let m = tauri::async_runtime::spawn_blocking(move || boot::prepare(&data))
+        .await
+        .map_err(|e| e.to_string())?;
+    for n in &m.notes {
+        logging::lifecycle(Level::Info, n);
+    }
+    logging::lifecycle(
+        Level::Info,
+        &format!(
+            "boot settings ({}): show {}, audio {}, play to end {}, duration {} ms",
+            m.settings.from,
+            m.settings.show_splash,
+            m.settings.splash_audio,
+            m.settings.play_to_end,
+            m.settings.duration_ms
+        ),
+    );
+    Ok(m)
+}
+
+/// The Boot Down has finished (or there is none): exit now.
+#[tauri::command]
+fn close_now(app: AppHandle, reason: String) {
+    logging::lifecycle(
+        Level::Info,
+        &format!("closing after the Boot Down ({reason})"),
+    );
+    app.exit(0);
 }
 
 /// Loads the library (converting the WPF copy once if needed) and logs the L-17 lines.
@@ -159,6 +203,57 @@ fn percent_decode(s: &str) -> String {
 }
 
 /// Serves `/<game id>/<slot>` from the game's own folder (`games::resolve_media`); 404 otherwise.
+/// `/_boot/up` and `/_boot/down`: the custom boot videos, with byte ranges (video streaming).
+fn boot_response(
+    data: &std::path::Path,
+    which: &str,
+    range: Option<&str>,
+) -> tauri::http::Response<Vec<u8>> {
+    use std::io::{Read, Seek, SeekFrom};
+    const CHUNK: u64 = 4 * 1024 * 1024;
+    let not_found = || {
+        tauri::http::Response::builder()
+            .status(404)
+            .body(Vec::new())
+            .unwrap_or_default()
+    };
+    let Some(p) = boot::resolve(data, which) else {
+        return not_found();
+    };
+    let Ok(mut f) = std::fs::File::open(&p) else {
+        return not_found();
+    };
+    let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+    let mime = boot::mime_of(&p);
+    let (start, end, partial) = match range.and_then(|r| boot::parse_range(r, len, CHUNK)) {
+        Some((a, b)) => (a, b, true),
+        None if range.is_some() => {
+            return tauri::http::Response::builder()
+                .status(416)
+                .header("Content-Range", format!("bytes */{len}"))
+                .body(Vec::new())
+                .unwrap_or_default();
+        }
+        None => (0, len.saturating_sub(1).min(CHUNK - 1), len > CHUNK),
+    };
+    let mut buf = vec![0u8; (end + 1 - start) as usize];
+    if f.seek(SeekFrom::Start(start))
+        .and_then(|_| f.read_exact(&mut buf))
+        .is_err()
+    {
+        return not_found();
+    }
+    let mut b = tauri::http::Response::builder()
+        .status(if partial { 206 } else { 200 })
+        .header("Content-Type", mime)
+        .header("Accept-Ranges", "bytes")
+        .header("Cache-Control", "no-cache");
+    if partial {
+        b = b.header("Content-Range", format!("bytes {start}-{end}/{len}"));
+    }
+    b.body(buf).unwrap_or_default()
+}
+
 fn media_response(data: &std::path::Path, path: &str) -> tauri::http::Response<Vec<u8>> {
     let mut parts = path.trim_start_matches('/').splitn(2, '/');
     let id = percent_decode(parts.next().unwrap_or_default());
@@ -431,6 +526,7 @@ pub fn run() {
         copy_running: AtomicBool::new(false),
         interface_scale: args.interface_scale.unwrap_or(100),
         from_autostart: args.from_autostart,
+        boot_default: args.boot_default,
     };
 
     let app = tauri::Builder::default()
@@ -449,8 +545,19 @@ pub fn run() {
         .register_asynchronous_uri_scheme_protocol(MEDIA_SCHEME, |ctx, request, responder| {
             let data = ctx.app_handle().state::<AppState>().data_dir.clone();
             let path = request.uri().path().to_string();
+            let range = request
+                .headers()
+                .get("range")
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_string);
             // File reads off the main thread.
-            std::thread::spawn(move || responder.respond(media_response(&data, &path)));
+            std::thread::spawn(move || {
+                let res = match path.strip_prefix("/_boot/") {
+                    Some(which) => boot_response(&data, which, range.as_deref()),
+                    None => media_response(&data, &path),
+                };
+                responder.respond(res)
+            });
         })
         .invoke_handler(tauri::generate_handler![
             app_info,
@@ -461,7 +568,9 @@ pub fn run() {
             pad_slots,
             restart_app,
             library_load,
-            status_now
+            status_now,
+            boot_media,
+            close_now
         ])
         .setup(|app| {
             #[cfg(windows)]
@@ -504,11 +613,23 @@ pub fn run() {
             logging::lifecycle(Level::Info, "core ready; waiting for the UI's first frame");
             Ok(())
         })
-        .on_window_event(|_window, event| {
-            if let WindowEvent::CloseRequested { .. } = event {
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
                 logging::lifecycle(Level::Info, "window close requested");
                 // T0 QA-5: exit begins; the guard stops before Windows hands the foreground on.
                 foreground::closing("AIONE is closing");
+                // A9 (Close AIONE): the Boot Down plays first. A second request while it plays
+                // is ignored (the Boot Down still ends and closes).
+                api.prevent_close();
+                if !CLOSE_STARTED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                    let _ = window.emit(EVENT_CLOSE_REQUESTED, ());
+                    let handle = window.app_handle().clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(CLOSE_SAFETY);
+                        logging::lifecycle(Level::Warn, "the Boot Down did not finish within 8 s; closing anyway");
+                        handle.exit(0);
+                    });
+                }
             }
         })
         .build(tauri::generate_context!());

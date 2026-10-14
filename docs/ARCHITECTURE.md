@@ -1,6 +1,6 @@
 # AIONE 4 — Architecture
 
-Current as of **4.0.0-alpha.6 (T1.1 fixes)**. Rules: Master Prompt Part A (A3 technology, A4 input, A5 window and lifecycle, A9 data).
+Current as of **4.0.0-alpha.7 (T1.2, part 1)**. Rules: Master Prompt Part A (A3 technology, A4 input, A5 window and lifecycle, A9 data).
 
 ## Overview
 
@@ -270,4 +270,34 @@ each sound separately. CI checks the real build: `npm run check:built` and
 App renders Home only once the library is loaded.
 
 **Input (B-10 rev. k).** `countsAsHomeInput` decides which inputs end mouse mode.
+
+## 4.0.0-alpha.7: the lifecycle (A9)
+
+**Phases (App.svelte):** `black` → `boot` → `home`, and `bootdown` from any phase.
+- **black:** the window is shown on its first (black) frame. The black hold runs the work that
+  would make the Boot Up stutter: `boot_media`, `library_load` and the tile pictures' decoding,
+  and the menu sounds, bounded at 4 s (logged `boot: black hold N ms`).
+- **boot:** `BootPresenter` (src/lib/boot/presenter.ts) plays one presentation, decided once
+  and logged: the custom video (`http://aione-media.localhost/_boot/up`, AIONE 4's copy) with
+  its own sound, or Window B (`windowB.ts`, the reference's `fu`/`fd` ported) with
+  `aione_boot_up.wav` decoded into its own AudioContext. Window B frames are drawn at the heard
+  position (sound clock minus output latency); the first frame at or after 2550 ms is logged.
+  A custom video that doesn't start within 4 s (counted only while in front) falls back once to
+  Window B; each presentation's timers act only while it is current. Window blur / focus pause
+  and resume it (A9, L-02).
+- **Input lock:** while the phase isn't `home`, every input is discarded and logged, except the
+  Boot Up's skip (A, B, Enter, Esc, a click).
+- **bootdown:** the core turns the window's close (Alt+F4) into `aione://close-requested`
+  (`prevent_close`, the foreground guard stopped first: T0 QA-5); the UI plays the custom
+  `suspend.mp4` or Window B's Boot Down, holds black until its sound ends (2.6 s), then calls
+  `close_now`. An 8 s safety exit in the core.
+
+**Boot media (boot.rs):** `Imported\AIONE-WPF\Assets\Splash\splash.*` and
+`Assets\Suspend\suspend.*` copied once into `<data>\Boot\boot-up-<key>.<ext>` /
+`boot-down-<key>.<ext>` (key: size and date; a changed source is copied again and the old copy
+removed); `/_boot/up|down` served with HTTP ranges (4 MB at most per answer). Only `ShowSplash`,
+`SplashAudio`, `SplashVideoPlayToEnd` and `SplashDurationMs` are read from the WPF settings.
+
+**Preview:** `npm run build:boot-preview` builds `dist-boot-preview/` (the same `windowB.ts`, opens
+from the file system) for comparison with the reference page.
 

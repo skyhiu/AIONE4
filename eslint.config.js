@@ -9,6 +9,7 @@ export default tseslint.config(
     ignores: [
       'dist/',
       'dist-mock/',
+      'dist-boot-preview/',
       'node_modules/',
       'src-tauri/target/',
       'src-tauri/gen/',

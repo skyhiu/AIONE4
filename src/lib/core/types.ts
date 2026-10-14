@@ -10,6 +10,23 @@ export interface AppInfo {
   /** Interface Scale in percent for this run (100 until Settings exist; `--interface-scale`). */
   interfaceScale: number;
   fromAutostart: boolean;
+  /** `--boot=default`: this run shows Window B even when a custom boot video exists. */
+  bootDefault: boolean;
+}
+
+/** A custom boot video, copied once from the WPF copy into AIONE 4's `Boot` folder. */
+export interface BootFile {
+  key: string;
+  ext: string;
+  bytes: number;
+  source: string;
+}
+
+export interface BootMedia {
+  up: BootFile | null;
+  down: BootFile | null;
+  settings: { showSplash: boolean; splashAudio: boolean; playToEnd: boolean; durationMs: number; from: string };
+  notes: string[];
 }
 
 /** A game as the core reads it from AIONE 4's library (`Games\\<folder>\\game.json`). */
@@ -144,6 +161,13 @@ export interface Core {
   mediaUrl(gameId: string, slot: string, key?: string): string;
   statusNow(): Promise<PcStatus>;
   onStatus(handler: (status: PcStatus) => void): Promise<Unlisten>;
+  /** T1.2: the custom boot videos and the boot settings. */
+  bootMedia(): Promise<BootMedia>;
+  /** URL of a custom boot video ('up' or 'down'). */
+  bootUrl(which: 'up' | 'down', key: string): string;
+  /** A9: Close AIONE was requested (Alt+F4): play the Boot Down, then `closeNow`. */
+  onCloseRequested(handler: () => void): Promise<Unlisten>;
+  closeNow(reason: string): Promise<void>;
   /** D-010: a tile copy made in the background. */
   onTile(handler: (t: { id: string; tile: string }) => void): Promise<Unlisten>;
   onPad(handler: (event: PadEvent) => void): Promise<Unlisten>;

@@ -76,6 +76,9 @@ pub struct Made {
     pub source_px: Option<(u32, u32)>,
     pub source_note: String,
     pub timing: Option<Timing>,
+    /// B-13 (rev. m): an older copy of this game existed (its source changed since), and was
+    /// replaced by this one.
+    pub replaced: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -338,6 +341,7 @@ pub fn ensure(data: &Path, id: &str, src: &Path, mode: Mode) -> Result<Made, Til
             source_px: None,
             source_note: String::new(),
             timing: None,
+            replaced: false,
         });
     }
     {
@@ -386,10 +390,12 @@ pub fn ensure(data: &Path, id: &str, src: &Path, mode: Mode) -> Result<Made, Til
     }
     // Remove older copies of the same game (any earlier key or alpha.5's icon copies).
     let prefix = format!("{}-", safe(id));
+    let mut replaced = false;
     if let Ok(read) = fs::read_dir(cache_dir(data)) {
         for e in read.flatten() {
             let n = e.file_name().to_string_lossy().into_owned();
             if n.starts_with(&prefix) && e.path() != out {
+                replaced |= n.starts_with(&format!("{}-tile-", safe(id)));
                 let _ = fs::remove_file(e.path());
             }
         }
@@ -403,6 +409,7 @@ pub fn ensure(data: &Path, id: &str, src: &Path, mode: Mode) -> Result<Made, Til
         source_px,
         source_note: note,
         timing: Some(timing),
+        replaced,
     })
 }
 
@@ -562,6 +569,8 @@ mod tests {
         RgbaImage::new(80, 80).save(&src).unwrap();
         let b = ensure(data, "G", &src, Mode::Fill).unwrap();
         assert!(b.made && a.path != b.path);
+        assert!(b.replaced, "logged as remade because the source changed");
+        assert!(!a.replaced);
         assert!(!a.path.exists());
         assert!(!cache_dir(data).join("G-icon-0123.png").exists());
     }

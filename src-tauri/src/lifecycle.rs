@@ -32,6 +32,9 @@ pub struct Args {
     pub from_autostart: bool,
     /// `--interface-scale=N` for this run (percent, one of `SCALE_STEPS`).
     pub interface_scale: Option<u32>,
+    /// `--boot=default`: this run shows the default "Window B" Boot Up / Boot Down even when a
+    /// custom video exists (T1.2, for testing; never stored).
+    pub boot_default: bool,
     pub unknown: Vec<String>,
 }
 
@@ -55,6 +58,8 @@ pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Args {
                 "off" | "false" | "0" => out.autostart = Some(false),
                 _ => out.unknown.push(a),
             }
+        } else if a == "--boot=default" {
+            out.boot_default = true;
         } else if a == FROM_AUTOSTART {
             out.from_autostart = true;
         } else if let Some(v) = a.strip_prefix("--interface-scale=") {
@@ -210,6 +215,12 @@ pub fn log_start(args: &Args) {
             "started by Windows at sign-in (the Start with Windows entry passed --from-autostart)",
         );
     }
+    if args.boot_default {
+        logging::lifecycle(
+            Level::Info,
+            "--boot=default: this run shows the default Window B Boot Up and Boot Down (not stored)",
+        );
+    }
     if let Some(n) = args.interface_scale {
         logging::lifecycle(
             Level::Info,
@@ -327,6 +338,7 @@ mod tests {
         assert_eq!(p(&["--autostart=OFF"]).autostart, Some(false));
         assert_eq!(p(&[]), Args::default());
         assert!(p(&["--from-autostart"]).from_autostart);
+        assert!(p(&["--boot=default"]).boot_default);
         assert_eq!(p(&["--interface-scale=150"]).interface_scale, Some(150));
         assert_eq!(p(&["--interface-scale=90%"]).interface_scale, Some(90));
     }

@@ -17,6 +17,11 @@
 //   &noart=1           no tile art (plain tiles)
 //   &bigart=1          tile pictures of 3000 × 3000 px (D-007: as if the core served full-size files)
 //   &tiles=pending     no tile copies yet: Home shows the originals; copies arrive 400 ms later
+//   &boot=default | custom | custom-broken | default-switch   the Boot Up / Boot Down (T1.2):
+//                      without it the mock acts as ShowSplash = false (no presentation), so the
+//                      other tests reach Home at once. custom = the WebM test clips;
+//                      custom-broken = a custom video that cannot load (fallback to Window B);
+//                      default-switch = custom videos exist but --boot=default is set.
 // Tests drive input through `window.__aioneMock` (see MockControl below).
 import pkg from '../../../package.json';
 import alpha1Record from '../../../tests/fixtures/migration/alpha1.migration.json?raw';
@@ -49,6 +54,10 @@ export interface MockControl {
   restarts: number;
   uiReadyCalls: number;
   padSlotsCalls: number;
+  /** Like Alt+F4: the core asks the UI to close (A9: the Boot Down plays first). */
+  requestClose(): void;
+  /** Reasons passed to `closeNow` (the app would exit). */
+  closed: string[];
 }
 
 declare global {
@@ -69,6 +78,13 @@ export const SAMPLE_LIBRARY: LibraryCounts = {
 };
 
 /** Original placeholder art (tests/fixtures/library/art), never real game art. */
+const BOOT_CLIPS = import.meta.glob('../../../tests/fixtures/boot/*.webm', {
+  eager: true,
+  query: '?url',
+  import: 'default',
+}) as Record<string, string>;
+const clip = (name: string) => Object.entries(BOOT_CLIPS).find(([k]) => k.endsWith(name))?.[1] ?? '';
+
 const ART = import.meta.glob('../../../tests/fixtures/library/art/*.png', {
   eager: true,
   query: '?url',
@@ -217,6 +233,8 @@ export function createMock(search: string): { core: Core; control: MockControl }
   const statusHandlers = new Set<Handler<PcStatus>>();
   const noArt = params.get('noart') === '1';
   const tileHandlers = new Set<Handler<{ id: string; tile: string }>>();
+  const closeHandlers = new Set<() => void>();
+  const closed: string[] = [];
   const progressHandlers = new Set<Handler<CopyProgress>>();
   const doneHandlers = new Set<Handler<CopyResult>>();
   let seq = 0;
@@ -272,6 +290,8 @@ export function createMock(search: string): { core: Core; control: MockControl }
     restarts: 0,
     uiReadyCalls: 0,
     padSlotsCalls: 0,
+    requestClose: () => closeHandlers.forEach((f) => f()),
+    closed,
   };
   if (typeof window !== 'undefined') window.__aioneMock = control;
 
@@ -293,6 +313,7 @@ export function createMock(search: string): { core: Core; control: MockControl }
         pid: 4242,
         interfaceScale: Number(params.get('scale') ?? '100'),
         fromAutostart: false,
+        bootDefault: params.get('boot') === 'default-switch',
       }),
     uiReady() {
       control.uiReadyCalls += 1;
@@ -395,6 +416,29 @@ export function createMock(search: string): { core: Core; control: MockControl }
       if (params.get('status-later') === '1')
         setTimeout(() => statusHandlers.forEach((f) => f({ network: 'offline', battery: { percent: 15, charging: false } })), 300);
       return sub(statusHandlers, h);
+    },
+    bootMedia() {
+      const mode = params.get('boot');
+      const custom = mode === 'custom' || mode === 'custom-broken' || mode === 'default-switch';
+      const file = (source: string) => ({ key: 'm1', ext: 'webm', bytes: 1, source });
+      return Promise.resolve({
+        up: custom ? file('splash.mp4') : null,
+        down: custom ? file('suspend.mp4') : null,
+        settings: { showSplash: mode !== null, splashAudio: true, playToEnd: true, durationMs: 3200, from: 'WPF settings' },
+        notes: [custom ? 'custom Boot Up: splash.mp4 (mock), AIONE 4\'s copy reused' : 'custom Boot Up: none (mock)'],
+      });
+    },
+    bootUrl(which) {
+      if (params.get('boot') === 'custom-broken') return `./missing-${which}.webm`;
+      return clip(which === 'up' ? 'mock-boot-up.webm' : 'mock-boot-down.webm');
+    },
+    onCloseRequested(h) {
+      closeHandlers.add(h);
+      return Promise.resolve(() => closeHandlers.delete(h));
+    },
+    closeNow(reason) {
+      closed.push(reason);
+      return Promise.resolve();
     },
     onTile(h) {
       if (params.get('tiles') === 'pending')
