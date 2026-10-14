@@ -276,7 +276,8 @@ App renders Home only once the library is loaded.
 **Phases (App.svelte):** `black` → `boot` → `home`, and `bootdown` from any phase.
 - **black:** the window is shown on its first (black) frame. The black hold runs the work that
   would make the Boot Up stutter: `boot_media`, `library_load` and the tile pictures' decoding,
-  and the menu sounds, bounded at 4 s (logged `boot: black hold N ms`).
+  the menu sounds and the fonts (icons stay hidden until Material Symbols is loaded, never
+  shown as their ligature names), bounded at 4 s (logged `boot: black hold N ms`).
 - **boot:** `BootPresenter` (src/lib/boot/presenter.ts) plays one presentation, decided once
   and logged: the custom video (`http://aione-media.localhost/_boot/up`, AIONE 4's copy) with
   its own sound, or Window B (`windowB.ts`, the reference's `fu`/`fd` ported) with

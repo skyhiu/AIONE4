@@ -52,6 +52,40 @@
   let bootHost: HTMLDivElement | undefined = $state();
   let presenter: BootPresenter | null = null;
   let bootMedia: BootMedia | null = null;
+  /** Icons (Material Symbols) are shown only once their font is really there; without it the
+   *  browser would draw the ligature names ("arrow_drop_down") as large text (alpha.7 CI). */
+  let iconsReady = $state(false);
+  const ICON_FONT = '400 24px "Material Symbols Rounded"';
+  const ICON_SAMPLE = 'arrow_drop_down sports_esports wifi wifi_off lan battery_android_frame_full';
+  async function loadFonts(c: Core): Promise<void> {
+    const started = performance.now();
+    try {
+      await Promise.all([
+        document.fonts.load(ICON_FONT, ICON_SAMPLE),
+        document.fonts.load('400 24px "M PLUS Rounded 1c"', 'AIONE'),
+        document.fonts.load('500 24px "M PLUS Rounded 1c"', 'AIONE'),
+      ]);
+    } catch (err) {
+      c.log('error', `fonts: loading failed (${String(err)})`);
+    }
+    iconsReady = document.fonts.check(ICON_FONT, ICON_SAMPLE);
+    c.log(
+      iconsReady ? 'info' : 'error',
+      iconsReady
+        ? `fonts ready in ${Math.round(performance.now() - started)} ms (Material Symbols Rounded, M PLUS Rounded 1c)`
+        : 'fonts: Material Symbols Rounded is not available; icons stay hidden rather than shown as text',
+    );
+    if (!iconsReady) {
+      // A late arrival still shows them.
+      document.fonts.addEventListener('loadingdone', () => {
+        if (!iconsReady && document.fonts.check(ICON_FONT, ICON_SAMPLE)) {
+          iconsReady = true;
+          c.log('info', 'fonts: Material Symbols Rounded arrived late; icons shown');
+        }
+      });
+    }
+  }
+
   /** The black hold is bounded (reference A9: at most 4 s). */
   const BLACK_HOLD_MAX_MS = 4000;
   let info = $state<AppInfo | null>(null);
@@ -501,9 +535,10 @@
         ),
         reloadLibrary(c),
         sounds.init(),
+        loadFonts(c),
       ]);
       const hold = await Promise.race([work.then(() => 'done'), new Promise<string>((r) => setTimeout(() => r('timeout'), BLACK_HOLD_MAX_MS))]);
-      c.log('info', `boot: black hold ${Math.round(performance.now() - held)} ms (${hold === 'done' ? 'library, pictures decoded ahead and boot media ready' : 'the 4 s limit was reached; the rest continues behind the Boot Up'})`);
+      c.log('info', `boot: black hold ${Math.round(performance.now() - held)} ms (${hold === 'done' ? 'library, pictures decoded ahead, fonts and boot media ready' : 'the 4 s limit was reached; the rest continues behind the Boot Up'})`);
       perf.start(() => [
         ...(keys.active ? ['keyboard repeat'] : []),
         'header clock (to the next minute)',
@@ -554,7 +589,7 @@
 />
 
 <!-- D-010: black (the html background) until the library is loaded; then Home. -->
-<main data-input={inputMode} data-testid="screen" data-version={info?.version ?? ''} data-library={library?.state ?? 'loading'}>
+<main data-icons-ready={iconsReady} class:icons-ready={iconsReady} data-input={inputMode} data-testid="screen" data-version={info?.version ?? ''} data-library={library?.state ?? 'loading'}>
   <!-- A9: black from the first frame; the Boot Up / Boot Down draw here, over everything. -->
   <!-- Always mounted (the presenter keeps drawing into it); hidden on Home. -->
   <div
@@ -605,6 +640,10 @@
   main {
     position: relative;
     height: 100%;
+  }
+  /* Icons only with their font (never their ligature names as text). */
+  main:not(.icons-ready) :global(.icon) {
+    visibility: hidden;
   }
   .boot.hidden {
     display: none;

@@ -5,8 +5,20 @@ import path from 'node:path';
 export const SCREENSHOT_DIR = path.resolve('ui-screenshots');
 
 /** Saves a full-viewport screenshot to ui-screenshots/<name>.png (uploaded by CI). */
+/** The icon font is loaded and the app shows its icons (alpha.7 CI: a measurement ran before the
+ *  Material Symbols font was there). Explicit: the font's own load, its check, and the app's flag. */
+export async function waitForIcons(page: Page): Promise<void> {
+  await page.evaluate(() => document.fonts.load('400 24px "Material Symbols Rounded"', 'arrow_drop_down'));
+  await expect
+    .poll(() => page.evaluate(() => document.fonts.check('400 24px "Material Symbols Rounded"', 'arrow_drop_down')), { timeout: 10_000 })
+    .toBe(true);
+  if (await page.locator('main[data-icons-ready]').count())
+    await expect(page.locator('main')).toHaveAttribute('data-icons-ready', 'true', { timeout: 10_000 });
+}
+
 export async function shot(page: Page, name: string): Promise<void> {
   mkdirSync(SCREENSHOT_DIR, { recursive: true });
+  await waitForIcons(page);
   // Let transitions settle so the screenshot shows the resting state.
   await page.waitForTimeout(400);
   await page.screenshot({ path: path.join(SCREENSHOT_DIR, `${name}.png`), fullPage: false });

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { contrastOf, expectInViewport, expectNoOverflow, shot } from './helpers';
+import { contrastOf, expectInViewport, expectNoOverflow, shot, waitForIcons } from './helpers';
 import { contrast, decodePng, pixel } from './png';
 
 const pkg = JSON.parse(readFileSync('package.json', 'utf8')) as { version: string };
@@ -12,6 +12,7 @@ async function open(page: Page, query = ''): Promise<void> {
   await expect(page.getByTestId('screen')).toHaveAttribute('data-version', pkg.version);
   await expect(page.getByTestId('screen')).not.toHaveAttribute('data-library', 'loading');
   await page.evaluate(() => document.fonts.ready);
+  await waitForIcons(page);
 }
 
 const logs = (page: Page) => page.evaluate(() => window.__aioneMock?.logs ?? []);
@@ -669,6 +670,7 @@ test.describe('T1.1 Home (mocked core)', () => {
     // B-13: before its copy, the wide picture is shown whole (never cropped).
     await expect(page.locator('[data-testid="tile"][data-index="3"] img')).toHaveClass(/fit/);
     await shot(page, 't1-home-originals-before-copies');
+    await page.evaluate(() => window.__aioneMock?.releaseTiles());
     await expect.poll(async () => page.locator('[data-testid="tile"] img[data-source="copy"]').count()).toBe(9);
     await shot(page, 't1-home-copies-swapped-in');
   });
@@ -698,5 +700,19 @@ test.describe('T1.1 Home (mocked core)', () => {
     await tile(4).hover();
     await pad(page, 'DPadRight');
     expect((await logs(page)).some((x) => /input down DPadRight \(controller 1 seq \d+\) -> ring back on tile 5/.test(x))).toBe(true);
+  });
+
+  test('alpha.7 CI: without the icon font, icons stay hidden (never their names as text)', async ({ page }) => {
+    await page.route('**/material-symbols*.woff2', (route) => route.abort());
+    await page.goto(`./?${BASE}`);
+    await expect(page.getByTestId('tile')).toHaveCount(10);
+    await expect(page.locator('main')).toHaveAttribute('data-icons-ready', 'false');
+    const visible = await page.evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>('.icon')].filter((el) => getComputedStyle(el).visibility !== 'hidden').map((el) => el.textContent),
+    );
+    expect(visible).toEqual([]);
+    expect((await logs(page)).some((x) => x.includes('icons stay hidden rather than shown as text'))).toBe(true);
+    // The title text itself is still shown.
+    await expect(page.getByTestId('selected-title')).toHaveText('Amber Lighthouse');
   });
 });

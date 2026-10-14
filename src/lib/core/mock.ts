@@ -16,7 +16,8 @@
 //   &status-later=1    the core pushes a status change 300 ms after start
 //   &noart=1           no tile art (plain tiles)
 //   &bigart=1          tile pictures of 3000 × 3000 px (D-007: as if the core served full-size files)
-//   &tiles=pending     no tile copies yet: Home shows the originals; copies arrive 400 ms later
+//   &tiles=pending     no tile copies yet: Home shows the originals; the copies arrive when the
+//                      test calls releaseTiles()
 //   &boot=default | custom | custom-broken | default-switch   the Boot Up / Boot Down (T1.2):
 //                      without it the mock acts as ShowSplash = false (no presentation), so the
 //                      other tests reach Home at once. custom = the WebM test clips;
@@ -56,6 +57,8 @@ export interface MockControl {
   padSlotsCalls: number;
   /** Like Alt+F4: the core asks the UI to close (A9: the Boot Down plays first). */
   requestClose(): void;
+  /** tiles=pending: the background copies arrive now. */
+  releaseTiles(): void;
   /** Reasons passed to `closeNow` (the app would exit). */
   closed: string[];
 }
@@ -291,6 +294,8 @@ export function createMock(search: string): { core: Core; control: MockControl }
     uiReadyCalls: 0,
     padSlotsCalls: 0,
     requestClose: () => closeHandlers.forEach((f) => f()),
+    releaseTiles: () =>
+      SAMPLE_GAMES.filter((g) => g.tileArt).forEach((g) => tileHandlers.forEach((f) => f({ id: g.id, tile: 'k1' }))),
     closed,
   };
   if (typeof window !== 'undefined') window.__aioneMock = control;
@@ -441,12 +446,7 @@ export function createMock(search: string): { core: Core; control: MockControl }
       return Promise.resolve();
     },
     onTile(h) {
-      if (params.get('tiles') === 'pending')
-        setTimeout(
-          () =>
-            SAMPLE_GAMES.filter((g) => g.tileArt).forEach((g) => tileHandlers.forEach((f) => f({ id: g.id, tile: 'k1' }))),
-          400,
-        );
+      // tiles=pending: the copies arrive when the test calls releaseTiles() (deterministic).
       return sub(tileHandlers, h);
     },
     onPad: (h) => sub(padHandlers, h),
