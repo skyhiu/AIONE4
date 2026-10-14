@@ -1,5 +1,25 @@
 # Changelog
 
+## 4.0.0-alpha.10 — completes T1.2 (rev. r)
+
+- **D-017:** the title clips sideways only (`overflow-x: clip`); descenders reach the font's full
+  descent (measured 12.0 of 12.0 px at 100 %, 19 of 18 at 150 %), tapered; the baseline's gap above
+  the ring scales with Interface Scale, so they stay clear of it.
+- **D-018 / B-9:** a 2 px white separator between the ring and the picture (light preset against
+  dark navy art: 2.27 → 11.44:1); `--ring=plain` shows the alpha.9 ring for one run.
+- **D-014:** Home prepared under the black screen before the Boot Up; the skip logs how long Home
+  had been ready.
+- **B-14 (rev. r):** 12 slots; the wrap (a fresh press resting on an end); the whole-row bump
+  (about 170 px, 150 ms) when holding or fast scrolling into an end; snappy ring bumps (full push in
+  16 ms, settled by 180–200 ms); the focused drawer button at 108 %; B in the drawer returns to the
+  game.
+- **B-1 (rev. r):** no row ↔ drawer sound; entering a section plays its own move sound (6 sounds).
+- **B-5 (rev. r):** the footer mark 46 px, one colour. **B-3 (rev. r):** Tab and the Menu key =
+  Options ("Tab Options"). **B-15 (rev. r):** titlefade on by default.
+- **alpha.9 QA-4 to QA-6:** restart during the input lock logged as allowed (A9's exceptions listed);
+  CI publishes no release for a push without app code; "empty slot N" in the log.
+- **Tests:** Rust 84; Vitest 54; Playwright 84 with 115 screenshots.
+
 ## 4.0.0-alpha.9 — the measured Switch Home (B-14, rev. p / q), the full sound set (B-1), B-15
 
 - **B-14 (measured from the user's Switch recording):** tiles 398 px, 12 apart, the first 155 from

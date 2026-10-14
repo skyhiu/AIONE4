@@ -179,6 +179,21 @@ jobs:
             const tag = `v${version}`;
             const { owner, repo } = context.repo;
 
+            // A11 (alpha.9 QA-5): a push that changes no app code (only CI, tests, docs or tools)
+            // never publishes or replaces a release. Compared over the whole push (before..after).
+            const before = context.payload.before;
+            if (before && !/^0+$/.test(before)) {
+              const cmp = await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${before}...${context.sha}` });
+              const files = (cmp.data.files ?? []).map((f) => f.filename);
+              const notApp = /^(\.github\/|docs\/|tests\/|tools\/|scripts\/ci-run\.mjs$|[^/]+\.md$)/;
+              const app = files.filter((f) => !notApp.test(f));
+              if (files.length > 0 && app.length === 0) {
+                core.notice(`No app code changed in this push (${files.length} files: CI, tests, docs or tools): no release published; ${tag} stays as it was.`);
+                return;
+              }
+              core.info(`App files changed in this push: ${app.length} (e.g. ${app.slice(0, 3).join(', ')})`);
+            }
+
             // Same version pushed again: replace the release and move the tag to this commit,
             // so the release always matches the latest green build of that version.
             try {

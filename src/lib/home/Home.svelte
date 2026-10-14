@@ -36,6 +36,7 @@
     bump = null,
     scale = 1,
     extras = [],
+    ringStyle = 'separator',
     onClick,
   }: {
     games: GameView[];
@@ -60,11 +61,13 @@
     /** The drawer button showing its press (squash-and-zoom), or null. */
     drawerPressed?: number | null;
     /** B-14 (rev. q): the latest edge bump (direction, zone and a counter), or null. */
-    bump?: { dir: 'left' | 'right' | 'up' | 'down'; n: number; zone: 'row' | 'drawer' } | null;
+    bump?: { dir: 'left' | 'right' | 'up' | 'down'; n: number; zone: 'row' | 'drawer'; whole: boolean } | null;
     /** Interface Scale as a factor (1 = 100 %), for the drawer's bump distance. */
     scale?: number;
-    /** B-15: approved extras (none by default). */
+    /** B-15: proposed extras switched on for this run (press, labelfade). */
     extras?: string[];
+    /** D-018: 'separator' (default) or 'plain' (`--ring=plain`, for comparison). */
+    ringStyle?: 'separator' | 'plain';
   } = $props();
 
   let broken = $state(new Set<string>());
@@ -88,7 +91,7 @@
    *  screen (3 % margins). */
   const titleX = $derived(Math.max(vw * 0.03, Math.min(tileCentre - boxW / 2, vw * 0.97 - boxW)));
   const shifted = $derived(Math.abs(titleX - (tileCentre - boxW / 2)) > 0.5);
-  const empties = $derived(emptySlots(games.length, home.visible));
+  const empties = $derived(emptySlots(games.length));
   const onEmpty = $derived(home.zone === 'row' && isEmptySlot(home, home.focus));
   const prompts = $derived<Prompt[]>(
     loadState !== 'loaded' || suspended
@@ -98,7 +101,7 @@
         : onEmpty && mode === 'pad'
           ? [{ button: 'confirm', label: 'OK', dimmed: true }]
           : [
-              ...(device === 'keyboard' ? [] : [{ button: 'options', label: 'Options' } as Prompt]),
+              { button: 'options', label: 'Options' } as Prompt,
               { button: 'confirm', label: 'Start' },
             ],
   );
@@ -148,31 +151,48 @@
     if (!b) return;
     untrack(() => playBump(b));
   });
-  function playBump(b: { dir: 'left' | 'right' | 'up' | 'down'; n: number; zone: 'row' | 'drawer' }) {
+  function playBump(b: { dir: 'left' | 'right' | 'up' | 'down'; n: number; zone: 'row' | 'drawer'; whole: boolean }) {
     if (suspended) return;
-    const bump = b;
-    const ring = document.querySelector<HTMLElement>(
-      bump.zone === 'drawer' ? '.dbtn.focused .dring' : '.tile.focused .ring',
-    );
+    const horizontal = b.dir === 'left' || b.dir === 'right';
+    const sign = b.dir === 'left' || b.dir === 'up' ? -1 : 1;
+    // B-14 (rev. r): at the row's ends the WHOLE row (tiles and ring) lurches about 170 px toward
+    // the press and springs back in about 150 ms. The `translate` property composes with the
+    // row's own scroll transform (no conflict with its slide).
+    if (b.whole) {
+      const track = document.querySelector<HTMLElement>('.track');
+      if (!track) return;
+      const d = (v: number) => `${sign * v * px}px 0`;
+      track.dataset['rowBump'] = String(b.n);
+      track.animate(
+        [
+          { translate: d(0) },
+          { translate: d(170), offset: 0.25, easing: 'ease-in-out' },
+          { translate: d(-14), offset: 0.6, easing: 'ease-in-out' },
+          { translate: d(4), offset: 0.8 },
+          { translate: d(0) },
+        ],
+        { duration: 150, easing: 'linear' },
+      );
+      return;
+    }
+    const ring = document.querySelector<HTMLElement>(b.zone === 'drawer' ? '.dbtn.focused .dring' : '.tile.focused .ring');
     if (!ring) return;
-    const ui = bump.zone === 'drawer' ? px * (1 + (scale - 1) / 2) : px;
-    const horizontal = bump.dir === 'left' || bump.dir === 'right';
-    const sign = bump.dir === 'left' || bump.dir === 'up' ? -1 : 1;
-    // Drawer ends: about 15 px out, about 6 px back, settled in about 200 ms. Up / down: about
-    // 12 px, about 4 px back, about 300 ms (measured frame by frame, rev. q).
-    const [out, back, dur] = horizontal ? [15, 6, 200] : [12, 4, 300];
+    const ui = b.zone === 'drawer' ? px * (1 + (scale - 1) / 2) : px;
     const t = (v: number) => (horizontal ? `translateX(${sign * v * ui}px)` : `translateY(${sign * v * ui}px)`);
-    ring.dataset['bump'] = String(bump.n);
+    // B-14 (rev. r, re-measured): snappy. The full push within one frame (16 ms), back past the
+    // centre by about 66 ms (overshoot 6 px sideways, 4 px up / down), a 2–4 px wobble settled by
+    // about 200 ms (sideways) or 180 ms (up / down).
+    const [out, back, wob, dur] = horizontal ? [15, 6, 3, 200] : [12, 4, 2, 180];
+    ring.dataset['bump'] = String(b.n);
     ring.animate(
       [
         { transform: t(0) },
-        { transform: t(out), offset: 0.3, easing: 'ease-in-out' },
-        { transform: t(-back), offset: 0.65, easing: 'ease-in-out' },
-        { transform: t(back * 0.25), offset: 0.85 },
+        { transform: t(out), offset: 16 / dur },
+        { transform: t(-back), offset: 66 / dur, easing: 'ease-in-out' },
+        { transform: t(wob), offset: 110 / dur, easing: 'ease-in-out' },
+        { transform: t(-wob / 2), offset: 150 / dur, easing: 'ease-in-out' },
         { transform: t(0) },
       ],
-      // Linear overall: each segment's own easing shapes the spring, so the furthest point is
-      // exactly at 30 % (an overall ease-out would bend the timing and soften the spring).
       { duration: dur, easing: 'linear' },
     );
   }
@@ -180,7 +200,7 @@
 
 <svelte:window bind:innerWidth={vw} bind:innerHeight={vh} />
 
-<section class="home" data-extras={extras.join(' ')} data-testid="home" data-owner="home" data-suspended={suspended} data-mode={mode}>
+<section class="home" data-extras={extras.join(' ')} data-ring={ringStyle} data-testid="home" data-owner="home" data-suspended={suspended} data-mode={mode}>
   <StatusHeader {padConnected} {status} {fixedTime} {...hour12 === undefined ? {} : { hour12 }} />
 
   <div class="row" data-testid="game-row" data-first={home.first} data-focus={home.focus} data-count={games.length}>
@@ -398,10 +418,13 @@
 
   /* B-14 / B-9 (rev. p): the focus ring is 7 px, directly around the art (no gap), and jumps
      to the next tile instantly (no fade, no slide). */
+  /* D-018 / B-9 (rev. r): a 2 px white separator between the ring and the picture, so the ring
+     stands out against any art; the ring (7 px) sits outside it. `--ring=plain` (one run) shows
+     the alpha.9 ring without it, for comparison. */
   .ring {
     position: absolute;
-    inset: calc(-7 * var(--px));
-    border-radius: calc(8 * var(--px));
+    inset: calc(-9 * var(--px));
+    border-radius: calc(10 * var(--px));
     opacity: 0;
     pointer-events: none;
   }
@@ -410,6 +433,14 @@
     inset: 0;
     border-radius: inherit;
     border: calc(7 * var(--px)) solid var(--color-ring);
+    box-shadow: inset 0 0 0 calc(2 * var(--px)) #ffffff;
+  }
+  .home[data-ring='plain'] .ring {
+    inset: calc(-7 * var(--px));
+    border-radius: calc(8 * var(--px));
+  }
+  .home[data-ring='plain'] .ring-line {
+    box-shadow: none;
   }
   .tile.focused .ring {
     opacity: 1;
@@ -457,9 +488,15 @@
   .title {
     position: absolute;
     left: 0;
-    top: calc(281 * var(--px) - var(--title-ascent, 0.86) * var(--text-title));
-    height: calc(1.2 * var(--text-title));
-    overflow: hidden;
+    /* B-14: the baseline 21 px above the ring's top (302) at 100 %; the gap scales with
+       Interface Scale (like the title), so the descenders (no longer clipped, D-017) stay clear
+       of the ring at 150 %. */
+    top: calc(302 * var(--px) - 21 * var(--ui) - var(--title-ascent, 0.86) * var(--text-title));
+    height: calc(1.4 * var(--text-title));
+    /* D-017: clip sideways only (the scroll window), never below: the descenders keep their full
+       depth (the font's descent); the baseline stays where B-14 puts it. */
+    overflow-x: clip;
+    overflow-y: visible;
     color: var(--color-title);
     font-size: var(--text-title);
     font-weight: 400;
@@ -479,7 +516,8 @@
   }
   .title-text {
     display: block;
-    overflow: hidden;
+    overflow-x: clip;
+    overflow-y: visible;
   }
   /* B-15 extras (off unless approved; --extras=…): "labelfade": the drawer label fades in over
      120 ms; "press": on A the focused ring squeezes to 97 % and back in 120 ms. */
@@ -495,8 +533,8 @@
       transform: scale(0.97);
     }
   }
-  /* B-15 extra "titlefade" (off unless approved): the title fades in over 120 ms on change. */
-  .home[data-extras~='titlefade'] .ttrack {
+  /* B-15 (rev. r): "titlefade" approved, on by default: the title fades in over 120 ms on change. */
+  .ttrack {
     animation: title-in 120ms ease-out;
   }
   @keyframes title-in {
@@ -525,6 +563,10 @@
   }
   .ditem {
     position: relative;
+  }
+  /* B-14 (rev. r): the focused button grows to about 108 % (with its ring), instantly. */
+  .dbtn.focused {
+    transform: scale(1.08);
   }
   .dbtn {
     position: relative;

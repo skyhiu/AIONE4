@@ -91,6 +91,9 @@ const ACTIONS: Record<InputSource, Record<string, UiAction>> = {
     Space: 'confirm',
     Esc: 'back',
     Backspace: 'back',
+    // B-3 (rev. r): Tab is the keyboard's Options key (like the pad's ≡ / +); the Menu key too.
+    Tab: 'options',
+    ContextMenu: 'options',
     Left: 'left',
     Right: 'right',
     Up: 'up',

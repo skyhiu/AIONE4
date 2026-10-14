@@ -53,6 +53,7 @@ struct AppState {
     from_autostart: bool,
     boot_default: bool,
     extras: Vec<String>,
+    ring_plain: bool,
 }
 
 #[derive(Serialize)]
@@ -70,6 +71,8 @@ struct AppInfo {
     boot_default: bool,
     /// B-15: `--extras=…` for this run.
     extras: Vec<String>,
+    /// D-018: `--ring=plain` for this run.
+    ring_plain: bool,
 }
 
 #[tauri::command]
@@ -84,6 +87,7 @@ fn app_info(state: tauri::State<'_, AppState>) -> AppInfo {
         from_autostart: state.from_autostart,
         boot_default: state.boot_default,
         extras: state.extras.clone(),
+        ring_plain: state.ring_plain,
     }
 }
 
@@ -532,6 +536,7 @@ pub fn run() {
         from_autostart: args.from_autostart,
         boot_default: args.boot_default,
         extras: args.extras.clone(),
+        ring_plain: args.ring_plain,
     };
 
     let app = tauri::Builder::default()

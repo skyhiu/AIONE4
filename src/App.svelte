@@ -33,6 +33,7 @@
     wheel,
     withCount,
     withVisible,
+    wrapRow,
     DRAWER,
     hoverDrawer,
     moveDrawer,
@@ -58,6 +59,9 @@
   /** D-014: Home is mounted under the black boot layer before it is shown, so its first
    *  frames (layout, pictures) are drawn while the screen is still black. */
   let homeEarly = $state(false);
+  /** D-014: when Home finished its first frames under the black screen (performance.now()). */
+  let homeReadyAt = 0;
+  let bootStartedAt = 0;
   let bootMedia: BootMedia | null = null;
   /** Icons (Material Symbols) are shown only once their font is really there; without it the
    *  browser would draw the ligature names ("arrow_drop_down") as large text (alpha.7 CI). */
@@ -128,6 +132,11 @@
   // D-006: AIONE times key repeats itself (400 / 90 ms); only navigation keys repeat.
   const keys = new KeyRepeater((e, phase, release) => onKeyPhase(fromKey(e, phase), release));
 
+  /** QA-6 (alpha.9): a game as "focus N/M", an empty slot as "empty slot N". */
+  function where(i: number): string {
+    return i < games.length ? `focus ${i + 1}/${games.length}` : `empty slot ${i - games.length + 1} (after ${games.length} games)`;
+  }
+
   /** The log wording for one sound request (QA-6: says what really happened). */
   function play(name: SoundName): string {
     return sounds.play(name) === 'played' ? `sound ${name}` : 'no sound (sounds unavailable)';
@@ -136,14 +145,20 @@
   /** B-14 (rev. q): a blocked move. The focus ring springs toward the pressed direction and back
    *  (the tile or button stays still), with the edge-bump sound. A held direction bumps once:
    *  its repeats at the same edge do nothing. */
-  let bump = $state<{ dir: 'left' | 'right' | 'up' | 'down'; n: number; zone: 'row' | 'drawer' } | null>(null);
+  let bump = $state<{ dir: 'left' | 'right' | 'up' | 'down'; n: number; zone: 'row' | 'drawer'; whole: boolean } | null>(null);
   let bumpHeld: string | null = null;
-  function edge(dir: 'left' | 'right' | 'up' | 'down', kind: 'press' | 'repeat', what: string): string {
+  /** B-14 (rev. r): a blocked move. Up / down and the drawer's ends: only the ring springs
+   *  (snappy). The row's ends: the whole row lurches (`whole`). Once per held press. */
+  function edge(dir: 'left' | 'right' | 'up' | 'down', kind: 'press' | 'repeat', what: string, whole = false): string {
     if (kind === 'repeat' && bumpHeld === dir) return `${what}, held: no bump`;
     bumpHeld = dir;
-    bump = { dir, n: (bump?.n ?? 0) + 1, zone: home.zone };
-    return `${what}, bump ${dir}, ${play('edgeBump')}`;
+    bump = { dir, n: (bump?.n ?? 0) + 1, zone: home.zone, whole };
+    return `${what}, ${whole ? 'row bump' : 'bump'} ${dir}, ${play('edgeBump')}`;
   }
+  /** When the focus last moved (for "fast scrolling into an end": a press within this time of
+   *  the last move bumps instead of wrapping). */
+  let lastMoveAt = 0;
+  const FAST_SCROLL_MS = 300;
 
   function onKeyPhase(ev: InputEvent, release?: ReleaseInfo) {
     if (ev.kind === 'up') {
@@ -163,11 +178,15 @@
   function handleInput(ev: InputEvent) {
     if (ev.kind === 'up') return;
     // A9: the input lock. During the black hold, Boot Up and Boot Down nothing in AIONE is
-    // reachable; input is discarded (never queued). The only input is the Boot Up's skip.
+    // reachable; input is discarded (never queued). Its exceptions (alpha.9 QA-4):
+    //   - the Boot Up's skip (A, B, Enter, Esc, a click);
+    //   - lifecycle commands: Ctrl+Shift+R (restart; logged "restart (allowed during the input
+    //     lock)") and Alt+F4 / the window's close (the Boot Down), handled before this point.
     if (phase !== 'home') {
       const action = toAction(ev);
       if (phase === 'boot' && ev.kind === 'down' && (action === 'confirm' || action === 'back') && presenter?.running) {
         core?.log('info', `${describeInput(ev, action, 'Boot Up skipped')}`);
+        logSkip();
         presenter.skip();
       } else {
         core?.log('info', `${describeInput(ev, null, `discarded (${phase === 'bootdown' ? 'Boot Down' : phase === 'boot' ? 'Boot Up' : 'starting'}: input lock)`)}`);
@@ -206,7 +225,7 @@
     }
     const action = toAction(ev);
     const outcome = action ? act(action, ev.kind === 'repeat' ? 'repeat' : 'press') : undefined;
-    perf.action(`${ev.kind} ${ev.control} → ${action ?? 'no action'}${loadState === 'loaded' && !dialogOpen ? (home.zone === 'drawer' ? `, drawer ${DRAWER[home.drawer]?.label}` : `, focus ${home.focus + 1}/${games.length} "${games[home.focus]?.name ?? ''}"`) : ''}`);
+    perf.action(`${ev.kind} ${ev.control} → ${action ?? 'no action'}${loadState === 'loaded' && !dialogOpen ? (home.zone === 'drawer' ? `, drawer ${DRAWER[home.drawer]?.label}` : `, ${where(home.focus)} "${games[home.focus]?.name ?? ''}"`) : ''}`);
     core?.log('info', describeInput(ev, action, `${outcome ?? ''}${waited}`.replace(/^, /, '')));
   }
 
@@ -235,9 +254,20 @@
           return moved ? `drawer ${DRAWER[home.drawer]?.label}, ${play('drawerMove')}` : edge(action, kind, 'end of drawer');
         }
         const [next, moved] = move(home, dir);
-        home = next;
-        if (moved) bumpHeld = null;
-        return moved ? `focus ${home.focus + 1}/${home.count}, ${play('rowMove')}` : edge(action, kind, 'end of row');
+        if (moved) {
+          home = next;
+          bumpHeld = null;
+          lastMoveAt = performance.now();
+          return `${where(home.focus)}, ${play('rowMove')}`;
+        }
+        // B-14 (rev. r): at the row's end. A fresh press while resting there wraps (the row
+        // whips across); holding, or fast scrolling into the end, bumps the whole row.
+        const fast = performance.now() - lastMoveAt < FAST_SCROLL_MS;
+        if (kind === 'repeat' || fast) return edge(action, kind, `end of row${fast && kind !== 'repeat' ? ' (fast scrolling)' : ''}`, true);
+        home = wrapRow(home, dir);
+        bumpHeld = null;
+        lastMoveAt = performance.now();
+        return `wrap to ${dir > 0 ? 'the first game' : 'the last slot'}: ${where(home.focus)}, ${play('rowMove')}`;
       }
       case 'up':
       case 'down': {
@@ -245,9 +275,10 @@
         home = next;
         if (!moved) return edge(action, kind, home.zone === 'drawer' ? 'nothing below the drawer' : 'nothing above the row');
         bumpHeld = null;
+        // B-1 (rev. r): entering a section plays that section's own move sound.
         return home.zone === 'drawer'
-          ? `to the drawer: ${DRAWER[home.drawer]?.label}, ${play('rowDrawer')}`
-          : `back to the row: focus ${home.focus + 1}/${home.count}, ${play('rowDrawer')}`;
+          ? `to the drawer: ${DRAWER[home.drawer]?.label}, ${play('drawerMove')}`
+          : `back to the row: ${where(home.focus)}, ${play('rowMove')}`;
       }
       case 'confirm':
         if (home.zone === 'drawer') return openDrawer(home.drawer, 'press');
@@ -267,6 +298,11 @@
         return `options: toast, ${play('error')}`;
       }
       case 'back':
+        // B-14 (rev. r): B in the drawer returns to the game I was on, with the row's click.
+        if (home.zone === 'drawer') {
+          home = { ...home, zone: 'row' };
+          return `back to the row: ${where(home.focus)}, ${play('rowMove')}`;
+        }
         return 'home: nothing to go back to';
     }
   }
@@ -379,7 +415,8 @@
     }
     if (e.type === 'keydown' && isRestartShortcut(e) && !e.repeat) {
       e.preventDefault();
-      core?.log('info', 'restart requested (Ctrl+Shift+R)');
+      // A9: lifecycle commands are the input lock's exceptions (Ctrl+Shift+R, Alt+F4).
+      core?.log('info', phase === 'home' ? 'restart requested (Ctrl+Shift+R)' : `Ctrl+Shift+R: restart (allowed during the input lock, ${phase})`);
       core?.restart().catch((err: unknown) => core?.log('error', `restart failed: ${String(err)}`));
       return;
     }
@@ -509,6 +546,17 @@
       .catch((err: unknown) => c.log('warn', `tile copy for "${id}" could not be decoded: ${String(err)}`));
   }
 
+  /** D-014 (rev. r): when the skip came, and whether Home was ready then. */
+  function logSkip() {
+    const at = ((performance.now() - bootStartedAt) / 1000).toFixed(2);
+    core?.log(
+      'info',
+      homeReadyAt
+        ? `skip at ${at} s into the Boot Up; Home had been ready for ${((performance.now() - homeReadyAt) / 1000).toFixed(2)} s`
+        : `skip at ${at} s into the Boot Up; Home was not ready yet`,
+    );
+  }
+
   /** D-014: mount Home under the black layer (Window B: when its fade to black begins). */
   function prepareHome() {
     if (homeEarly) return;
@@ -530,6 +578,7 @@
       return;
     }
     phase = 'boot';
+    bootStartedAt = performance.now();
     perf.setScreen('Boot Up');
     perf.action('Boot Up');
     let outcome: Outcome;
@@ -649,6 +698,18 @@
         bootPresenter(c)?.showFrame(which === 'down' ? 'down' : 'up', Number(t));
         return;
       }
+      // D-014 (rev. r): Home is prepared during the black hold, BEFORE the Boot Up: mounted under
+      // the black layer, its pictures decoded and its first frames drawn, so a skip at any moment
+      // finds it ready.
+      if (phase === 'black' && loadState === 'loaded') {
+        const t0 = performance.now();
+        prepareHome();
+        await twoFrames();
+        await Promise.all([...document.querySelectorAll<HTMLImageElement>('[data-testid="tile"] img')].map((i) => i.decode().catch(() => undefined)));
+        await twoFrames();
+        homeReadyAt = performance.now();
+        c.log('info', `Home ready under the black screen in ${Math.round(homeReadyAt - t0)} ms, before the Boot Up`);
+      }
       if (phase === 'black') await bootUp(c);
       if (phase !== 'bootdown') {
         // D-014: if Home isn't mounted yet (custom video, skip, no Boot Up), mount it under the
@@ -707,6 +768,7 @@
       onclick={() => {
         if (phase === 'boot' && presenter?.running) {
           core?.log('info', 'input click (mouse) -> Boot Up skipped');
+          logSkip();
           presenter.skip();
         }
       }}
@@ -733,6 +795,7 @@
     {bump}
     scale={(info?.interfaceScale ?? 100) / 100}
     extras={info?.extras ?? []}
+    ringStyle={info?.ringPlain ? 'plain' : 'separator'}
   />{/if}
   {#if toast && phase === 'home'}
     <div class="toast" role="status" data-testid="toast">{toast}</div>

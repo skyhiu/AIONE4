@@ -16,6 +16,7 @@
 //   &status-later=1    the core pushes a status change 300 ms after start
 //   &noart=1           no tile art (plain tiles)
 //   &bigart=1          tile pictures of 3000 × 3000 px (D-007: as if the core served full-size files)
+//   &rename=0:gjpqy    renames game 0 (tests of titles with descenders, D-017)
 //   &tiles=pending     no tile copies yet: Home shows the originals; the copies arrive when the
 //                      test calls releaseTiles()
 //   &boot=default | custom | custom-broken | default-switch   the Boot Up / Boot Down (T1.2):
@@ -214,6 +215,13 @@ function mockLibrary(kind: string): LibraryLoad {
     const games = Array.from({ length: 24 }, (_, i) => ({ ...(SAMPLE_GAMES[i % 10] as GameView), id: `g${i}`, name: `Game ${i + 1}` }));
     return { ...base, state: 'loaded', games, expected: 24 };
   }
+  // Tests: ?rename=0:gjpqy renames a game (D-017: titles with descenders).
+  const rename = typeof location === 'undefined' ? null : new URLSearchParams(location.search).get('rename');
+  if (rename) {
+    const [i, ...name] = rename.split(':');
+    const games = SAMPLE_GAMES.map((g, k) => (k === Number(i) ? { ...g, name: name.join(':') } : g));
+    return { ...base, state: 'loaded', games, expected: 10 };
+  }
   return { ...base, state: 'loaded', games: SAMPLE_GAMES, expected: 10 };
 }
 
@@ -320,6 +328,7 @@ export function createMock(search: string): { core: Core; control: MockControl }
         fromAutostart: false,
         bootDefault: params.get('boot') === 'default-switch',
         extras: (params.get('extras') ?? '').split(',').filter(Boolean),
+        ringPlain: params.get('ring') === 'plain',
       }),
     uiReady() {
       control.uiReadyCalls += 1;

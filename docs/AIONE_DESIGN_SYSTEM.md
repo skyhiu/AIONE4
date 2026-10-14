@@ -212,3 +212,21 @@ scales text; tiles follow the window only).
 - **B-15 extras (off by default):** `press` (the ring squeezes to 97 % on A, 120 ms), `titlefade`
   (the title fades in, 120 ms), `labelfade` (the drawer label fades in, 120 ms).
 
+## Rev. r (alpha.10) — current values, superseding the B-14 section above where they differ
+- **Ring:** 7 px, outside a **2 px white separator** around the art (D-018); `--ring=plain` = no
+  separator. Pulse unchanged.
+- **Row:** 12 slots (games, then empty slots up to 12, all focusable). **Wrap:** a fresh press
+  resting on an end (the last move ≥ 300 ms ago) goes to the other end; the row whips across in its
+  170 ms slide. **Row bump:** holding, or a press within 300 ms of the last move, at an end: the
+  whole row (`translate` on the track) +170 px toward the press, −14, +4, back, in 150 ms; once per
+  hold; the edge-bump sound.
+- **Ring bumps** (up / down, the drawer's ends): full push at 16 ms (15 px sideways, 12 px up /
+  down), past the centre by 66 ms (6 / 4 px), a 3 / 2 px wobble, settled at 200 / 180 ms.
+- **Drawer:** the focused button `scale(1.08)`; B returns to the game.
+- **Title:** clipped sideways only; the baseline 21 × the UI unit above the ring's top (302 px).
+- **Footer mark:** 2.875 rem (46 px), one colour (`currentColor`).
+- **Sounds:** six wired (row move, drawer move, edge bump, confirm, back, error); entering a section
+  plays its own move sound.
+- **B-15:** `titlefade` on by default; `press`, `labelfade` behind `--extras`.
+- **Options:** pad Menu (≡), keyboard Tab and the Menu key; never repeats.
+

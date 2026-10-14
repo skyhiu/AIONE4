@@ -21,16 +21,17 @@ export const ROW = {
   top: 309,
 } as const;
 
-/** B-14: plain empty slots after the last game, filling the row to the screen's edge. The last
- *  one is the slot cut by the screen's edge (drawn, never focused). */
-export function emptySlots(games: number, visible: number): number {
-  return games === 0 ? 0 : Math.max(1, visible - games) + 1;
+/** B-14 (rev. r): the row always has 12 slots: the games, then plain empty slots up to 12 (all
+ *  focusable). More than 12 games: the rest via "All games" (T4). */
+export const ROW_SLOTS = 12;
+export function emptySlots(games: number): number {
+  return games === 0 ? 0 : Math.max(0, ROW_SLOTS - games);
 }
 
 export interface HomeState {
   /** Games in the row. */
   count: number;
-  /** Focusable slots: the games, then the empty slots but the last (B-14). */
+  /** Focusable slots: the games, then the empty slots up to 12 (B-14 rev. r). */
   slots: number;
   focus: number;
   /** Index of the first tile in view. */
@@ -85,7 +86,7 @@ export function hoverDrawer(s: HomeState, index: number | null): HomeState {
 
 export function initialHome(count: number, visible: number): HomeState {
   const v = Math.max(1, visible);
-  return { count, slots: count + Math.max(0, emptySlots(count, v) - 1), focus: 0, first: 0, visible: v, armed: null, hover: null, zone: 'row', drawer: 0, drawerHover: null };
+  return { count, slots: count + emptySlots(count), focus: 0, first: 0, visible: v, armed: null, hover: null, zone: 'row', drawer: 0, drawerHover: null };
 }
 
 /** How many tiles fit fully, for a window of `width` × `height` CSS pixels. */
@@ -105,16 +106,23 @@ export function keepInView(first: number, focus: number, visible: number, count:
 }
 
 export function withCount(s: HomeState, count: number): HomeState {
-  const slots = count + Math.max(0, emptySlots(count, s.visible) - 1);
+  const slots = count + emptySlots(count);
   const focus = Math.min(s.focus, Math.max(0, slots - 1));
   return { ...s, count, slots, focus, first: keepInView(s.first, focus, s.visible, slots), armed: null, hover: null };
 }
 
 export function withVisible(s: HomeState, visible: number): HomeState {
   const v = Math.max(1, visible);
-  const slots = s.count + Math.max(0, emptySlots(s.count, v) - 1);
+  const slots = s.count + emptySlots(s.count);
   const focus = Math.min(s.focus, Math.max(0, slots - 1));
   return { ...s, visible: v, slots, focus, first: keepInView(s.first, focus, v, slots) };
+}
+
+/** B-14 (rev. r): the wrap at the row's ends: from the last slot to the first game, and from the
+ *  first game to the last slot; the row whips across (its own 170 ms slide). */
+export function wrapRow(s: HomeState, dir: -1 | 1): HomeState {
+  const focus = dir > 0 ? 0 : s.slots - 1;
+  return { ...s, focus, first: keepInView(s.first, focus, s.visible, s.slots), armed: null };
 }
 
 /** Whether a slot is an empty one (after the last game). */

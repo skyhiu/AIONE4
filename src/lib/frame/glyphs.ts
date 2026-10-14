@@ -8,8 +8,8 @@ import xboxA from '../../../assets/glyphs/kenney-input-prompts/xbox-series/xbox_
 import xboxB from '../../../assets/glyphs/kenney-input-prompts/xbox-series/xbox_button_b.svg?url';
 import keyEnter from '../../../assets/glyphs/kenney-input-prompts/keyboard-mouse/keyboard_enter.svg?url';
 import keyEscape from '../../../assets/glyphs/kenney-input-prompts/keyboard-mouse/keyboard_escape.svg?url';
-// B-14: Switch's "+ Options" is the pad's Menu button (≡). The keyboard has no Options key yet
-// (letter keys are decided in T6, B-3), so the keyboard set has no Options glyph.
+// B-14: Switch's "+ Options" is the pad's Menu button (≡); on the keyboard, Tab (B-3 rev. r).
+import keyTab from '../../../assets/glyphs/kenney-input-prompts/keyboard-mouse/keyboard_tab.svg?url';
 import xboxMenu from '../../../assets/glyphs/kenney-input-prompts/xbox-series/xbox_button_menu.svg?url';
 
 export type GlyphDevice = 'xbox' | 'keyboard';
@@ -25,6 +25,7 @@ export const GLYPHS: Record<GlyphDevice, Record<'confirm' | 'back', Glyph> & Par
   keyboard: {
     confirm: { url: keyEnter, file: 'keyboard_enter.svg' },
     back: { url: keyEscape, file: 'keyboard_escape.svg' },
+    options: { url: keyTab, file: 'keyboard_tab.svg' },
   },
 };
 

@@ -3,8 +3,9 @@
 //
 // Sounds (B-1 rev. q): AIONE's sound set by function and place, one family in A major, made
 // from FilmCow recordings by tools/sound/make_menu_family.py (docs/sound/SOUND_MAPPING.md):
-// row move (tiny 8 ms click, E), drawer move (a different tick, A), row <-> drawer (C#), edge
-// bump (dull, low A), confirm (F#), back (D), error (two falling bumps). 48 kHz mono, levelled
+// row move (tiny 8 ms click, E), drawer move (a different tick, A), edge bump (dull, low A),
+// confirm (F#), back (D), error (two falling bumps). No separate row <-> drawer sound (rev. r):
+// entering a section plays that section's own move sound. 48 kHz mono, levelled
 // on the loudest 30 ms (row move −24 … confirm −18 LUFS), true peaks under −1 dBFS.
 //
 // **One sound per action, never doubled:** every action calls `play` once; a sound name is
@@ -14,20 +15,18 @@
 
 import rowMoveUrl from '../../../assets/sounds/filmcow-menu/row_move.wav?url';
 import drawerMoveUrl from '../../../assets/sounds/filmcow-menu/drawer_move.wav?url';
-import rowDrawerUrl from '../../../assets/sounds/filmcow-menu/row_drawer.wav?url';
 import edgeBumpUrl from '../../../assets/sounds/filmcow-menu/edge_bump.wav?url';
 import confirmUrl from '../../../assets/sounds/filmcow-menu/confirm.wav?url';
 import backUrl from '../../../assets/sounds/filmcow-menu/back.wav?url';
 import errorUrl from '../../../assets/sounds/filmcow-menu/error.wav?url';
 
-export type SoundName = 'rowMove' | 'drawerMove' | 'rowDrawer' | 'edgeBump' | 'confirm' | 'back' | 'error';
+export type SoundName = 'rowMove' | 'drawerMove' | 'edgeBump' | 'confirm' | 'back' | 'error';
 
 /** AIONE's sounds by function and place (B-1 rev. q), made from FilmCow recordings by
  *  tools/sound/make_menu_family.py (one family in A major; docs/sound/SOUND_MAPPING.md). */
 export const SOUND_FILES: Record<SoundName, { file: string; source: string; url: string }> = {
   rowMove: { file: 'row_move.wav', source: 'FilmCow "clicky button 7", cut to 8 ms (your move B)', url: rowMoveUrl },
   drawerMove: { file: 'drawer_move.wav', source: 'FilmCow "mouse click 2"', url: drawerMoveUrl },
-  rowDrawer: { file: 'row_drawer.wav', source: 'FilmCow "metal latches 2"', url: rowDrawerUrl },
   edgeBump: { file: 'edge_bump.wav', source: 'FilmCow "wood hit 4", low and dull', url: edgeBumpUrl },
   confirm: { file: 'confirm.wav', source: 'FilmCow "mechanical button 8" + "glass ding 4" (your select A)', url: confirmUrl },
   back: { file: 'back.wav', source: 'FilmCow "metal switch 1" (your back B)', url: backUrl },
@@ -92,7 +91,7 @@ export class MenuSounds {
     );
     const ms = Math.round(performance.now() - started);
     if (failures.length === 0) {
-      this.log(`menu sounds ready: ${this.buffers.size} sounds (FilmCow family: row move, drawer move, row-drawer, edge bump, confirm, back, error) decoded in ${ms} ms; audio ${ctx.state}`);
+      this.log(`menu sounds ready: ${this.buffers.size} sounds (FilmCow family: row move, drawer move, edge bump, confirm, back, error) decoded in ${ms} ms; audio ${ctx.state}`);
     } else {
       this.log(
         `menu sounds ${this.buffers.size ? 'partly ' : ''}unavailable: ${this.buffers.size} of ${names.length} loaded in ${ms} ms; failed: ${failures.join('; ')}`,

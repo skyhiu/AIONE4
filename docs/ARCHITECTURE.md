@@ -316,3 +316,13 @@ its end (D-016), and calls `onFade` at 4.65 s so App mounts Home under the black
 **Tiles:** a copy's key includes the recipe (2: Lanczos3 for enlarging), so copies are remade
 once after a recipe change.
 
+## 4.0.0-alpha.10
+**The input lock's exceptions (A9, alpha.9 QA-4):** during the black hold, Boot Up and Boot Down,
+everything is discarded except: the Boot Up's skip (A, B, Enter, Esc, a click), and the lifecycle
+commands Ctrl+Shift+R (restart; logged "restart (allowed during the input lock)") and Alt+F4 /
+the window's close (the Boot Down).
+**D-014:** Home is mounted, decoded and drawn under the black layer before the Boot Up starts.
+**Releases (A11, alpha.9 QA-5):** the release job compares the whole push (before..after); with no
+file outside `.github/`, `docs/`, `tests/`, `tools/`, `scripts/ci-run.mjs` or top-level Markdown
+changed, it publishes nothing.
+

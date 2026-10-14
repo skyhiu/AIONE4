@@ -338,8 +338,9 @@ RECIPES = {
     ],
 }
 # Wired in AIONE now (the ones Home uses); the others are for their stages.
-WIRED = {"row_move": "A", "drawer_move": "A", "row_drawer": "A", "edge_bump": "A", "confirm": "A", "back": "A", "error": "A"}
-PROPOSED_ONLY = ["launch", "toggle_on", "toggle_off", "open", "home"]
+WIRED = {"row_move": "A", "drawer_move": "A", "edge_bump": "A", "confirm": "A", "back": "A", "error": "A"}
+# rev. r: no separate row <-> drawer sound (entering a section plays its own move sound).
+PROPOSED_ONLY = ["row_drawer", "launch", "toggle_on", "toggle_off", "open", "home"]
 
 
 def main(src, out, repo=None):

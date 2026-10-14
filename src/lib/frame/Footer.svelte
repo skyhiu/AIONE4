@@ -14,8 +14,8 @@
 <footer class="footer" data-testid="footer" data-owner="footer">
   <div class="brand" data-testid="footer-branding">
     {#if branding}
-      <!-- B-5 (rev. o): the "Window B" mark, two-tone in the palette: the halves in the footer's
-           text colour, the diamond in the accent; about twice the prompt text's height. -->
+      <!-- B-5 (rev. r): the "Window B" mark in one colour (the footer's text colour, no accent),
+           about 46 px tall at 1080 p / 100 %, with "AIONE" beside it. -->
       <svg class="mark" data-testid="footer-mark" viewBox="-104 -104 208 208" aria-hidden="true">
         <g transform="rotate(25)">
           <path class="half" d="M -6 -99.82 L -6 -59 L -65 0 L -6 59 L -6 99.82 A 100 100 0 0 1 -6 -99.82 Z" />
@@ -58,10 +58,10 @@
     align-items: center;
     gap: 0.75rem;
   }
-  /* B-5 (rev. o): 4 rem = 64 px at 1080 p and 100 %, scaled with Interface Scale (rem). */
+  /* B-5 (rev. r): 2.875 rem = 46 px at 1080 p and 100 %, scaled with Interface Scale (rem). */
   .mark {
-    width: 4rem;
-    height: 4rem;
+    width: 2.875rem;
+    height: 2.875rem;
     flex: none;
     display: block;
   }
@@ -69,7 +69,7 @@
     fill: currentColor;
   }
   .mark .diamond {
-    fill: var(--color-accent);
+    fill: currentColor;
   }
   .name {
     font-size: var(--text-label);
