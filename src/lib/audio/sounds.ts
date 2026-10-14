@@ -64,34 +64,48 @@ export class MenuSounds {
 
   constructor(private readonly log: PlayLog = () => {}) {}
 
-  /** Creates the context and decodes the three sounds (once). Logs the result. */
+  /** Creates the context and decodes the three sounds (once), each on its own: one failing
+   *  sound never silences the others (D-009). Logs the result, and for a failure the address
+   *  and the reason. */
   async init(): Promise<void> {
     if (this.ctx) return;
     const started = performance.now();
+    let ctx: AudioContext;
     try {
-      const ctx = new AudioContext({ latencyHint: 'interactive' });
-      this.ctx = ctx;
-      this.master = ctx.createGain();
-      this.master.gain.value = GAINS.muted ? 0 : GAINS.volume;
-      this.menu = ctx.createGain();
-      this.menu.gain.value = GAINS.menu;
-      this.menu.connect(this.master);
-      this.master.connect(ctx.destination);
-      const names = Object.keys(SOUND_FILES) as SoundName[];
-      await Promise.all(
-        names.map(async (n) => {
-          const res = await fetch(SOUND_FILES[n].url);
-          const buf = await ctx.decodeAudioData(await res.arrayBuffer());
-          this.buffers.set(n, buf);
-        }),
-      );
-      this.log(
-        `menu sounds ready: ${this.buffers.size} sounds (FilmCow family: move, select, back) decoded in ${Math.round(
-          performance.now() - started,
-        )} ms; audio ${ctx.state}`,
-      );
+      ctx = new AudioContext({ latencyHint: 'interactive' });
     } catch (err) {
-      this.log(`menu sounds unavailable: ${String(err)}`);
+      this.log(`menu sounds unavailable: no audio context (${String(err)})`);
+      return;
+    }
+    this.ctx = ctx;
+    this.master = ctx.createGain();
+    this.master.gain.value = GAINS.muted ? 0 : GAINS.volume;
+    this.menu = ctx.createGain();
+    this.menu.gain.value = GAINS.menu;
+    this.menu.connect(this.master);
+    this.master.connect(ctx.destination);
+    const names = Object.keys(SOUND_FILES) as SoundName[];
+    const failures: string[] = [];
+    await Promise.all(
+      names.map(async (n) => {
+        const url = SOUND_FILES[n].url;
+        try {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          this.buffers.set(n, await ctx.decodeAudioData(await res.arrayBuffer()));
+        } catch (err) {
+          const shown = url.startsWith('data:') ? `${url.slice(0, 30)}… (inlined)` : url;
+          failures.push(`${n} from ${shown}: ${String(err)}`);
+        }
+      }),
+    );
+    const ms = Math.round(performance.now() - started);
+    if (failures.length === 0) {
+      this.log(`menu sounds ready: ${this.buffers.size} sounds (FilmCow family: move, select, back) decoded in ${ms} ms; audio ${ctx.state}`);
+    } else {
+      this.log(
+        `menu sounds ${this.buffers.size ? 'partly ' : ''}unavailable: ${this.buffers.size} of ${names.length} loaded in ${ms} ms; failed: ${failures.join('; ')}`,
+      );
     }
   }
 
@@ -100,13 +114,13 @@ export class MenuSounds {
     if (this.ctx?.state === 'suspended') void this.ctx.resume();
   }
 
-  /** Plays one sound for one action. For moves, `kind` decides the repeat pacing. Returns
-   *  whether it played (for the input log line). */
-  play(name: SoundName, kind: 'press' | 'repeat' = 'press'): boolean {
-    if (name === 'move' && !this.pacer.shouldPlay(kind, performance.now())) return false;
+  /** Plays one sound for one action. Returns what really happened, for the log line:
+   *  'played', 'paced' (a repeat inside the 180 ms pacing) or 'unavailable' (not loaded). */
+  play(name: SoundName, kind: 'press' | 'repeat' = 'press'): 'played' | 'paced' | 'unavailable' {
     const ctx = this.ctx;
     const buf = this.buffers.get(name);
-    if (!ctx || !buf || !this.menu) return false;
+    if (!ctx || !buf || !this.menu) return 'unavailable';
+    if (name === 'move' && !this.pacer.shouldPlay(kind, performance.now())) return 'paced';
     this.voices.get(name)?.stop();
     const src = ctx.createBufferSource();
     src.buffer = buf;
@@ -121,7 +135,7 @@ export class MenuSounds {
     };
     this.voices.set(name, src);
     src.start();
-    return true;
+    return 'played';
   }
 
   get state(): string {

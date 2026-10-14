@@ -121,3 +121,21 @@ export function describeInput(ev: InputEvent, action: UiAction | null, outcome?:
 export function describeKeyRelease(control: string, heldMs: number, repeats: number): string {
   return `input up ${control} (keyboard), held ${heldMs} ms, ${repeats} repeats`;
 }
+
+/** B-10 (rev. k): the inputs that count as the first press after mouse use, i.e. those that
+ *  act on Home: any pad button or direction, and the keys arrows, Enter, Space, Esc and
+ *  Backspace. Modifiers alone (Alt, Ctrl, Shift, Windows) and other keys do nothing, so Alt-Tab
+ *  or Alt+F4 never bring the ring back. */
+const HOME_KEYS = new Set(['Up', 'Down', 'Left', 'Right', 'Enter', 'Space', 'Esc', 'Backspace']);
+export function countsAsHomeInput(ev: InputEvent): boolean {
+  if (ev.source === 'controller') return true;
+  if (ev.source === 'keyboard') return HOME_KEYS.has(ev.control);
+  return false;
+}
+
+/** The "(controller 1 seq 2)" / "(keyboard)" part of an input line (QA-6: always the slot). */
+export function inputWhere(ev: InputEvent): string {
+  const where = ev.pad === undefined ? ev.source : `${ev.source} ${ev.pad}`;
+  return `${where}${ev.seq === undefined ? '' : ` seq ${ev.seq}`}`;
+}
+

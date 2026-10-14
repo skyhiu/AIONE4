@@ -6,6 +6,8 @@
   import { loadCore } from './lib/core';
   import type { AppInfo, Core, GameView, LibraryLoad, PcStatus, Unlisten } from './lib/core/types';
   import {
+    countsAsHomeInput,
+    inputWhere,
     describeInput,
     describeKeyRelease,
     fromKey,
@@ -74,8 +76,12 @@
   // D-006: AIONE times key repeats itself (400 / 90 ms); only navigation keys repeat.
   const keys = new KeyRepeater((e, phase, release) => onKeyPhase(fromKey(e, phase), release));
 
+  /** The log wording for one sound request (QA-6: says what really happened). */
   function play(name: SoundName, kind: 'press' | 'repeat' = 'press'): string {
-    return sounds.play(name, kind) ? `sound ${name}` : name === 'move' && kind === 'repeat' ? 'sound skipped (repeat pacing)' : 'no sound';
+    const r = sounds.play(name, kind);
+    if (r === 'played') return `sound ${name}`;
+    if (r === 'paced') return 'sound skipped (repeat pacing)';
+    return 'no sound (sounds unavailable)';
   }
 
   function onKeyPhase(ev: InputEvent, release?: ReleaseInfo) {
@@ -102,6 +108,12 @@
     if (delay !== null) perf.inputDelay(delay);
     const waited = delay === null ? '' : `, core → UI ${delay} ms`;
     if (ev.source !== 'mouse') {
+      // B-10 (rev. k): in mouse mode, only inputs that act on Home bring the ring back;
+      // modifiers alone (the Alt of Alt-Tab or Alt+F4) and other keys change nothing.
+      if (inputMode === 'mouse' && !countsAsHomeInput(ev)) {
+        core?.log('info', `${describeInput(ev, null)} (mouse mode kept)${waited}`);
+        return;
+      }
       device = deviceAfter(device, ev.source);
       // B-10: the first pad or key press after mouse use only brings the ring back.
       if (inputMode === 'mouse') {
@@ -111,7 +123,7 @@
           : loadState === 'loaded'
             ? `on tile ${home.focus + 1}`
             : 'on Home';
-        core?.log('info', `input ${ev.kind} ${ev.control} (${ev.source}${ev.seq === undefined ? '' : ` seq ${ev.seq}`}) -> ring back ${where} (after mouse), no move, no sound${waited}`);
+        core?.log('info', `input ${ev.kind} ${ev.control} (${inputWhere(ev)}) -> ring back ${where} (after mouse), no move, no sound${waited}`);
         core?.log('info', `ring back ${where} (after mouse)`);
         perf.action(`ring back ${where}`);
         return;
@@ -267,12 +279,11 @@
     const jobs: Promise<string>[] = [];
     const keep: HTMLImageElement[] = [];
     for (const g of list) {
-      for (const [slot, key] of [
-        ['tile', g.tile],
-        ['icon', g.icon],
-      ] as const) {
-        if (!key) continue;
-        const url = c.mediaUrl(g.id, slot, key);
+      {
+        // The core's copy when it exists, else the original picture (D-010).
+        const slot = g.tile ? 'tile' : g.tileArt;
+        if (!slot) continue;
+        const url = c.mediaUrl(g.id, slot, g.tile ?? undefined);
         if (!url) continue;
         const img = new Image();
         img.decoding = 'async';
@@ -289,12 +300,13 @@
         );
       }
     }
-    const timeout = new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), 5000));
+    // D-010: Home must be ready within 2 s; pictures not decoded by then decode on their own.
+    const timeout = new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), 1500));
     const done = await Promise.race([Promise.all(jobs), timeout]);
     decoded = keep;
     const ms = Math.round(performance.now() - started);
     if (done === 'timeout') {
-      c.log('warn', `tile pictures: decoding ahead took over 5 s; Home starts anyway`);
+      c.log('warn', `tile pictures: decoding ahead took over 1.5 s; Home starts anyway`);
     } else {
       const sizes = [...new Set(done)].join(', ') || 'none';
       const failed = done.filter((d) => d === 'failed').length;
@@ -306,9 +318,10 @@
   }
 
   async function setLibrary(l: LibraryLoad) {
-    library = l;
     const shown = l.games.filter((g) => !g.hidden);
     await decodeAhead(shown);
+    // Recorded only now, so "loaded" means Home is really ready to take input.
+    library = l;
     games = shown;
     loadState = l.state === 'error' ? 'error' : games.length > 0 ? 'loaded' : 'empty';
     home = withCount(home, games.length);
@@ -351,6 +364,20 @@
           void reloadLibrary(c);
         }),
         await c.onStatus((s) => (status = s)),
+        // D-010: a copy made in the background is decoded first, then swapped in.
+        await c.onTile(({ id, tile }) => {
+          const url = c.mediaUrl(id, 'tile', tile);
+          const img = new Image();
+          img.src = url;
+          img
+            .decode()
+            .then(() => {
+              decoded = [...decoded, img];
+              perf.picture(`tile "${id}" copy (decoded before the swap)`, img.naturalWidth, img.naturalHeight);
+              games = games.map((g) => (g.id === id ? { ...g, tile } : g));
+            })
+            .catch((err: unknown) => c.log('warn', `tile copy for "${id}" could not be decoded: ${String(err)}`));
+        }),
       );
       const slots = await c.padSlots();
       pads = applyPadSlots(
@@ -402,8 +429,9 @@
   onblur={() => keys.releaseAll()}
 />
 
+<!-- D-010: black (the html background) until the library is loaded; then Home. -->
 <main data-input={inputMode} data-testid="screen" data-version={info?.version ?? ''} data-library={library?.state ?? 'loading'}>
-  <Home
+  {#if loadState !== 'loading'}<Home
     {games}
     state={home}
     mode={inputMode}
@@ -415,14 +443,11 @@
     {pressed}
     {fixedTime}
     {...hour12 === undefined ? {} : { hour12 }}
-    mediaUrl={(g, slot) => {
-      const key = slot === 'tile' ? g.tile : g.icon;
-      return core && key ? core.mediaUrl(g.id, slot, key) : '';
-    }}
+    mediaUrl={(g, slot) => (core ? core.mediaUrl(g.id, slot, slot === 'tile' ? (g.tile ?? undefined) : undefined) : '')}
     onPicture={(what, w, h) => perf.picture(what, w, h)}
     {onHover}
     onClick={onTileClick}
-  />
+  />{/if}
 
   {#if flow.phase !== 'hidden'}
     <CopyDialog
@@ -440,6 +465,5 @@
   main {
     position: relative;
     height: 100%;
-    background: var(--color-bg);
   }
 </style>

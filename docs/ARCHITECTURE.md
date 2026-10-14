@@ -1,6 +1,6 @@
 # AIONE 4 — Architecture
 
-Current as of **4.0.0-alpha.5 (T1.1 fixes)**. Rules: Master Prompt Part A (A3 technology, A4 input, A5 window and lifecycle, A9 data).
+Current as of **4.0.0-alpha.6 (T1.1 fixes)**. Rules: Master Prompt Part A (A3 technology, A4 input, A5 window and lifecycle, A9 data).
 
 ## Overview
 
@@ -251,4 +251,23 @@ pictures loaded or decoded around it.
 
 **Input (B-10).** The first pad or key press after mouse use only switches back to pad mode and
 shows the ring ("ring back on tile N (after mouse)").
+
+## 4.0.0-alpha.6 changes
+
+**Pictures (B-13, D-010, D-012).** `games::load` no longer makes copies: it marks a game's `tile`
+key only when a copy already exists. `library_load` returns at once and starts the thread
+`aione-tiles`, which runs `games::make_tiles` (4 workers) over `games::tile_jobs`; each finished
+copy is sent as `aione://tile { id, tile }` and logged
+(`tile copy: <game> from <file> (W×H, <what was read>; fill|fit) in N ms (decode, scale, encode,
+write)`), then a summary line. `tiles.rs` reads ICO files itself, fills (icon) or fits (other
+pictures over a blurred, darkened copy), and records failures in `Cache\Tiles\failed.json`.
+
+**Sounds (D-009).** `vite.config.ts` never inlines audio (`assetsInlineLimit`); `sounds.ts` loads
+each sound separately. CI checks the real build: `npm run check:built` and
+`tests/ui/real-build.spec.ts` (the real `dist/` served with the app's CSP).
+
+**Window (D-010).** `backgroundColor` and the page background are black until Home is drawn;
+App renders Home only once the library is loaded.
+
+**Input (B-10 rev. k).** `countsAsHomeInput` decides which inputs end mouse mode.
 

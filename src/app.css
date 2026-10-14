@@ -54,8 +54,6 @@
   --color-ring-gap: #ffffff;
   --color-title: #b5005a; /* accent text: 5.7:1 */
   --color-hover: #b5005a; /* mouse hover outline: 5.7:1 */
-  --color-letter-bg: #b5005a; /* B-8 fallback icon */
-  --color-letter-ink: #ffffff; /* 6.75:1 on it */
   --color-soft: #ffc2e0; /* soft fill (palette tint) */
   --color-on-soft: #2d2d2d; /* 9.2:1 */
   --color-pressed: #ff58ab; /* pressed fill (palette tint) */
@@ -120,8 +118,6 @@
   --color-ring-gap: #2d2d2d;
   --color-title: #ff69b4; /* 5.2:1 */
   --color-hover: #ff69b4;
-  --color-letter-bg: #ff69b4;
-  --color-letter-ink: #1e1e1e; /* 6.3:1 */
   --color-soft: #480024; /* palette's darkest shade */
   --color-on-soft: #ffffff; /* 16.1:1 */
   --color-pressed: #ff46a2;
@@ -142,12 +138,13 @@ html {
   font-size: calc(16 * var(--ui));
 }
 
+/* D-010: black from the first frame until Home draws its own background (never grey or white). */
 html,
 body {
   margin: 0;
   height: 100%;
   overflow: hidden;
-  background: var(--color-bg);
+  background: #000000;
   color: var(--color-text);
   font-family: var(--font-ui);
   -webkit-font-smoothing: antialiased;

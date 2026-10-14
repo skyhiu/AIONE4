@@ -40,7 +40,8 @@
     padConnected: boolean;
     status: PcStatus | null;
     pressed: number | null;
-    mediaUrl: (g: GameView, slot: 'tile' | 'icon') => string;
+    /** 'tile' = the core's copy; any other slot = the original picture (until the copy exists). */
+    mediaUrl: (g: GameView, slot: string) => string;
     onPicture?: (what: string, width: number, height: number) => void;
     fixedTime?: Date | null;
     hour12?: boolean;
@@ -49,9 +50,37 @@
   } = $props();
 
   let broken = $state(new Set<string>());
-  let brokenIcons = $state(new Set<string>());
+  let vw = $state(1920);
+  let vh = $state(1080);
+  let titleEl: HTMLDivElement | undefined = $state();
+  /** The title box's own width, measured once per title / size change (never in a loop). */
+  let titleW = $state(0);
+  /** No transition for the very first placement (it would slide in from the left). */
+  let placed = $state(false);
   const shownTitle = $derived(suspended ? null : titleIndex(home, mode));
+  // Geometry in CSS px (design px × the window's height / 1080; see the design system).
+  const px = $derived(vh / 1080);
+  const rowStart = $derived(160 * px);
+  const rightEdge = $derived(vw * 0.95);
+  const maxTitleW = $derived(Math.max(0, rightEdge - rowStart));
+  const tileLeft = $derived(shownTitle === null ? rowStart : rowStart + (shownTitle - home.first) * 404 * px);
+  /** B-8: left-aligned with the tile; shifted left just enough to stay inside the margin. */
+  const titleX = $derived(Math.max(rowStart, Math.min(tileLeft, rightEdge - titleW)));
+  const shifted = $derived(titleX < tileLeft - 0.5);
+
+  $effect(() => {
+    // Re-measure when the title, the window or the scale changes (one read, no loop: L-16).
+    void shownTitle;
+    void vw;
+    void vh;
+    const el = titleEl;
+    if (!el) return;
+    titleW = el.getBoundingClientRect().width;
+    if (!placed) requestAnimationFrame(() => (placed = true));
+  });
 </script>
+
+<svelte:window bind:innerWidth={vw} bind:innerHeight={vh} />
 
 <section class="home" data-testid="home" data-owner="home" data-suspended={suspended} data-mode={mode}>
   <StatusHeader {padConnected} {status} {fixedTime} {...hour12 === undefined ? {} : { hour12 }} />
@@ -59,23 +88,20 @@
   <div class="row" data-testid="game-row" data-first={home.first} data-focus={home.focus} data-count={games.length}>
     {#if loadState === 'loaded' && shownTitle !== null && games[shownTitle]}
       {@const tg = games[shownTitle]}
-      {@const iconUrl = tg.icon && !brokenIcons.has(tg.id) ? mediaUrl(tg, 'icon') : ''}
-      <!-- B-8: the selected game's title, always at the row's start, preceded by its icon. -->
-      <div class="title" data-testid="selected-title-row" data-owner="home-title">
-        {#if iconUrl}
-          <img
-            class="title-icon"
-            data-testid="title-icon"
-            src={iconUrl}
-            alt=""
-            draggable="false"
-            onerror={() => (brokenIcons = new Set([...brokenIcons, tg.id]))}
-          />
-        {:else}
-          <span class="title-icon letter" data-testid="title-letter" aria-hidden="true"
-            >{[...tg.name.trim()][0]?.toUpperCase() ?? '?'}</span
-          >
-        {/if}
+      <!-- B-8 (rev. k / l): above the selected tile, left-aligned with it, after a downward arrow;
+           moved by transform only; shifted left near the right margin; long titles scroll. -->
+      <div
+        class="title"
+        class:placed
+        bind:this={titleEl}
+        style:transform={`translateX(${titleX}px)`}
+        style:max-width={`${maxTitleW}px`}
+        data-testid="selected-title-row"
+        data-index={shownTitle}
+        data-shifted={shifted}
+        data-owner="home-title"
+      >
+        <span class="arrow" aria-hidden="true"><span class="icon glyph" data-testid="title-arrow">arrow_drop_down</span></span>
         <span class="title-text" data-testid="selected-title"
           ><Marquee text={tg.name} align="start" testid="selected-title-text" /></span
         >
@@ -84,7 +110,8 @@
     {#if loadState === 'loaded'}
       <div class="track" style:--first={home.first} data-owner="home-row">
         {#each games as g, i (g.id)}
-          {@const url = g.tile && !broken.has(g.id) ? mediaUrl(g, 'tile') : ''}
+          {@const copy = g.tile && !broken.has(g.id)}
+          {@const url = copy ? mediaUrl(g, 'tile') : g.tileArt && !broken.has(`${g.id}#o`) ? mediaUrl(g, g.tileArt) : ''}
           <div
             class="tile"
             role="button"
@@ -104,6 +131,8 @@
               {#if url}
                 <img
                   src={url}
+                  class:fit={!copy && g.tileMode === 'fit'}
+                  data-source={copy ? 'copy' : 'original'}
                   alt=""
                   draggable="false"
                   decoding="async"
@@ -111,14 +140,16 @@
                     const im = e.currentTarget as HTMLImageElement;
                     onPicture(`tile "${g.name}" shown`, im.naturalWidth, im.naturalHeight);
                   }}
-                  onerror={() => (broken = new Set([...broken, g.id]))}
+                  onerror={() => (broken = new Set([...broken, copy ? g.id : `${g.id}#o`]))}
                 />
               {:else}
                 <span class="plain" data-testid="tile-plain">{g.name}</span>
               {/if}
             </div>
             <span class="hover-line" aria-hidden="true"></span>
-            <span class="ring" aria-hidden="true" data-owner="home-ring"><span class="ring-line"></span></span>
+            <span class="ring" aria-hidden="true" data-owner="home-ring"
+              ><span class="ring-glow"></span><span class="ring-line"></span></span
+            >
 
           </div>
         {/each}
@@ -193,6 +224,11 @@
     object-fit: cover;
     display: block;
   }
+  /* B-13, until the core's copy arrives: a non-icon picture shown whole (never cropped). */
+  .art img.fit {
+    object-fit: contain;
+    background: #161616;
+  }
   .plain {
     position: absolute;
     inset: 0;
@@ -231,16 +267,24 @@
     opacity: 1;
     transform: scale(1);
   }
-  .tile.focused .ring-line {
-    animation: ring-blink var(--motion-blink) ease-in-out var(--motion-focus) infinite;
+  /* D-011 (B-9 rev. k): the ring itself never fades; a soft glow pulses outside it. */
+  .ring-glow {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: 0 0 calc(18 * var(--px)) calc(5 * var(--px)) var(--color-ring);
+    opacity: 0;
   }
-  @keyframes ring-blink {
+  .tile.focused .ring-glow {
+    animation: ring-glow var(--motion-blink) ease-in-out var(--motion-focus) infinite;
+  }
+  @keyframes ring-glow {
     0%,
     100% {
-      opacity: 1;
+      opacity: 0.15;
     }
     50% {
-      opacity: 0.45;
+      opacity: 0.75;
     }
   }
 
@@ -258,48 +302,61 @@
     opacity: 1;
   }
 
-  /* B-8: the title row: fixed at the row's start (left), up to the screen's right margin.
-     Icon about the title's cap height plus a little, rounded. */
+  /* B-8 (rev. k / l): the title above the selected tile. Positioned at the row's left and moved
+     by transform (titleX), with the row's own motion, so it travels with the focus (L-16). */
   .title {
     position: absolute;
-    left: calc(160 * var(--px));
-    right: 5vw;
+    left: 0;
     top: 0;
     height: 3.75rem;
     display: flex;
     align-items: center;
-    gap: 0.6rem;
+    width: max-content;
     color: var(--color-title);
     font-size: var(--text-title);
     font-weight: 400;
     line-height: 1.35;
     letter-spacing: 0.01em;
+    white-space: nowrap;
   }
-  .title-icon {
+  .title.placed {
+    transition: transform var(--motion-row) var(--ease-out);
+  }
+  /* The ▼ (Material Symbols Rounded arrow_drop_down). Its visible triangle is 0.19 × 0.365 em of
+     its own size, 0.39–0.58 em above its baseline (measured); the title's capitals are 0.73 em.
+     So the glyph is set at 0.73 / 0.19 = 3.84 × the title size and placed so that the triangle
+     fills this 1.4 × 0.73 em box: cap height, on the title's line. */
+  .arrow {
+    position: relative;
     flex: none;
-    /* The font's capitals are about 0.7 em tall: the icon is that plus a little. */
-    width: 0.92em;
-    height: 0.92em;
-    border-radius: 0.2em;
-    object-fit: cover;
-    display: block;
+    width: 1.4em;
+    height: 0.73em;
+    margin-right: 0.32em;
+    overflow: visible;
+    /* Cap-centre of the text sits above the line box's centre; move the box up to it. */
+    transform: translateY(var(--arrow-dy, -0.06em));
   }
-  .letter {
-    background: var(--color-letter-bg);
-    color: var(--color-letter-ink);
-    font-size: 0.62em;
-    width: calc(0.92em / 0.62);
-    height: calc(0.92em / 0.62);
-    border-radius: calc(0.2em / 0.62);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 700;
+  .glyph {
+    position: absolute;
+    font-size: 3.84em;
     line-height: 1;
+    /* Glyph box → triangle: left 0.315 em, ink top 0.58 em above the baseline. */
+    left: -0.315em;
+    /* Measured in the real render (alpha.6): this puts the triangle's top on the capitals' top. */
+    top: -0.3915em;
+    width: 1em;
+    height: 1em;
+    color: var(--color-title);
+    font-variation-settings:
+      'wght' 400,
+      'FILL' 1,
+      'GRAD' 0,
+      'opsz' 24;
   }
   .title-text {
-    flex: 1 1 auto;
+    flex: 0 1 auto;
     min-width: 0;
+    overflow: hidden;
   }
 
   .message {

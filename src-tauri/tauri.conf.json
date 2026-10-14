@@ -24,7 +24,7 @@
         "alwaysOnTop": false,
         "skipTaskbar": false,
         "dragDropEnabled": false,
-        "backgroundColor": "#0f1013",
+        "backgroundColor": "#000000",
         "width": 1280,
         "height": 720,
         "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required"

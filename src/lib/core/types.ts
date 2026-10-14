@@ -19,10 +19,11 @@ export interface GameView {
   name: string;
   /** The media slot shown on the tile ("Thumbnail", …), or null for a plain tile. */
   tileArt: string | null;
-  /** D-007: cache key of the tile-sized copy (640 × 640), or null. */
+  /** B-13: 'fill' (the icon fills the tile) or 'fit' (another picture shown whole), or null. */
+  tileMode: 'fill' | 'fit' | null;
+  /** D-007 / D-010: cache key of the tile-sized copy (640 × 640), or null until the core has
+   *  made it in the background (`onTile`); meanwhile the original picture is shown. */
   tile: string | null;
-  /** B-8: cache key of the small icon (up to 128 px), or null (the title shows a letter tile). */
-  icon: string | null;
   favorite: boolean;
   hidden: boolean;
   category: string | null;
@@ -143,6 +144,8 @@ export interface Core {
   mediaUrl(gameId: string, slot: string, key?: string): string;
   statusNow(): Promise<PcStatus>;
   onStatus(handler: (status: PcStatus) => void): Promise<Unlisten>;
+  /** D-010: a tile copy made in the background. */
+  onTile(handler: (t: { id: string; tile: string }) => void): Promise<Unlisten>;
   onPad(handler: (event: PadEvent) => void): Promise<Unlisten>;
   onCopyProgress(handler: (progress: CopyProgress) => void): Promise<Unlisten>;
   onCopyDone(handler: (result: CopyResult) => void): Promise<Unlisten>;

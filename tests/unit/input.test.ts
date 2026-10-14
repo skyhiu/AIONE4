@@ -108,3 +108,17 @@ describe('shortcuts', () => {
     expect(isRestartShortcut(k('r', { ctrlKey: true }))).toBe(false);
   });
 });
+
+describe('B-10 (rev. k): what counts as the first press after the mouse', () => {
+  it('pad buttons and directions, and the Home keys count; modifiers and other keys do not', async () => {
+    const { countsAsHomeInput, inputWhere } = await import('../../src/lib/input/events');
+    for (const control of ['A', 'B', 'DPadRight', 'LStickUp', 'Menu'])
+      expect(countsAsHomeInput({ source: 'controller', kind: 'down', control, pad: 1, seq: 1 })).toBe(true);
+    for (const control of ['Up', 'Down', 'Left', 'Right', 'Enter', 'Space', 'Esc', 'Backspace'])
+      expect(countsAsHomeInput({ source: 'keyboard', kind: 'down', control })).toBe(true);
+    for (const control of ['Alt', 'Control', 'Shift', 'Meta', 'Tab', 'a', 'F4'])
+      expect(countsAsHomeInput({ source: 'keyboard', kind: 'down', control }), control).toBe(false);
+    expect(inputWhere({ source: 'controller', kind: 'down', control: 'A', pad: 1, seq: 7 })).toBe('controller 1 seq 7');
+    expect(inputWhere({ source: 'keyboard', kind: 'down', control: 'Enter' })).toBe('keyboard');
+  });
+});

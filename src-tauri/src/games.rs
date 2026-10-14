@@ -36,7 +36,18 @@ const CONVERTING: &str = "Games.converting";
 
 /// The media slots of the WPF format, in the order the tile art is chosen from.
 /// Hypothesis: `Thumbnail` is the tile picture; the others are fallbacks.
-pub const TILE_ART_ORDER: [&str; 4] = ["Thumbnail", "Portrait", "Hero", "Icon"];
+/// B-13 (rev. k): the tile picture is the game's `Icon` (filling the tile); without one, the
+/// first of the other picture slots (fitted whole over a blurred, darkened copy).
+pub const TILE_ART_ORDER: [&str; 4] = ["Icon", "Thumbnail", "Portrait", "Hero"];
+
+/// How the slot becomes a tile (B-13).
+pub fn tile_mode(slot: &str) -> crate::tiles::Mode {
+    if slot == "Icon" {
+        crate::tiles::Mode::Fill
+    } else {
+        crate::tiles::Mode::Fit
+    }
+}
 pub const MEDIA_SLOTS: [&str; 5] = ["Thumbnail", "Background", "Hero", "Icon", "Portrait"];
 
 type Obj = serde_json::Map<String, serde_json::Value>;
@@ -50,11 +61,13 @@ pub struct GameView {
     pub name: String,
     /// The media slot used for the tile (`Thumbnail`, …), or none.
     pub tile_art: Option<String>,
-    /// D-007: the cache key of the tile-sized copy (`/<id>/tile?v=<key>`), when made.
+    /// B-13: "fill" (the icon fills the tile) or "fit" (another picture fitted whole), when
+    /// there is a tile picture.
+    pub tile_mode: Option<String>,
+    /// D-007 / D-010: the cache key of the tile-sized copy (`/<id>/tile?v=<key>`) when it
+    /// already exists; otherwise the UI shows the original picture until the background copy
+    /// arrives (`aione://tile` event).
     pub tile: Option<String>,
-    /// B-8: the cache key of the small icon (`/<id>/icon?v=<key>`), when the game has a
-    /// picture in `Icon`.
-    pub icon: Option<String>,
     pub favorite: bool,
     pub hidden: bool,
     pub category: Option<String>,
@@ -164,9 +177,9 @@ pub fn view_of(id: &str, obj: &Obj, folder: &Path) -> GameView {
     GameView {
         id: id.to_string(),
         name: text(obj, "Name").unwrap_or_else(|| id.to_string()),
+        tile_mode: tile_art.as_deref().map(|s| tile_mode(s).name().to_string()),
         tile_art,
         tile: None,
-        icon: None,
         favorite: flag(obj, "Favorite"),
         hidden: flag(obj, "Hidden"),
         category: text(obj, "Category"),
@@ -364,7 +377,6 @@ pub fn load(data: &Path) -> LibraryLoad {
     let counts = library::scan_library(data);
     let mut skipped = counts.ignored.clone();
     let mut games = Vec::new();
-    let mut pictures = Pictures::default();
     if let Ok(read) = fs::read_dir(&games_root) {
         let mut entries: Vec<_> = read.flatten().collect();
         entries.sort_by_key(|e| e.file_name());
@@ -384,7 +396,12 @@ pub fn load(data: &Path) -> LibraryLoad {
                         }
                     }
                     let mut v = view_of(&id, &obj, &entry.path());
-                    pictures.add(data, &mut v, &obj, &entry.path());
+                    // D-010: only an existing copy is used here; missing copies are made in
+                    // the background after Home is shown (`tile_jobs`, `make_tiles`).
+                    if let Some(src) = tile_source(&obj, &entry.path(), v.tile_art.as_deref()) {
+                        let mode = tile_mode(v.tile_art.as_deref().unwrap_or("Icon"));
+                        v.tile = crate::tiles::existing(data, &v.id, &src, mode);
+                    }
                     games.push(v);
                 }
                 Err(e) => {
@@ -406,9 +423,6 @@ pub fn load(data: &Path) -> LibraryLoad {
             }
         }
     }
-    if let Some(line) = pictures.summary() {
-        notes.push(line);
-    }
     games.sort_by(|a, b| {
         a.name
             .to_lowercase()
@@ -425,73 +439,114 @@ pub fn load(data: &Path) -> LibraryLoad {
     }
 }
 
-/// D-007 / B-8: makes the tile and icon copies during a load and sums up what happened.
-#[derive(Default)]
-struct Pictures {
-    made: Vec<String>,
-    reused: u32,
-    failed: Vec<String>,
-    ms: u128,
+/// The source file of a game's tile picture (its slot's file, inside the game's folder).
+fn tile_source(obj: &Obj, folder: &Path, slot: Option<&str>) -> Option<PathBuf> {
+    let file = text(obj, slot?)?;
+    media_path(folder, &file).filter(|p| p.is_file())
 }
 
-impl Pictures {
-    fn add(&mut self, data: &Path, v: &mut GameView, obj: &Obj, folder: &Path) {
-        let started = std::time::Instant::now();
-        let id = v.id.clone();
-        let mut one = |kind: crate::tiles::Kind, slot: &str| -> Option<String> {
-            let file = text(obj, slot)?;
-            if !crate::tiles::is_picture(&file) {
-                return None;
-            }
-            let src = media_path(folder, &file).filter(|p| p.is_file())?;
-            match crate::tiles::ensure(data, &id, kind, &src) {
-                Ok(m) => {
-                    if m.made {
-                        let (w, h) = m.source_px.unwrap_or((0, 0));
-                        self.made
-                            .push(format!("{id} {} {file} {w}×{h}", kind.name()));
-                    } else {
-                        self.reused += 1;
-                    }
-                    Some(m.key)
-                }
-                Err(e) => {
-                    self.failed
-                        .push(format!("{id} {} {file}: {e}", kind.name()));
-                    None
-                }
-            }
-        };
-        if let Some(slot) = v.tile_art.clone() {
-            v.tile = one(crate::tiles::Kind::Tile, &slot);
-        }
-        v.icon = one(crate::tiles::Kind::Icon, "Icon");
-        self.ms += started.elapsed().as_millis();
-    }
+/// One missing tile copy to make in the background (D-010).
+#[derive(Debug, Clone)]
+pub struct TileJob {
+    pub id: String,
+    pub src: PathBuf,
+    pub mode: crate::tiles::Mode,
+}
 
-    fn summary(&self) -> Option<String> {
-        if self.made.is_empty() && self.reused == 0 && self.failed.is_empty() {
-            return None;
+/// The games whose tile copy doesn't exist yet.
+pub fn tile_jobs(data: &Path, load: &LibraryLoad) -> Vec<TileJob> {
+    load.games
+        .iter()
+        .filter(|g| g.tile.is_none())
+        .filter_map(|g| {
+            let folder = games_dir(data).join(&g.id);
+            let obj = read_object(&folder.join(GAME_FILE)).ok()?;
+            let src = tile_source(&obj, &folder, g.tile_art.as_deref())?;
+            Some(TileJob {
+                id: g.id.clone(),
+                src,
+                mode: tile_mode(g.tile_art.as_deref()?),
+            })
+        })
+        .collect()
+}
+
+/// Makes the missing copies on up to `workers` threads, calling `done` for each (from the
+/// worker threads), and returns the per-copy log lines and the summary line.
+pub fn make_tiles(
+    data: &Path,
+    jobs: Vec<TileJob>,
+    workers: usize,
+    done: &(dyn Fn(&str, &crate::tiles::Made) + Sync),
+) -> (Vec<String>, String) {
+    use crate::tiles::TileError;
+    let started = std::time::Instant::now();
+    let queue = std::sync::Mutex::new(jobs.into_iter());
+    let lines = std::sync::Mutex::new(Vec::new());
+    let counts = std::sync::Mutex::new((0u32, 0u32, 0u32, 0u32)); // made, reused, failed, skipped
+    std::thread::scope(|s| {
+        for _ in 0..workers.max(1) {
+            s.spawn(|| loop {
+                let Some(job) = queue.lock().ok().and_then(|mut q| q.next()) else {
+                    break;
+                };
+                let file = job
+                    .src
+                    .file_name()
+                    .map(|f| f.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                let line = match crate::tiles::ensure(data, &job.id, &job.src, job.mode) {
+                    Ok(m) => {
+                        done(&job.id, &m);
+                        let mut c = counts.lock().unwrap_or_else(|e| e.into_inner());
+                        if m.made {
+                            c.0 += 1;
+                            let t = m.timing.unwrap_or_default();
+                            let (w, h) = m.source_px.unwrap_or((0, 0));
+                            format!(
+                                "tile copy: {} from {file} ({w}×{h}, {}; {}) in {:.0} ms (decode {:.0}, scale {:.0}, encode {:.0}, write {:.0})",
+                                job.id,
+                                m.source_note,
+                                job.mode.name(),
+                                t.total(),
+                                t.decode_ms,
+                                t.scale_ms,
+                                t.encode_ms,
+                                t.write_ms
+                            )
+                        } else {
+                            c.1 += 1;
+                            continue;
+                        }
+                    }
+                    Err(TileError::Failed(e)) => {
+                        counts.lock().unwrap_or_else(|e| e.into_inner()).2 += 1;
+                        format!("tile copy: {} from {file} FAILED: {e}", job.id)
+                    }
+                    Err(TileError::Skipped(e)) => {
+                        counts.lock().unwrap_or_else(|e| e.into_inner()).3 += 1;
+                        format!(
+                            "tile copy: {} from {file} skipped (failed before, unchanged since): {e}",
+                            job.id
+                        )
+                    }
+                };
+                lines.lock().unwrap_or_else(|e| e.into_inner()).push(line);
+            });
         }
-        let mut s = format!(
-            "tile pictures: {} made, {} reused, {} failed, in {} ms (tiles {}×{} JPEG, icons up to {}×{} PNG, in Cache\\Tiles)",
-            self.made.len(),
-            self.reused,
-            self.failed.len(),
-            self.ms,
-            crate::tiles::TILE_PX,
-            crate::tiles::TILE_PX,
-            crate::tiles::ICON_PX,
-            crate::tiles::ICON_PX
-        );
-        if !self.made.is_empty() {
-            s.push_str(&format!("; made from: {}", self.made.join(", ")));
-        }
-        if !self.failed.is_empty() {
-            s.push_str(&format!("; failed: {}", self.failed.join("; ")));
-        }
-        Some(s)
-    }
+    });
+    let (made, reused, failed, skipped) = counts.into_inner().unwrap_or_else(|e| e.into_inner());
+    let summary = format!(
+        "tile pictures: {made} made, {reused} reused, {failed} failed, {skipped} skipped (failed before), in {} ms in the background on {} threads ({}×{} JPEG in Cache\\Tiles)",
+        started.elapsed().as_millis(),
+        workers.max(1),
+        crate::tiles::TILE_PX,
+        crate::tiles::TILE_PX
+    );
+    (
+        lines.into_inner().unwrap_or_else(|e| e.into_inner()),
+        summary,
+    )
 }
 
 fn skipped_text(s: &[IgnoredEntry]) -> String {
@@ -540,23 +595,18 @@ pub fn log_lines(l: &LibraryLoad) -> Vec<String> {
 /// The file behind `aione-media://<id>/<slot>`, or None. Only known slots of a game folder
 /// inside `<data>\Games\` are ever served.
 pub fn resolve_media(data: &Path, id: &str, slot: &str) -> Option<PathBuf> {
-    // D-007 / B-8: the cached tile and icon copies.
-    if slot == "tile" || slot == "icon" {
+    // D-007 / B-13: the cached tile copy.
+    if slot == "tile" {
         if id.is_empty() || id.contains(['/', '\\']) || id == ".." {
             return None;
         }
         let folder = games_dir(data).join(id);
         let obj = read_object(&folder.join(GAME_FILE)).ok()?;
         let v = view_of(id, &obj, &folder);
-        let (kind, src_slot) = if slot == "tile" {
-            (crate::tiles::Kind::Tile, v.tile_art?)
-        } else {
-            (crate::tiles::Kind::Icon, "Icon".to_string())
-        };
-        let file = text(&obj, &src_slot)?;
-        let src = media_path(&folder, &file)?;
-        let key = crate::tiles::key_of(&src)?;
-        let p = crate::tiles::path_for(data, id, kind, &key);
+        let slot = v.tile_art?;
+        let src = tile_source(&obj, &folder, Some(&slot))?;
+        let key = crate::tiles::key_of(&src, tile_mode(&slot))?;
+        let p = crate::tiles::path_for(data, id, &key);
         return p.is_file().then_some(p);
     }
     if !MEDIA_SLOTS.contains(&slot)
@@ -695,29 +745,80 @@ mod tests {
             .iter()
             .any(|x| x.starts_with("library loaded: 10 games (from ")));
         assert!(lines.iter().any(|x| x.ends_with("10 loaded (match)")));
-        // D-007: every game got a tile-sized copy; the icons are .ico/.png names without files
-        // here, so none were made.
-        assert!(l.games.iter().all(|g| g.tile.is_some()), "{:?}", l.notes);
-        let pics = l
-            .notes
+        // D-010: the load makes no copies (Home is shown at once); the background job does.
+        assert!(l.games.iter().all(|g| g.tile.is_none()));
+        // B-13: these fixtures name an icon file that doesn't exist, so the thumbnail is fitted.
+        assert_eq!(l.games[0].tile_art.as_deref(), Some("Thumbnail"));
+        assert_eq!(l.games[0].tile_mode.as_deref(), Some("fit"));
+        let jobs = tile_jobs(data, &l);
+        assert_eq!(jobs.len(), 10);
+        let seen = std::sync::Mutex::new(Vec::new());
+        let (lines, summary) = make_tiles(data, jobs, 4, &|id, m| {
+            assert!(m.made);
+            seen.lock().unwrap().push(id.to_string());
+        });
+        assert_eq!(seen.lock().unwrap().len(), 10);
+        assert!(
+            summary.starts_with("tile pictures: 10 made, 0 reused, 0 failed, 0 skipped"),
+            "{summary}"
+        );
+        assert_eq!(lines.len(), 10);
+        let amber = lines
             .iter()
-            .find(|n| n.starts_with("tile pictures:"))
+            .find(|x| x.contains("Amber Lighthouse"))
             .unwrap();
         assert!(
-            pics.starts_with("tile pictures: 10 made, 0 reused, 0 failed"),
-            "{pics}"
+            amber.contains("from thumbnail.png (1200×900, picture; fit) in "),
+            "{amber}"
         );
-        assert!(
-            pics.contains("Amber Lighthouse tile thumbnail.png 1200×900"),
-            "{pics}"
-        );
+        assert!(amber.contains("(decode "), "{amber}");
         let tile = resolve_media(data, "Amber Lighthouse", "tile").unwrap();
         assert_eq!(image::open(tile).unwrap().width(), crate::tiles::TILE_PX);
-        // A second load converts nothing and reuses every copy.
+        // A second load converts nothing and finds every copy.
         let again = load(data);
         assert_eq!(again.games.len(), 10);
-        assert_eq!(again.notes.len(), 1, "{:?}", again.notes);
-        assert!(again.notes[0].starts_with("tile pictures: 0 made, 10 reused, 0 failed"));
+        assert!(again.notes.is_empty(), "{:?}", again.notes);
+        assert!(again.games.iter().all(|g| g.tile.is_some()));
+        assert!(tile_jobs(data, &again).is_empty());
+    }
+
+    /// D-010: a first start with 20 new pictures: the library (and so Home) is ready without
+    /// waiting for any copy; the copies follow in the background.
+    #[test]
+    fn a_first_start_with_20_new_pictures_does_not_wait_for_copies() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path();
+        for i in 0..20 {
+            let g = games_dir(data).join(format!("Game {i:02}"));
+            fs::create_dir_all(&g).unwrap();
+            fs::write(
+                g.join(GAME_FILE),
+                format!(
+                    r#"{{"Name":"Game {i:02}","Icon":"icon.png","Thumbnail":"thumbnail.png"}}"#
+                ),
+            )
+            .unwrap();
+            png(&g.join("icon.png"), 512, 512);
+            png(&g.join("thumbnail.png"), 920, 430);
+        }
+        let t = std::time::Instant::now();
+        let l = load(data);
+        let load_ms = t.elapsed().as_millis();
+        assert_eq!(l.games.len(), 20);
+        assert!(
+            l.games
+                .iter()
+                .all(|g| g.tile_mode.as_deref() == Some("fill")),
+            "the icon fills"
+        );
+        assert!(load_ms < 1000, "load took {load_ms} ms");
+        let t = std::time::Instant::now();
+        let (_, summary) = make_tiles(data, tile_jobs(data, &l), 4, &|_, _| {});
+        eprintln!(
+            "first start: load {load_ms} ms; 20 copies {} ms (debug build) — {summary}",
+            t.elapsed().as_millis()
+        );
+        assert!(summary.starts_with("tile pictures: 20 made"));
     }
 
     #[test]

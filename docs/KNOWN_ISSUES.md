@@ -15,6 +15,10 @@ an item Fixed and Verified.
 | D-005 | Low | Focus line wording. | **Fixed and Verified**, both wordings (alpha.3, PC). |
 | D-007 | Medium | Home freezes for 0.1–0.5 s in quick pad use, then plays the waiting presses at once (alpha.4 QA-1). | **Implemented, Unverified.** Cause: **hypothesis** (not reproduced in the sandbox): large tile pictures (full-size `Thumbnail` files) decoded and scaled on the main thread as the row scrolls. Fix: tile-sized 640 × 640 copies made once by the core, and every tile and icon decoded before Home takes input. Diagnostics: each long task is logged with the last action, the focused tile and the pictures loaded or decoded around it (with pixel sizes). UI test with 3000 × 3000 pictures: 36 quick presses, longest core → UI 1 ms, no long task during navigation (sandbox, Chromium). Needs the user's quick pad session. |
 | D-008 | Low | The perf line hides freezes (alpha.4 QA-2). | **Implemented, Unverified.** Each perf line adds the longest frame, frames over 33 ms, "JANKY" when a frame is over 50 ms, and the longest core → UI input delay; unit test shows a D-007-like freeze (p95 16.7 ms) as "longest 510 ms … JANKY". Note: frames are sampled 5 s of every 10 s; long tasks and input delays are recorded all the time. |
+| D-009 | High | No menu sounds in the release (alpha.5 QA-1). | **Implemented, Unverified.** Cause **confirmed**: `move.wav` (3.6 KB, under Vite's 4 KB inline limit) was built into the JavaScript as a `data:` URL; the CSP's `connect-src` doesn't allow `data:`, so its fetch failed and `Promise.all` silenced all three. Fix: no inlined sounds; each loads separately; failures log the address and the reason; lines say "no sound (sounds unavailable)". Checks on the real build: `npm run check:built` (fails on alpha.5's config, passes now) and a Playwright test serving `dist/` with the real CSP (all 3 fetch and decode; a `data:` sound is blocked). |
+| D-010 | Medium | First start after an update took 11.2 s with an empty grey / white window (alpha.5 QA-2). | **Implemented, Unverified.** Home no longer waits for copies (load 1 ms with 20 new pictures in a Rust test; Home in about 0.3 s in the UI test); copies in the background on 4 threads, swapped in. The window and page are black until Home is drawn. Time per copy: about 50 ms in a sandbox benchmark (release settings); the 0.5 s seen on the PC is about 10× that, cause still a **hypothesis** (Windows Defender scanning each new file is the leading candidate); each copy now logs decode / scale / encode / write. |
+| D-011 | Low | The ring blinked below 3:1 (alpha.5 QA-3). | **Implemented, Unverified.** Solid ring, glow pulsing outside. UI test samples the ring at the glow's lowest and highest points: 3.22:1 light, 4.36:1 dark. |
+| D-012 | Low | Zelda's `icon.ico` unreadable (alpha.5 QA-5). | **Implemented, Unverified.** AIONE's own ICO reader: largest entry first, embedded PNG in any colour type, BMP entries through the library, next size on failure. Failures recorded in `Cache\Tiles\failed.json` and skipped until the source changes. Rust tests: RGB and grey PNG entries, a damaged largest entry. |
 | D-006 | Low | Key repeats and releases. | Timing **Fixed and Verified** (alpha.3, PC). Key list and release lines: **Implemented, Unverified** (alpha.4: only the arrows repeat; Enter, Space, Esc, modifiers never; `input up <key> (keyboard), held N ms, R repeats`; unit and UI tests pass). |
 
 ## T0 QA findings carried into T1.1
@@ -28,9 +32,10 @@ an item Fixed and Verified.
 
 | Item | Status (4.0.0-alpha.5) |
 |---|---|
-| B-8 title at the row's start with the game's icon | Implemented, Unverified (UI tests at 3 sizes × 2 scales × 2 presets) |
+| B-8 (corrected, rev. k / l): title above the selected tile, ▼ before it | Implemented, Unverified (alpha.6; alpha.5's fixed-left row removed) |
+| B-13 tile picture = the icon | Implemented, Unverified |
 | B-9 hot pink accent | Implemented, Unverified (every pair measured in UI tests) |
-| B-10 first press after the mouse brings the ring back only | Implemented, Unverified (UI test, pad and keyboard) |
+| B-10 first press after the mouse brings the ring back only | **Verified (alpha.5, PC)**; rev. k (modifiers don't count): Implemented, Unverified |
 | B-1 menu sounds from FilmCow | Implemented, Unverified (the user judges by ear) |
 | B-11 invented fixtures | Done (no user titles in the repository) |
 

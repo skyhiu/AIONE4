@@ -16,7 +16,7 @@
 //   &status-later=1    the core pushes a status change 300 ms after start
 //   &noart=1           no tile art (plain tiles)
 //   &bigart=1          tile pictures of 3000 × 3000 px (D-007: as if the core served full-size files)
-//   &noicons=1         no game has an icon (B-8 fallback everywhere)
+//   &tiles=pending     no tile copies yet: Home shows the originals; copies arrive 400 ms later
 // Tests drive input through `window.__aioneMock` (see MockControl below).
 import pkg from '../../../package.json';
 import alpha1Record from '../../../tests/fixtures/migration/alpha1.migration.json?raw';
@@ -94,10 +94,11 @@ export const SAMPLE_GAMES: GameView[] = [
 ].map((name) => ({
   id: name,
   name,
-  tileArt: name === 'Quiet Engines' ? null : 'Thumbnail',
+  // B-13: the icon fills the tile; Moss Kingdom has no icon file (a wide picture, fitted whole);
+  // Quiet Engines has no picture at all (a plain tile).
+  tileArt: name === 'Quiet Engines' ? null : name === 'Moss Kingdom' ? 'Thumbnail' : 'Icon',
+  tileMode: name === 'Quiet Engines' ? null : name === 'Moss Kingdom' ? 'fit' : 'fill',
   tile: name === 'Quiet Engines' ? null : 'k1',
-  // Two games without an icon show the B-8 letter tile.
-  icon: name === 'Quiet Engines' || name === 'Moss Kingdom' ? null : 'i1',
   favorite: false,
   hidden: false,
   category: name.startsWith('Zephyr') ? 'Steam' : null,
@@ -105,53 +106,75 @@ export const SAMPLE_GAMES: GameView[] = [
   playTimeMinutes: 0,
 }));
 
-const ICON_COLOURS = ['#3b6ea8', '#c0392b', '#2e8b57', '#8e44ad', '#d35400', '#16a085', '#7f8c8d', '#b8860b', '#2c3e50', '#c71585'];
-const iconCache = new Map<number, string>();
-/** An original placeholder icon (a coloured square with a white shape), drawn once. */
-function mockIcon(i: number): string {
-  const hit = iconCache.get(i);
+/** An original wide placeholder picture (920 × 430, like a game's Thumbnail). */
+const wideCache = new Map<number, string>();
+function widePicture(i: number): string {
+  const hit = wideCache.get(i);
   if (hit) return hit;
   const c = document.createElement('canvas');
-  c.width = c.height = 128;
+  c.width = 920;
+  c.height = 430;
   const g = c.getContext('2d');
   if (!g) return '';
-  g.fillStyle = ICON_COLOURS[i % ICON_COLOURS.length] ?? '#555';
-  g.fillRect(0, 0, 128, 128);
-  g.fillStyle = '#fff';
-  g.beginPath();
-  if (i % 3 === 0) g.arc(64, 64, 34, 0, Math.PI * 2);
-  else if (i % 3 === 1) g.rect(32, 32, 64, 64);
-  else {
-    g.moveTo(64, 26);
-    g.lineTo(104, 98);
-    g.lineTo(24, 98);
-  }
-  g.fill();
+  g.fillStyle = '#2f6b4f';
+  g.fillRect(0, 0, 920, 430);
+  g.fillStyle = '#f2d16b';
+  g.fillRect(0, 0, 40, 430);
+  g.fillRect(880, 0, 40, 430);
+  g.fillStyle = '#ffffff';
+  g.font = 'bold 72px sans-serif';
+  g.fillText('WIDE PICTURE', 200, 240);
   const url = c.toDataURL('image/png');
-  iconCache.set(i, url);
+  wideCache.set(i, url);
+  return url;
+}
+
+/** What the core makes for a wide picture (B-13): fitted whole over a blurred, darkened copy. */
+const fittedCache = new Map<number, string>();
+function fittedTile(i: number): string {
+  const hit = fittedCache.get(i);
+  if (hit) return hit;
+  const c = document.createElement('canvas');
+  c.width = c.height = 640;
+  const g = c.getContext('2d');
+  const img = new Image();
+  img.src = widePicture(i);
+  if (!g) return '';
+  // Drawn synchronously from a data URL already decoded by the browser cache in tests;
+  // if not ready yet, a dark tile with the bands only.
+  g.fillStyle = '#16301f';
+  g.fillRect(0, 0, 640, 640);
+  if (img.complete && img.naturalWidth) {
+    g.filter = 'blur(24px) brightness(0.45)';
+    g.drawImage(img, -400, 0, 1440, 640);
+    g.filter = 'none';
+    const h = (640 * 430) / 920;
+    g.drawImage(img, 0, (640 - h) / 2, 640, h);
+  }
+  const url = c.toDataURL('image/jpeg', 0.9);
+  if (img.complete && img.naturalWidth) fittedCache.set(i, url);
   return url;
 }
 
 const bigCache = new Map<number, string>();
 /** D-007 test: a 3000 × 3000 noisy JPEG (costly to decode), drawn once per picture. */
 function bigArt(i: number): string {
-  const k = i % 4;
+  const k = i % 3; // variant 3 of the earlier set could not be fully decoded by Chromium
   const hit = bigCache.get(k);
   if (hit) return hit;
   const c = document.createElement('canvas');
   c.width = c.height = 3000;
   const g = c.getContext('2d');
   if (!g) return '';
-  const img = g.createImageData(3000, 3000);
+  // Random 12 px blocks: still a full 3000 × 3000 decode, but a JPEG small enough to be a valid
+  // data: URL (alpha.6: per-pixel noise made one picture too large for Chromium to decode).
   let seed = 1234 + k;
-  for (let p = 0; p < img.data.length; p += 4) {
-    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-    img.data[p] = (seed >> 3) & 255;
-    img.data[p + 1] = (seed >> 11) & 255;
-    img.data[p + 2] = (k * 60 + (seed >> 19)) & 255;
-    img.data[p + 3] = 255;
-  }
-  g.putImageData(img, 0, 0);
+  for (let y = 0; y < 3000; y += 12)
+    for (let x = 0; x < 3000; x += 12) {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      g.fillStyle = `rgb(${(seed >> 3) & 255},${(seed >> 11) & 255},${(k * 60 + (seed >> 19)) & 255})`;
+      g.fillRect(x, y, 12, 12);
+    }
   const url = c.toDataURL('image/jpeg', 0.92);
   bigCache.set(k, url);
   return url;
@@ -193,6 +216,7 @@ export function createMock(search: string): { core: Core; control: MockControl }
   const padHandlers = new Set<Handler<PadEvent>>();
   const statusHandlers = new Set<Handler<PcStatus>>();
   const noArt = params.get('noart') === '1';
+  const tileHandlers = new Set<Handler<{ id: string; tile: string }>>();
   const progressHandlers = new Set<Handler<CopyProgress>>();
   const doneHandlers = new Set<Handler<CopyResult>>();
   let seq = 0;
@@ -343,20 +367,43 @@ export function createMock(search: string): { core: Core; control: MockControl }
       control.restarts += 1;
       return Promise.resolve();
     },
-    libraryLoad: () => Promise.resolve(mockLibrary(params.get('library') ?? 'sample')),
+    libraryLoad: async () => {
+      // The wide picture is decoded first, so the fitted tile can be drawn from it.
+      await new Promise<void>((resolve) => {
+        const im = new Image();
+        im.onload = () => resolve();
+        im.onerror = () => resolve();
+        im.src = widePicture(3);
+      });
+      const l = mockLibrary(params.get('library') ?? 'sample');
+      if (params.get('tiles') === 'pending') l.games = l.games.map((g) => ({ ...g, tile: null }));
+      return l;
+    },
     mediaUrl(gameId, slot) {
       const i0 = SAMPLE_GAMES.findIndex((g) => g.id === gameId);
       const i = i0 < 0 ? Number(gameId.replace(/\D/g, '')) : i0;
-      if (slot === 'icon') return params.get('noicons') === '1' ? '' : mockIcon(i);
-      if (noArt || (slot !== 'Thumbnail' && slot !== 'tile')) return '';
-      if (params.get('bigart') === '1') return bigArt(i);
-      return ART_URLS[i % ART_URLS.length] ?? '';
+      if (noArt) return '';
+      if (params.get('bigart') === '1' && (slot === 'tile' || slot === 'Icon')) return bigArt(i);
+      const game = SAMPLE_GAMES[i0];
+      // The fitted game: the original is a wide picture; the core's copy is composed (B-13).
+      if (game?.tileMode === 'fit') return slot === 'tile' ? fittedTile(i) : widePicture(i);
+      if (slot === 'tile' || slot === 'Icon') return ART_URLS[i % ART_URLS.length] ?? '';
+      return '';
     },
     statusNow: () => Promise.resolve(mockStatus(params)),
     onStatus(h) {
       if (params.get('status-later') === '1')
         setTimeout(() => statusHandlers.forEach((f) => f({ network: 'offline', battery: { percent: 15, charging: false } })), 300);
       return sub(statusHandlers, h);
+    },
+    onTile(h) {
+      if (params.get('tiles') === 'pending')
+        setTimeout(
+          () =>
+            SAMPLE_GAMES.filter((g) => g.tileArt).forEach((g) => tileHandlers.forEach((f) => f({ id: g.id, tile: 'k1' }))),
+          400,
+        );
+      return sub(tileHandlers, h);
     },
     onPad: (h) => sub(padHandlers, h),
     onCopyProgress: (h) => sub(progressHandlers, h),

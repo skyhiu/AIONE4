@@ -18,6 +18,7 @@ export const EVENTS = {
   copyProgress: 'aione://copy-progress',
   copyDone: 'aione://copy-done',
   status: 'aione://status',
+  tile: 'aione://tile',
 } as const;
 
 /** The core's media protocol (`aione-media`); WebView2 reaches custom protocols as
@@ -49,6 +50,7 @@ export function createTauriCore(): Core {
       `${MEDIA_BASE}/${encodeURIComponent(gameId)}/${encodeURIComponent(slot)}${key ? `?v=${encodeURIComponent(key)}` : ''}`,
     statusNow: () => invoke<PcStatus>('status_now'),
     onStatus: (handler) => listen<PcStatus>(EVENTS.status, (e) => handler(e.payload)),
+    onTile: (handler) => listen<{ id: string; tile: string }>(EVENTS.tile, (e) => handler(e.payload)),
     onPad: (handler) => listen<PadEvent>(EVENTS.pad, (e) => handler(e.payload)),
     onCopyProgress: (handler) => listen<CopyProgress>(EVENTS.copyProgress, (e) => handler(e.payload)),
     onCopyDone: (handler) => listen<CopyResult>(EVENTS.copyDone, (e) => handler(e.payload)),

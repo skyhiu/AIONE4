@@ -1,5 +1,29 @@
 # Changelog
 
+## 4.0.0-alpha.6 — T1.1 fixes (D-009 to D-012, B-8 corrected, B-13)
+
+- **D-009 (no menu sounds in the release):** cause confirmed: Vite inlined `move.wav` (3.6 KB)
+  as a `data:` URL, which the app's CSP does not let `fetch()` reach; one failure stopped all
+  three. Sounds are never inlined now; each loads on its own and a failure logs its address and
+  reason; lines say "no sound (sounds unavailable)". New checks on the **real build**:
+  `npm run check:built` (CI step) and `tests/ui/real-build.spec.ts` (fetch + decode under the
+  real CSP; a `data:` sound must be blocked).
+- **D-010 (slow first start, empty window):** Home is shown at once with the original pictures;
+  missing tile copies are made in the background (4 threads) and swapped in; each copy logs its
+  decode / scale / encode / write times; the window and page are black until Home is drawn. The
+  picture libraries are built at full optimisation; the scaling filter is CatmullRom.
+- **B-8 (corrected, rev. k / l):** the title sits above the selected tile, left-aligned with it,
+  after a ▼ (Material Symbols Rounded `arrow_drop_down`) whose visible triangle is the capitals'
+  height; it moves by transform, shifts left near the right margin, and long titles scroll.
+  alpha.5's fixed-left title row and letter tile are removed.
+- **B-13:** the tile picture is the game's icon (largest ICO size), filling the tile; otherwise
+  another picture fitted whole over a blurred, darkened copy; otherwise a plain tile.
+- **D-011:** the focus ring is solid and never fades; a soft glow pulses outside it.
+- **D-012:** AIONE reads ICO files itself (an embedded PNG in any colour type, or the next size);
+  a failed source is not retried until it changes.
+- **B-10 (rev. k):** modifiers alone keep mouse mode. **QA-6:** the slot number in ring-back lines.
+- **Tests:** Rust 79; Vitest 54; Playwright 43 with 71 screenshots.
+
 ## 4.0.0-alpha.5 — T1.1 fixes and changes
 
 - **D-007 (Home freezes):** the core makes one 640 × 640 copy of each tile picture and one ≤ 128 px

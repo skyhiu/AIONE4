@@ -75,6 +75,9 @@ jobs:
       - name: Frontend build
         run: npm run build
 
+      - name: Built files (D-009, the real build's sounds)
+        run: npm run check:built
+
       - name: Rust format
         working-directory: src-tauri
         run: cargo fmt --check

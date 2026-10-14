@@ -26,6 +26,8 @@ pub const EVENT_PAD: &str = "aione://pad";
 pub const EVENT_COPY_PROGRESS: &str = "aione://copy-progress";
 pub const EVENT_COPY_DONE: &str = "aione://copy-done";
 pub const EVENT_STATUS: &str = "aione://status";
+/// D-010: a tile copy made in the background: `{ id, tile }` (the copy's cache key).
+pub const EVENT_TILE: &str = "aione://tile";
 /// The game media protocol: `http://aione-media.localhost/<game id>/<slot>` on Windows.
 pub const MEDIA_SCHEME: &str = "aione-media";
 const MAIN_WINDOW: &str = "main";
@@ -72,10 +74,13 @@ fn app_info(state: tauri::State<'_, AppState>) -> AppInfo {
 }
 
 /// Loads the library (converting the WPF copy once if needed) and logs the L-17 lines.
+/// D-010: returns at once; missing tile copies are made afterwards on a background thread
+/// (4 workers), each sent to the UI as `aione://tile` and logged with its timings.
 #[tauri::command]
 async fn library_load(app: AppHandle) -> Result<games::LibraryLoad, String> {
     let data = app.state::<AppState>().data_dir.clone();
-    let load = tauri::async_runtime::spawn_blocking(move || games::load(&data))
+    let d2 = data.clone();
+    let load = tauri::async_runtime::spawn_blocking(move || games::load(&d2))
         .await
         .map_err(|e| e.to_string())?;
     for line in games::log_lines(&load) {
@@ -86,6 +91,42 @@ async fn library_load(app: AppHandle) -> Result<games::LibraryLoad, String> {
         };
         if let Some(l) = logging::get() {
             l.write(level, "library", &line);
+        }
+    }
+    let jobs = games::tile_jobs(&data, &load);
+    let reused = load.games.iter().filter(|g| g.tile.is_some()).count();
+    if jobs.is_empty() {
+        logging::info(
+            "library",
+            &format!("tile pictures: {reused} reused, none to make"),
+        );
+    } else {
+        let handle = app.clone();
+        let spawned = std::thread::Builder::new()
+            .name("aione-tiles".into())
+            .spawn(move || {
+                let (lines, summary) = games::make_tiles(&data, jobs, 4, &|id, m| {
+                    #[derive(serde::Serialize, Clone)]
+                    struct TileReady<'a> {
+                        id: &'a str,
+                        tile: &'a str,
+                    }
+                    let _ = handle.emit(EVENT_TILE, TileReady { id, tile: &m.key });
+                });
+                for line in lines {
+                    let level = if line.contains("FAILED") {
+                        Level::Warn
+                    } else {
+                        Level::Info
+                    };
+                    if let Some(l) = logging::get() {
+                        l.write(level, "library", &line);
+                    }
+                }
+                logging::info("library", &format!("{summary}; {reused} reused at load"));
+            });
+        if let Err(e) = spawned {
+            logging::error("library", &format!("could not start the tile thread: {e}"));
         }
     }
     Ok(load)

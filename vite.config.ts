@@ -19,5 +19,9 @@ export default defineConfig(({ mode }) => ({
     sourcemap: mode === 'mock' || !isTauriBuild,
     outDir: mode === 'mock' ? 'dist-mock' : 'dist',
     emptyOutDir: true,
+    // D-009: never inline sounds as data: URLs. The app's content security policy only lets
+    // fetch() reach 'self', so an inlined sound (move.wav, 3.6 KB, was under Vite's 4 KB limit)
+    // could not be loaded in the release. Other small assets keep Vite's default.
+    assetsInlineLimit: (file: string) => (/\.(wav|mp3|ogg|flac|m4a)$/i.test(file) ? false : undefined),
   },
 }));

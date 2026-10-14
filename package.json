@@ -1,7 +1,7 @@
 {
   "name": "aione4",
   "private": true,
-  "version": "4.0.0-alpha.5",
+  "version": "4.0.0-alpha.6",
   "description": "AIONE 4: a fullscreen, controller-first game launcher for Windows (personal use).",
   "type": "module",
   "engines": {
@@ -18,7 +18,8 @@
     "test:ui": "playwright test",
     "check:version": "node scripts/check-version.mjs",
     "tauri": "tauri",
-    "check:assets": "node scripts/check-assets.mjs"
+    "check:assets": "node scripts/check-assets.mjs",
+    "check:built": "node scripts/check-built-sounds.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "2.12.0"

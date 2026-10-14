@@ -2,7 +2,7 @@
 name = "aione4"
 # Mirrors package.json (the one place the version is set). build.rs fails the build if
 # they differ, and the UI and logs read it from the core.
-version = "4.0.0-alpha.5"
+version = "4.0.0-alpha.6"
 description = "AIONE 4: a fullscreen, controller-first game launcher for Windows"
 authors = ["skyhiu"]
 edition = "2021"
@@ -45,6 +45,19 @@ windows = { version = "=0.62.2", default-features = false, features = [
 
 [dev-dependencies]
 tempfile = "=3.27.0"
+
+# D-010: the picture libraries at full speed (the app stays size-optimised; measured: scaling
+# about 1.5x faster than at opt-level "s").
+[profile.release.package.image]
+opt-level = 3
+[profile.release.package.zune-jpeg]
+opt-level = 3
+[profile.release.package.png]
+opt-level = 3
+[profile.release.package.fdeflate]
+opt-level = 3
+[profile.release.package.miniz_oxide]
+opt-level = 3
 
 [profile.release]
 codegen-units = 1

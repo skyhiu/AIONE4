@@ -26,7 +26,7 @@ run with `AIONE4.exe --interface-scale=150` (never stored). Default 100 %.
 | Status cluster | centre 8.5 % of the height from the top; right edge 5 % of the width in |
 | Game row | top of the tiles at 292 (27 %); first tile 160 from the left (8.3 % of 1920) |
 | Tile (Tile Size "Small", the Switch-style default) | 384 × 384, gap 20, radius 4; 4 full tiles in view at 16:9 |
-| Selected title (B-8) | at the row's start (160), from the row band's top, up to 5 % of the width from the right; icon first |
+| Selected title (B-8) | above the selected tile, left-aligned with it (see below) |
 | Drawer area | kept free below the row (the drawer comes in T1.2) |
 | Footer | divider 2.4 % in from each side; height 5.5 rem; branding left (Home only), prompts right |
 
@@ -74,7 +74,6 @@ tints #FF58AB … #FFC2E0).
 | **Focus ring and accent shapes** | **`#FD007E`** (3.22:1; 3.83:1 against the white gap) | **`#FF46A2`** (4.36:1) |
 | **Accent text** (the selected title) | **`#B5005A`** (5.66:1) | **`#FF69B4`** (5.20:1) |
 | Hover outline (mouse) | `#B5005A` (5.66:1) | `#FF69B4` (5.20:1) |
-| B-8 letter tile | white on `#B5005A` (6.75:1) | `#1E1E1E` on `#FF69B4` (6.30:1) |
 | Soft fill (hover fill in dialogs) | `#FFC2E0`, text `#2D2D2D` (9.21:1) | `#480024`, text white (16.14:1) |
 | Pressed fill | `#FF58AB`, text `#2D2D2D` (4.75:1) | `#FF46A2`, text `#1E1E1E` (5.28:1) |
 | Accent on the dialog surface (progress bar) | 3.55:1 | 3.08:1 |
@@ -84,25 +83,42 @@ tints #FF58AB … #FFC2E0).
 
 The light preset is the default (B-11).
 
-## The selected game's title (B-8, rev. h)
-Always at the **row's start** (left edge 160 design px, the first tile's edge), never following
-the focused tile; it spans to the screen's right margin (5 % of the width). It shows the game's
-**icon** (the core's ≤ 128 px copy of `game.json` `Icon`), **0.92 em** square (the font's
-capitals are about 0.7 em: cap height plus a little), corner radius 0.2 em, then the title in the
-accent text colour, Regular, `--text-title`. With no icon: a **letter tile** of the same size in
-the accent text colour with the title's first letter (Bold). A title longer than its space
-scrolls by transform (the shared marquee, L-16). The title is hidden while a dialog is open and in
-mouse mode when nothing is hovered or selected.
+## The selected game's title (B-8, rev. k / l)
+- **Where:** above the **selected tile**, **left-aligned with that tile's left edge**, moving
+  with the focus. It is one element moved by `transform: translateX` with the row's own motion
+  (260 ms, ease-out), never by layout (L-16). Its width is measured once per title / size change.
+- **Near the right edge:** when the title would run past 95 % of the width, it shifts left just
+  enough to fit (never past the row's start); a title longer than the row's width scrolls (the
+  shared marquee, by transform).
+- **The ▼:** Material Symbols Rounded **`arrow_drop_down`**, FILL 1, in the title colour, pointing
+  at the tile. Its visible triangle is 0.19 × 0.365 em of its own size (measured), so the glyph is
+  set at **3.84 × the title size**, giving a triangle as tall as the capitals (0.73 em) and
+  1.4 em wide, with 0.32 em before the text. Measured in the UI tests at every size: height
+  0.85–1.25 × the capitals (measured 1.00–1.05), centred within 0.08 em (measured ≤ 0.025 em).
+- Title: accent text colour, Regular, `--text-title`. Hidden under a dialog and in mouse mode
+  when nothing is hovered or selected (then it follows the hovered or selected tile).
+
+## The tile picture (B-13, rev. k)
+- The game's **`Icon`** (the largest size inside an `.ico`), **filling** the square tile.
+- Without an icon picture: `Thumbnail`, `Portrait` or `Hero`, **fitted whole** (never cropped)
+  over a blurred, darkened (45 %) copy of the same picture.
+- Without any picture: a plain tile with the name.
+- The core's 640 × 640 copy is shown once made (D-007 / D-010); until then the original (an icon
+  fills; another picture is shown whole on #161616).
 
 ## States and focus (reference A5, A7)
-- **Pad / keyboard mode:** one focus ring on the focused tile: 6 px ring in the ring colour (hot pink) with a
-  5 px gap, 11 px outside the tile. The new ring fades in and settles from 102.5 % while the old
-  one fades out at the same time (240 ms, ease-in-out). After that, the ring alone blinks
-  (opacity 1 → 0.45 → 1, 1.4 s, ease-in-out) while it stays focused; the blink restarts on every
-  move, so it never runs during movement. The mouse cursor is hidden.
+- **Pad / keyboard mode:** one focus ring on the focused tile: 6 px ring in the ring colour (hot
+  pink) with a 5 px gap, 11 px outside the tile. The new ring fades in and settles from 102.5 %
+  while the old one fades out (240 ms). **D-011 (B-9 rev. k):** the ring itself is solid at full
+  colour and never fades; a soft glow (box-shadow 18 px blur, 5 px spread, ring colour) pulses
+  **outside** it, opacity 0.15 → 0.75 → 0.15 over 1.4 s, starting after the focus-in. Measured
+  ring contrast at the glow's lowest and highest points: 3.22:1 (light), 4.36:1 (dark). The mouse
+  cursor is hidden.
 - **From mouse to pad or keys (B-10):** the first pad or key press after mouse use only brings
   the ring back, on the tile last hovered or clicked; it does not move and plays no sound. The
-  next press moves. Logged "ring back on tile N (after mouse)".
+  next press moves. Logged "ring back on tile N (after mouse)". **Rev. k:** only Home's inputs
+  count (pad buttons and directions; arrows, Enter, Space, Esc, Backspace); modifiers alone and
+  other keys keep mouse mode (logged "(mouse mode kept)").
 - **Mouse mode:** hover only, a 4 px outline in the hover colour; the tile selected by a first
   click keeps the same hover look; no ring. A click starts only the selected tile (L-06).
   Movement of more than 6 px switches to mouse mode; a pad or key press switches back at once,
@@ -135,9 +151,10 @@ held directions: at most every 180 ms, 3 dB softer. Details: `docs/sound/SOUND_M
 One shared frame per screen (A3): `StatusHeader` (Home only), `Footer` (prompts right, branding
 left on Home only). Full screens get the title row in T3 / T4.
 
-## Pictures (D-007)
-Tiles show the core's 640 × 640 JPEG copy (centre crop, like `object-fit: cover`); icons its
-≤ 128 px PNG copy. Home decodes every tile and icon picture before it takes input.
+## Pictures (D-007, D-010)
+Tiles show the core's 640 × 640 JPEG copy (B-13 above), made in the background; Home decodes the
+pictures it shows before it takes input (at most 1.5 s), and decodes each copy before swapping it
+in. Before Home, the window and the page are black (#000000), never grey or white.
 
 ## Effects
 None in the app: no blur, shadow or filter on Home. The dialog keeps its one shadow from T0. The
