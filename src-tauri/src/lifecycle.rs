@@ -20,6 +20,9 @@ use std::time::Duration;
 pub const WAIT_TIMEOUT: Duration = Duration::from_secs(15);
 pub const RUN_VALUE_NAME: &str = "AIONE 4";
 /// Passed by the Start with Windows entry (T0 QA-4).
+/// B-15: the proposed extras a run may switch on.
+pub const EXTRAS: [&str; 3] = ["press", "titlefade", "labelfade"];
+
 pub const FROM_AUTOSTART: &str = "--from-autostart";
 /// Interface Scale steps (reference A8: 90–150 % by 10).
 pub const SCALE_STEPS: [u32; 7] = [90, 100, 110, 120, 130, 140, 150];
@@ -35,6 +38,9 @@ pub struct Args {
     /// `--boot=default`: this run shows the default "Window B" Boot Up / Boot Down even when a
     /// custom video exists (T1.2, for testing; never stored).
     pub boot_default: bool,
+    /// B-15: `--extras=press,titlefade,labelfade`: proposed extras switched on for this run
+    /// (off by default until the user approves each; never stored). Unknown names are ignored.
+    pub extras: Vec<String>,
     pub unknown: Vec<String>,
 }
 
@@ -60,6 +66,12 @@ pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Args {
             }
         } else if a == "--boot=default" {
             out.boot_default = true;
+        } else if let Some(v) = a.strip_prefix("--extras=") {
+            out.extras = v
+                .split(',')
+                .map(|x| x.trim().to_ascii_lowercase())
+                .filter(|x| EXTRAS.contains(&x.as_str()))
+                .collect();
         } else if a == FROM_AUTOSTART {
             out.from_autostart = true;
         } else if let Some(v) = a.strip_prefix("--interface-scale=") {
@@ -215,6 +227,15 @@ pub fn log_start(args: &Args) {
             "started by Windows at sign-in (the Start with Windows entry passed --from-autostart)",
         );
     }
+    if !args.extras.is_empty() {
+        logging::lifecycle(
+            Level::Info,
+            &format!(
+                "--extras: {} for this run (not stored)",
+                args.extras.join(", ")
+            ),
+        );
+    }
     if args.boot_default {
         logging::lifecycle(
             Level::Info,
@@ -339,6 +360,11 @@ mod tests {
         assert_eq!(p(&[]), Args::default());
         assert!(p(&["--from-autostart"]).from_autostart);
         assert!(p(&["--boot=default"]).boot_default);
+        assert_eq!(
+            p(&["--extras=press,TitleFade,unknown"]).extras,
+            vec!["press", "titlefade"]
+        );
+        assert!(p(&[]).extras.is_empty());
         assert_eq!(p(&["--interface-scale=150"]).interface_scale, Some(150));
         assert_eq!(p(&["--interface-scale=90%"]).interface_scale, Some(90));
     }

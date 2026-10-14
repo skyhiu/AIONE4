@@ -13,13 +13,25 @@
 /** Layout in design pixels at 1080 p (the row scales with the window height only; Interface
  *  Scale does not change tiles, which follow Tile Size; T1.1 has the default, Small). */
 export const ROW = {
-  tile: 384,
-  gap: 20,
-  left: 160,
+  // B-14 (rev. p, measured on Switch at 1080 p): tiles 398 square, 12 apart, the first 155 from
+  // the left; the ring (7 px, no gap) has its top at 302, so the tiles' top is at 309.
+  tile: 398,
+  gap: 12,
+  left: 155,
+  top: 309,
 } as const;
 
+/** B-14: plain empty slots after the last game, filling the row to the screen's edge. The last
+ *  one is the slot cut by the screen's edge (drawn, never focused). */
+export function emptySlots(games: number, visible: number): number {
+  return games === 0 ? 0 : Math.max(1, visible - games) + 1;
+}
+
 export interface HomeState {
+  /** Games in the row. */
   count: number;
+  /** Focusable slots: the games, then the empty slots but the last (B-14). */
+  slots: number;
   focus: number;
   /** Index of the first tile in view. */
   first: number;
@@ -72,7 +84,8 @@ export function hoverDrawer(s: HomeState, index: number | null): HomeState {
 }
 
 export function initialHome(count: number, visible: number): HomeState {
-  return { count, focus: 0, first: 0, visible: Math.max(1, visible), armed: null, hover: null, zone: 'row', drawer: 0, drawerHover: null };
+  const v = Math.max(1, visible);
+  return { count, slots: count + Math.max(0, emptySlots(count, v) - 1), focus: 0, first: 0, visible: v, armed: null, hover: null, zone: 'row', drawer: 0, drawerHover: null };
 }
 
 /** How many tiles fit fully, for a window of `width` × `height` CSS pixels. */
@@ -92,30 +105,36 @@ export function keepInView(first: number, focus: number, visible: number, count:
 }
 
 export function withCount(s: HomeState, count: number): HomeState {
-  const focus = Math.min(s.focus, Math.max(0, count - 1));
-  return { ...s, count, focus, first: keepInView(s.first, focus, s.visible, count), armed: null, hover: null };
+  const slots = count + Math.max(0, emptySlots(count, s.visible) - 1);
+  const focus = Math.min(s.focus, Math.max(0, slots - 1));
+  return { ...s, count, slots, focus, first: keepInView(s.first, focus, s.visible, slots), armed: null, hover: null };
 }
 
 export function withVisible(s: HomeState, visible: number): HomeState {
   const v = Math.max(1, visible);
-  return { ...s, visible: v, first: keepInView(s.first, s.focus, v, s.count) };
+  const slots = s.count + Math.max(0, emptySlots(s.count, v) - 1);
+  const focus = Math.min(s.focus, Math.max(0, slots - 1));
+  return { ...s, visible: v, slots, focus, first: keepInView(s.first, focus, v, slots) };
 }
+
+/** Whether a slot is an empty one (after the last game). */
+export const isEmptySlot = (s: HomeState, index: number): boolean => index >= s.count;
 
 /** One press or repeat left (-1) or right (+1). Returns the new state and whether focus moved. */
 export function move(s: HomeState, dir: -1 | 1): [HomeState, boolean] {
   const focus = s.focus + dir;
-  if (s.count === 0 || focus < 0 || focus >= s.count) return [s, false];
-  return [{ ...s, focus, first: keepInView(s.first, focus, s.visible, s.count), armed: null }, true];
+  if (s.count === 0 || focus < 0 || focus >= s.slots) return [s, false];
+  return [{ ...s, focus, first: keepInView(s.first, focus, s.visible, s.slots), armed: null }, true];
 }
 
 /** Back to pad / keyboard mode: the focus ring appears on the remembered item, in view. */
 export function toPadMode(s: HomeState): HomeState {
-  return { ...s, hover: null, armed: null, first: keepInView(s.first, s.focus, s.visible, s.count) };
+  return { ...s, hover: null, armed: null, first: keepInView(s.first, s.focus, s.visible, s.slots) };
 }
 
 export function hoverTile(s: HomeState, index: number | null): HomeState {
   if (index === null) return { ...s, hover: null };
-  if (index < 0 || index >= s.count) return s;
+  if (index < 0 || index >= s.slots) return s;
   // A7: the hovered item is remembered for the pad.
   return { ...s, hover: index, focus: index, zone: 'row' };
 }
@@ -130,7 +149,7 @@ export function clickTile(s: HomeState, index: number): [HomeState, ClickResult]
 
 /** Mouse wheel: scroll the view by one tile. Returns whether it moved. */
 export function wheel(s: HomeState, dir: -1 | 1): [HomeState, boolean] {
-  const max = Math.max(0, s.count - s.visible);
+  const max = Math.max(0, s.slots - s.visible);
   const first = Math.min(Math.max(0, s.first + dir), max);
   return [{ ...s, first }, first !== s.first];
 }
@@ -139,7 +158,7 @@ export function wheel(s: HomeState, dir: -1 | 1): [HomeState, boolean] {
  *  selected tile (none when nothing is hovered or selected). */
 export function titleIndex(s: HomeState, mode: 'pad' | 'mouse'): number | null {
   if (s.count === 0) return null;
-  // Like Switch: while the drawer has the focus, no game title is shown.
-  if (mode === 'pad') return s.zone === 'drawer' ? null : s.focus;
-  return s.hover ?? s.armed;
+  // Like Switch: no title while the drawer has the focus, nor on an empty slot.
+  const i = mode === 'pad' ? (s.zone === 'drawer' ? null : s.focus) : (s.hover ?? s.armed);
+  return i === null || i >= s.count ? null : i;
 }

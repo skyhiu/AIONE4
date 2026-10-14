@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  emptySlots,
+  isEmptySlot,
   clickTile,
   hoverTile,
   initialHome,
@@ -11,7 +13,7 @@ import {
   wheel,
   withCount,
 } from '../../src/lib/home/model';
-import { RepeatPacer, REPEAT_MIN_GAP_MS, SOUND_FILES } from '../../src/lib/audio/sounds';
+import { SOUND_FILES } from '../../src/lib/audio/sounds';
 import { formatClock, msToNextMinute } from '../../src/lib/clock';
 import { describeFrames, describeLongTask, frameStats } from '../../src/lib/perf/perf';
 import { deviceAfter } from '../../src/lib/frame/glyphs';
@@ -29,10 +31,18 @@ describe('Home row model', () => {
     [s, moved] = move(s, -1);
     expect(moved).toBe(false);
     for (let i = 0; i < 12; i++) [s] = move(s, 1);
-    expect(s.focus).toBe(9);
+    // B-14: after the 10 games come the empty slots; the focus stops on the first of them (the
+    // second is the one cut by the screen's edge), and the row scrolls so it is in view.
+    expect(s.slots).toBe(11);
+    expect(s.focus).toBe(10);
+    expect(isEmptySlot(s, 10)).toBe(true);
+    expect(titleIndex(s, 'pad')).toBeNull(); // no title on an empty slot
     [s, moved] = move(s, 1);
     expect(moved).toBe(false);
-    expect(s.first).toBe(6);
+    expect(s.first).toBe(7);
+    // A short library: the empty slots fill the row to the screen's edge.
+    expect(emptySlots(2, 4)).toBe(3);
+    expect(withCount(initialHome(0, 4), 2).slots).toBe(4);
   });
 
   it('keeps the focus in view, moving the view as little as possible', () => {
@@ -74,25 +84,17 @@ describe('Home row model', () => {
     expect(moved).toBe(true);
     expect(s.focus).toBe(0);
     for (let i = 0; i < 10; i++) [s] = wheel(s, 1);
-    expect(s.first).toBe(6);
+    expect(s.first).toBe(7); // B-14: up to the empty slot
   });
 
 });
 
 describe('menu sounds', () => {
-  it('maps move, select and back to the FilmCow family (B-1 rev. h)', () => {
-    expect(SOUND_FILES.move.file).toBe('move.wav');
-    expect(SOUND_FILES.select.file).toBe('select.wav');
-    expect(SOUND_FILES.back.file).toBe('back.wav');
+  it('maps the sound set by function and place (B-1 rev. q)', () => {
+    expect(Object.keys(SOUND_FILES).sort()).toEqual(['back', 'confirm', 'drawerMove', 'edgeBump', 'error', 'rowDrawer', 'rowMove']);
+    expect(SOUND_FILES.rowMove.file).toBe('row_move.wav');
+    expect(SOUND_FILES.drawerMove.file).not.toBe(SOUND_FILES.rowMove.file);
     expect(Object.values(SOUND_FILES).every((s) => s.source.startsWith('FilmCow'))).toBe(true);
-  });
-  it('a press always plays; repeats every 90 ms play every second time', () => {
-    const p = new RepeatPacer();
-    expect(REPEAT_MIN_GAP_MS).toBe(180);
-    const played = [p.shouldPlay('press', 0)];
-    for (let t = 400; t <= 400 + 90 * 9; t += 90) played.push(p.shouldPlay('repeat', t));
-    expect(played).toEqual([true, true, false, true, false, true, false, true, false, true, false]);
-    expect(p.shouldPlay('press', 1211)).toBe(true);
   });
 });
 

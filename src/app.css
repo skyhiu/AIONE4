@@ -52,6 +52,18 @@
   --color-accent: #fd007e; /* ring and accent shapes: 3.2:1 on the background */
   --color-ring: #fd007e;
   --color-ring-alt: #d9006c; /* B-9 rev. m: the ring's pulse partner, 4.2:1 */
+  /* B-9 rev. p: the pulse restarts at the bright end on every move: in light the base ring
+     (#FD007E) is the brighter one, so the darker layer starts hidden. */
+  --ring-pulse: aione-ring-pulse;
+  --color-slot: #f4f4f4; /* B-14: empty slots, a light tint of the background */
+  /* B-14: the drawer's icons, one palette colour each (shades and tones; ≥ 3:1 on the white disc). */
+  --drawer-1: #b5005a;
+  --drawer-2: #d9006c;
+  --drawer-3: #900048;
+  --drawer-4: #fd007e;
+  --drawer-5: #6c0036;
+  --drawer-6: #af5087;
+  --color-slot-line: #dedede;
   --color-ring-gap: #ffffff;
   --color-title: #b5005a; /* accent text: 5.7:1 */
   --color-hover: #b5005a; /* mouse hover outline: 5.7:1 */
@@ -72,7 +84,7 @@
   --text-sm: 1.5rem; /* 24 */
   --text-md: 1.625rem; /* 26: body */
   --text-label: 1.75rem; /* 28: footer labels (bolder and larger than body) */
-  --text-title: 1.875rem; /* 30: the selected game's title */
+  --text-title: 3.17rem; /* B-14: the selected game's title, capitals about 37 px at 1080 p */
   --text-lg: 2.5rem; /* 40: headings, dialog titles */
   --text-display: 4rem; /* 64 */
   --header-text: calc(25 * var(--hdr)); /* clock: cap height ≈ 18 design px */
@@ -117,6 +129,16 @@
   --color-accent: #ff46a2; /* brand pink: 4.4:1 */
   --color-ring: #ff46a2;
   --color-ring-alt: #ff69b4; /* 5.2:1 */
+  /* In dark the pulse partner (#FF69B4) is the brighter one: it starts shown. */
+  --ring-pulse: aione-ring-pulse-dark;
+  --color-slot: #363636;
+  --drawer-1: #ff69b4;
+  --drawer-2: #ff8dc6;
+  --drawer-3: #ffb0d7;
+  --drawer-4: #ff46a2;
+  --drawer-5: #ffc2e0;
+  --drawer-6: #ff9fcf;
+  --color-slot-line: #404040;
   --color-ring-gap: #2d2d2d;
   --color-title: #ff69b4; /* 5.2:1 */
   --color-hover: #ff69b4;
@@ -185,3 +207,23 @@ body {
 [data-input='pad'] {
   cursor: none;
 }
+
+/* B-9 (rev. p): the ring's pulse, one cycle every 1.0 s (0.5 s each way, alternating),
+   starting at the bright end on every move. Global so the preset can choose the direction. */
+@keyframes aione-ring-pulse {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes aione-ring-pulse-dark {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+

@@ -129,11 +129,20 @@
   const keys = new KeyRepeater((e, phase, release) => onKeyPhase(fromKey(e, phase), release));
 
   /** The log wording for one sound request (QA-6: says what really happened). */
-  function play(name: SoundName, kind: 'press' | 'repeat' = 'press'): string {
-    const r = sounds.play(name, kind);
-    if (r === 'played') return `sound ${name}`;
-    if (r === 'paced') return 'sound skipped (repeat pacing)';
-    return 'no sound (sounds unavailable)';
+  function play(name: SoundName): string {
+    return sounds.play(name) === 'played' ? `sound ${name}` : 'no sound (sounds unavailable)';
+  }
+
+  /** B-14 (rev. q): a blocked move. The focus ring springs toward the pressed direction and back
+   *  (the tile or button stays still), with the edge-bump sound. A held direction bumps once:
+   *  its repeats at the same edge do nothing. */
+  let bump = $state<{ dir: 'left' | 'right' | 'up' | 'down'; n: number; zone: 'row' | 'drawer' } | null>(null);
+  let bumpHeld: string | null = null;
+  function edge(dir: 'left' | 'right' | 'up' | 'down', kind: 'press' | 'repeat', what: string): string {
+    if (kind === 'repeat' && bumpHeld === dir) return `${what}, held: no bump`;
+    bumpHeld = dir;
+    bump = { dir, n: (bump?.n ?? 0) + 1, zone: home.zone };
+    return `${what}, bump ${dir}, ${play('edgeBump')}`;
   }
 
   function onKeyPhase(ev: InputEvent, release?: ReleaseInfo) {
@@ -208,11 +217,11 @@
       const [next, effect] = flowAction(flow, action);
       flow = next;
       applyEffect(effect);
-      if (effect.type === 'decide') return `dialog decide, ${play('select')}`;
+      if (effect.type === 'decide') return `dialog decide, ${play('confirm')}`;
       if (effect.type === 'notNow') return `dialog not now, ${play('back')}`;
-      if (next.phase === 'hidden') return `dialog closed, ${play(action === 'back' ? 'back' : 'select')}`;
+      if (next.phase === 'hidden') return `dialog closed, ${play(action === 'back' ? 'back' : 'confirm')}`;
       const moved = 'focus' in before && 'focus' in next && before.focus !== next.focus;
-      return moved ? `dialog focus moved, ${play('move', kind)}` : 'dialog: nothing to do';
+      return moved ? `dialog focus moved, ${play('rowMove')}` : 'dialog: nothing to do';
     }
     if (loadState !== 'loaded') return 'home: no games';
     switch (action) {
@@ -222,23 +231,41 @@
         if (home.zone === 'drawer') {
           const [next, moved] = moveDrawer(home, dir);
           home = next;
-          return moved ? `drawer ${DRAWER[home.drawer]?.label}, ${play('move', kind)}` : 'end of drawer, no sound';
+          if (moved) bumpHeld = null;
+          return moved ? `drawer ${DRAWER[home.drawer]?.label}, ${play('drawerMove')}` : edge(action, kind, 'end of drawer');
         }
         const [next, moved] = move(home, dir);
         home = next;
-        return moved ? `focus ${home.focus + 1}/${games.length}, ${play('move', kind)}` : 'end of row, no sound';
+        if (moved) bumpHeld = null;
+        return moved ? `focus ${home.focus + 1}/${home.count}, ${play('rowMove')}` : edge(action, kind, 'end of row');
       }
       case 'up':
       case 'down': {
         const [next, moved] = moveZone(home, action);
         home = next;
-        if (!moved) return home.zone === 'drawer' ? 'nothing below the drawer, no sound' : 'nothing above the row, no sound';
+        if (!moved) return edge(action, kind, home.zone === 'drawer' ? 'nothing below the drawer' : 'nothing above the row');
+        bumpHeld = null;
         return home.zone === 'drawer'
-          ? `to the drawer: ${DRAWER[home.drawer]?.label}, ${play('move', kind)}`
-          : `back to the row: focus ${home.focus + 1}/${games.length}, ${play('move', kind)}`;
+          ? `to the drawer: ${DRAWER[home.drawer]?.label}, ${play('rowDrawer')}`
+          : `back to the row: focus ${home.focus + 1}/${home.count}, ${play('rowDrawer')}`;
       }
       case 'confirm':
-        return home.zone === 'drawer' ? openDrawer(home.drawer, 'press') : start(home.focus, 'press');
+        if (home.zone === 'drawer') return openDrawer(home.drawer, 'press');
+        // B-14: A does nothing on an empty slot (its "A OK" prompt is dimmed).
+        if (home.focus >= games.length) return 'empty slot: A does nothing';
+        return start(home.focus, 'press');
+      case 'options': {
+        // B-14: "+ Options" on a game; the game's options come in T4.
+        if (home.zone !== 'row' || home.focus >= games.length) return 'options: nothing here';
+        toast = 'Coming in a later stage';
+        if (toastTimer) clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => {
+          toast = null;
+          toastTimer = null;
+        }, 2400);
+        core?.log('info', `options for "${games[home.focus]?.name ?? ''}": they come in T4; toast "Coming in a later stage"`);
+        return `options: toast, ${play('error')}`;
+      }
       case 'back':
         return 'home: nothing to go back to';
     }
@@ -265,7 +292,7 @@
       toastTimer = null;
     }, 2400);
     core?.log('info', `drawer: ${item.label} (${how}): its screen comes in ${item.stage}; toast "Coming in a later stage"`);
-    return `drawer ${item.label}: toast, ${play('select')}`;
+    return `drawer ${item.label}: toast, ${play('error')}`;
   }
 
   function onDrawerHover(index: number | null) {
@@ -287,7 +314,7 @@
     const g = games[index];
     if (!g) return 'nothing to start';
     pressFeedback(index);
-    const s = play('select');
+    const s = play('confirm');
     core?.log('info', `start requested: "${g.name}" (${how}); launching comes in T1.3`);
     return `start "${g.name}", ${s}`;
   }
@@ -315,7 +342,7 @@
 
   /** A click on a dialog button: logged with the action it activated (alpha.2 QA-5). */
   function onChoose(accept: boolean) {
-    core?.log('info', `input click "${accept ? 'Copy' : "Don't copy"}" (mouse) -> action ${accept ? 'copy' : 'dont-copy'}, ${play('select')}`);
+    core?.log('info', `input click "${accept ? 'Copy' : "Don't copy"}" (mouse) -> action ${accept ? 'copy' : 'dont-copy'}, ${play('confirm')}`);
     const [next, effect] = choose(flow, accept);
     flow = next;
     applyEffect(effect);
@@ -338,7 +365,7 @@
     home = next;
     perf.action(`click tile ${index + 1} "${g?.name ?? ''}" (${result})`);
     if (result === 'select') {
-      core?.log('info', `input click tile ${index + 1} "${g?.name ?? ''}" (mouse) -> select (first click), ${play('move')}`);
+      core?.log('info', `input click tile ${index + 1} "${g?.name ?? ''}" (mouse) -> select (first click), ${play('rowMove')}`);
     } else {
       core?.log('info', `input click tile ${index + 1} "${g?.name ?? ''}" (mouse) -> ${start(index, 'second click')}`);
     }
@@ -703,6 +730,9 @@
     {onDrawerHover}
     {onDrawerClick}
     {drawerPressed}
+    {bump}
+    scale={(info?.interfaceScale ?? 100) / 100}
+    extras={info?.extras ?? []}
   />{/if}
   {#if toast && phase === 'home'}
     <div class="toast" role="status" data-testid="toast">{toast}</div>
@@ -713,7 +743,7 @@
       {flow}
       {onChoose}
       onClose={() => {
-        core?.log('info', `input click "OK" (mouse) -> action close, ${play('select')}`);
+        core?.log('info', `input click "OK" (mouse) -> action close, ${play('confirm')}`);
         flow = { phase: 'hidden' };
       }}
     />

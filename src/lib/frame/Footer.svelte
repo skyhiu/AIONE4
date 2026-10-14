@@ -28,15 +28,13 @@
   </div>
   <div class="prompts" data-testid="footer-prompts" data-device={device}>
     {#each prompts as p (p.button + p.label)}
-      <span class="prompt" data-testid="prompt-{p.button}">
-        <span
-          class="glyph"
-          data-glyph={GLYPHS[device][p.button].file}
-          style:--glyph={`url(${JSON.stringify(GLYPHS[device][p.button].url)})`}
-          aria-hidden="true"
-        ></span>
-        <span class="label">{p.label}</span>
-      </span>
+      {@const glyph = GLYPHS[device][p.button]}
+      {#if glyph}
+        <span class="prompt" class:dimmed={p.dimmed} data-testid="prompt-{p.button}" data-dimmed={p.dimmed === true}>
+          <span class="glyph" data-glyph={glyph.file} style:--glyph={`url(${JSON.stringify(glyph.url)})`} aria-hidden="true"></span>
+          <span class="label">{p.label}</span>
+        </span>
+      {/if}
     {/each}
   </div>
 </footer>
@@ -82,6 +80,10 @@
     display: flex;
     align-items: center;
     gap: var(--space-6);
+  }
+  /* B-14: a dimmed prompt in the muted text colour (still ≥ 4.5:1, A8). */
+  .prompt.dimmed {
+    color: var(--color-text-muted);
   }
   .prompt {
     display: inline-flex;

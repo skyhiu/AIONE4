@@ -188,3 +188,27 @@ in. Before Home, the window and the page are black (#000000), never grey or whit
 ## Effects
 None in the app: no blur, shadow or filter on Home. The dialog keeps its one shadow from T0. The
 Boot Up previews use a blur for the final glow; in the app it becomes a pre-rendered image (A7).
+
+## The measured Switch Home (B-14, alpha.9) — current values
+These supersede earlier entries above where they differ (design px at 1080 p; Interface Scale
+scales text; tiles follow the window only).
+- **Row:** tiles 398, gap 12, first at 155, top at 309; the ring 7 px directly around the art (no
+  gap), jumping instantly; pulse 1.0 s from the bright end (light #FD007E → #D9006C, dark #FF69B4 →
+  #FF46A2); the row slides 170 ms, cubic-bezier(0.16, 1, 0.3, 1).
+- **Title:** 3.17 rem (capitals about 37 px), baseline at 281 (21 above the ring), centred on the
+  tile; within 3 % screen margins. Long titles: a window 1.8 × (398 + 14) px centred on the tile; the
+  text holds 1.0 s, scrolls left at 90 px/s (scaled with the title size) and repeats after a gap of
+  4 cap heights; clipped at the window. Measured without layout reads (canvas text width).
+- **Empty slots:** after the last game, #F4F4F4 (light) / #363636 (dark) with a hairline; focusable
+  but the last (cut by the screen edge); no title; "A OK" dimmed (muted colour, ≥ 4.5:1).
+- **Drawer:** discs 110 px, 133 centre to centre, growing at half rate with Interface Scale (so the
+  drawer fits at 150 %); the ring 10 px outside (7 px); icons in palette colours (light: #B5005A,
+  #D9006C, #900048, #FD007E, #6C0036, #AF5087; dark: tints); labels 2.14 rem (capitals about 25 px).
+- **Edge bumps:** only the ring moves (WAAPI, transform): horizontal 15 px, back 6 px, 200 ms;
+  vertical 12 px, back 4 px, 300 ms; segments eased, overall linear; once per held press.
+- **Footer prompts:** a game "+ Options" (pad Menu) and "A Start"; the drawer "A OK"; an empty
+  slot "A OK" dimmed. The keyboard has no Options key yet.
+- **Sounds:** see `docs/sound/SOUND_MAPPING.md` (B-1 rev. q).
+- **B-15 extras (off by default):** `press` (the ring squeezes to 97 % on A, 120 ms), `titlefade`
+  (the title fades in, 120 ms), `labelfade` (the drawer label fades in, 120 ms).
+

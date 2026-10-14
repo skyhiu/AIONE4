@@ -66,6 +66,11 @@ test.describe('T1.1 Home (mocked core)', () => {
       return {
         index: i,
         titleLeft: r?.left ?? -1,
+        titleCentre: r ? r.left + r.width / 2 : -1,
+        tileCentre: (() => {
+          const b = tile?.getBoundingClientRect();
+          return b ? b.left + b.width / 2 : -1;
+        })(),
         titleRight: r?.right ?? -1,
         tileLeft: tile?.getBoundingClientRect().left ?? -1,
         shifted: row?.dataset['shifted'] === 'true',
@@ -106,7 +111,11 @@ test.describe('T1.1 Home (mocked core)', () => {
           const label = await page.getByTestId('prompt-confirm').locator('.label').evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
           expect(label).toBeCloseTo(28 * px * (scale / 100), 0);
           expect(m.clockSize).toBeCloseTo(25 * px * (1 + (scale / 100 - 1) / 2), 0);
-          expect((await page.getByTestId('tile').first().boundingBox())?.width ?? 0).toBeCloseTo(384 * px, 0);
+          // B-14: tiles 398 square, the first 155 from the left, their top at 309 (ring top 302).
+          const firstTile = await page.getByTestId('tile').first().boundingBox();
+          expect(firstTile?.width ?? 0).toBeCloseTo(398 * px, 0);
+          expect(firstTile?.x ?? 0).toBeCloseTo(155 * px, 0);
+          expect(firstTile?.y ?? 0).toBeCloseTo(309 * px, 0);
 
           // B-8 (rev. o): just like Switch, the title alone (no ▼, no icon), in the accent text colour.
           await expect(page.getByTestId('title-arrow')).toHaveCount(0);
@@ -136,7 +145,9 @@ test.describe('T1.1 Home (mocked core)', () => {
           // Focus on the first tile: the title's left edge = the tile's left edge.
           let t = await titleVsTile(page);
           expect(t.index).toBe(0);
-          expect(Math.abs(t.titleLeft - t.tileLeft)).toBeLessThan(1.5);
+          // B-8 (rev. p): centred on the tile, unless shifted to stay on screen.
+          if (!t.shifted) expect(Math.abs(t.titleCentre - t.tileCentre)).toBeLessThan(1.5);
+          else expect(t.titleLeft).toBeGreaterThanOrEqual(vp.w * 0.03 - 1);
           await shot(page, `t1-home-${vp.w}x${vp.h}-${scale}-${preset}-first`);
 
           // A middle tile, which is also the game without an icon file (B-13: its wide picture
@@ -145,7 +156,7 @@ test.describe('T1.1 Home (mocked core)', () => {
           await expect(page.getByTestId('selected-title')).toHaveText('Moss Kingdom');
           t = await titleVsTile(page);
           expect(t.index).toBe(3);
-          expect(Math.abs(t.titleLeft - t.tileLeft)).toBeLessThan(1.5);
+          expect(Math.abs(t.titleCentre - t.tileCentre)).toBeLessThan(1.5);
           expect(t.shifted).toBe(false);
           await shot(page, `t1-home-${vp.w}x${vp.h}-${scale}-${preset}-middle-no-icon`);
 
@@ -154,8 +165,8 @@ test.describe('T1.1 Home (mocked core)', () => {
           await expect(page.getByTestId('selected-title')).toContainText('The Long Corridor');
           t = await titleVsTile(page);
           await expect(page.getByTestId('selected-title-text')).toHaveAttribute('data-moving', 'true');
-          expect(t.titleRight).toBeLessThanOrEqual(t.vw * 0.95 + 1);
-          expect(t.titleLeft).toBeGreaterThanOrEqual(160 * px - 1);
+          expect(t.titleRight).toBeLessThanOrEqual(t.vw * 0.97 + 1);
+          expect(t.titleLeft).toBeGreaterThanOrEqual(vp.w * 0.03 - 1);
           await shot(page, `t1-home-${vp.w}x${vp.h}-${scale}-${preset}-long-title`);
 
           // The last tile: the title stays on screen (shifted left when it would run past the margin).
@@ -163,9 +174,9 @@ test.describe('T1.1 Home (mocked core)', () => {
           await expect(page.getByTestId('selected-title')).toHaveText('Zephyr Line Express');
           t = await titleVsTile(page);
           expect(t.index).toBe(9);
-          expect(t.titleRight).toBeLessThanOrEqual(t.vw * 0.95 + 1);
-          if (!t.shifted) expect(Math.abs(t.titleLeft - t.tileLeft)).toBeLessThan(1.5);
-          else expect(t.titleLeft).toBeLessThan(t.tileLeft);
+          expect(t.titleRight).toBeLessThanOrEqual(t.vw * 0.97 + 1);
+          if (!t.shifted) expect(Math.abs(t.titleCentre - t.tileCentre)).toBeLessThan(1.5);
+          else expect(t.titleCentre).toBeLessThan(t.tileCentre);
           await shot(page, `t1-home-${vp.w}x${vp.h}-${scale}-${preset}-last`);
 
           // T1.2: the drawer. Down: the focus in the drawer (one active context): no game title,
@@ -192,7 +203,8 @@ test.describe('T1.1 Home (mocked core)', () => {
           expect(geo.l?.right ?? 1e9).toBeLessThanOrEqual(geo.vw);
           expect(geo.l?.bottom ?? 1e9).toBeLessThanOrEqual(geo.f?.top ?? 0);
           expect(geo.b?.top ?? 0).toBeGreaterThan(geo.row?.bottom ?? 1e9);
-          expect(geo.b?.width ?? 0).toBeCloseTo(108 * px * (scale / 100), 0);
+          // B-14: 110 px at 100 %; the discs grow at half rate with Interface Scale (to fit).
+          expect(geo.b?.width ?? 0).toBeCloseTo(110 * px * (1 + (scale / 100 - 1) / 2), 0);
           await shot(page, `t1-home-${vp.w}x${vp.h}-${scale}-${preset}-drawer`);
         });
       }
@@ -243,16 +255,19 @@ test.describe('T1.1 Home (mocked core)', () => {
     // Repeats move one tile each.
     await pad(page, 'DPadRight');
     for (let i = 0; i < 20; i++) await pad(page, 'DPadRight', 'repeat');
-    expect(await focusIndex(page)).toBe(9);
+    // B-14: the row ends after its empty slot (index 10); the last game is index 9.
+    expect(await focusIndex(page)).toBe(10);
+    await pad(page, 'DPadLeft');
     await expect(page.getByTestId('selected-title')).toHaveText('Zephyr Line Express');
     await page.waitForTimeout(400);
     await shot(page, 't1-home-focus-last');
     const l = await logs(page);
-    expect(l.some((x) => x.startsWith('info: input down DPadLeft (controller 1 seq 6) -> action left, end of row, no sound, core → UI '))).toBe(true);
+    expect(l.some((x) => x.startsWith('info: input down DPadLeft (controller 1 seq 6) -> action left, end of row, bump left, sound edgeBump, core → UI '))).toBe(true);
     expect(l.filter((x) => x.includes('-> action right, focus 10/10')).length).toBe(1);
+    expect(l.filter((x) => x.includes('-> action right, focus 11/10')).length).toBe(1); // the empty slot
     // No line says a move happened twice for one event: every acting line names one focus.
     const moves = l.filter((x) => /action (left|right), focus/.test(x));
-    expect(moves.length).toBe(3 + 3 + 9);
+    expect(moves.length).toBe(3 + 3 + 10 + 1);
   });
 
   test('the view keeps the focused tile in view; the row moves by transform only (L-16)', async ({ page }) => {
@@ -264,7 +279,7 @@ test.describe('T1.1 Home (mocked core)', () => {
     const box = await page.locator('.tile.focused').boundingBox();
     expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(1920);
     const track = await page.locator('.track').evaluate((el) => getComputedStyle(el).transform);
-    expect(track).toMatch(/^matrix\(1, 0, 0, 1, -808(\.\d+)?, 0\)$/);
+    expect(track).toMatch(/^matrix\(1, 0, 0, 1, -820(\.\d+)?, 0\)$/);
     // Every running animation changes only transform or opacity (A7).
     const props = await page.evaluate(() =>
       document.getAnimations().flatMap((a) => {
@@ -329,14 +344,15 @@ test.describe('T1.1 Home (mocked core)', () => {
     await expect(page.locator('.tile.focused')).toHaveAttribute('data-index', '3');
   });
 
-  test('A / Enter start the focused game once; sounds: one per action, repeats paced', async ({ page }) => {
+  test('A / Enter start the focused game once; one sound per action; the row move on every repeat', async ({ page }) => {
     await open(page);
     await pad(page, 'A');
     await page.keyboard.press('Enter');
     let l = await logs(page);
     expect(l.filter((x) => x.startsWith('info: start requested: "Amber Lighthouse" (press)'))).toHaveLength(2);
     expect(l.filter((x) => x.includes('-> action confirm, start "Amber Lighthouse"'))).toHaveLength(2);
-    // Holding a direction: the press sounds; repeats every 90 ms sound at most every 180 ms.
+    expect(l.filter((x) => x.includes('-> action confirm, start "Amber Lighthouse"') && x.includes('sound confirm'))).toHaveLength(2);
+    // B-1 (rev. p): holding a direction, the row move sounds on every move, every repeat included.
     await pad(page, 'DPadRight');
     for (let i = 0; i < 6; i++) {
       await page.waitForTimeout(90);
@@ -344,15 +360,13 @@ test.describe('T1.1 Home (mocked core)', () => {
     }
     l = await logs(page);
     const moveLines = l.filter((x) => x.includes('DPadRight'));
-    const played = moveLines.filter((x) => x.includes(', sound move')).length;
-    const skipped = moveLines.filter((x) => x.includes(', sound skipped (repeat pacing)')).length;
-    console.warn(`move sounds: ${played} played, ${skipped} skipped of ${moveLines.length} moves`);
-    expect(played + skipped).toBe(7);
-    expect(played).toBeGreaterThanOrEqual(3);
-    expect(played).toBeLessThanOrEqual(5);
+    const played = moveLines.filter((x) => x.includes(', sound rowMove')).length;
+    console.warn(`row move sounds: ${played} of ${moveLines.length} moves`);
+    expect(moveLines).toHaveLength(7);
+    expect(played).toBe(7);
     // Every acting line names at most one sound.
-    expect(l.every((x) => (x.match(/sound (move|select|back)/g) ?? []).length <= 1)).toBe(true);
-    expect(l.some((x) => x.startsWith('info: menu sounds ready: 3 sounds'))).toBe(true);
+    expect(l.every((x) => (x.match(/sound (rowMove|drawerMove|rowDrawer|edgeBump|confirm|back|error)/g) ?? []).length <= 1)).toBe(true);
+    expect(l.some((x) => x.startsWith('info: menu sounds ready: 7 sounds'))).toBe(true);
   });
 
   test('D-006: an arrow key repeats at 400 ms then every 90 ms; Enter and Alt never repeat; releases logged', async ({ page }) => {
@@ -419,7 +433,7 @@ test.describe('T1.1 Home (mocked core)', () => {
     await pad(page, 'DPadRight');
     expect(await focusIndex(page)).toBe(0);
     const l = await logs(page);
-    expect(l.some((x) => x.includes('input down DPadRight') && x.includes('dialog focus moved, sound move'))).toBe(true);
+    expect(l.some((x) => x.includes('input down DPadRight') && x.includes('dialog focus moved, sound rowMove'))).toBe(true);
     await shot(page, 't1-home-under-copy-dialog');
     await pad(page, 'B');
     await expect(page.getByTestId('copy-dialog')).toHaveCount(0);
@@ -477,12 +491,12 @@ test.describe('T1.1 Home (mocked core)', () => {
     expect(l).toContain('info: ring back on tile 3 (after mouse)');
     const first = l.find((x) => x.includes('input down DPadRight'));
     expect(first).toContain('-> ring back on tile 3 (after mouse), no move, no sound');
-    expect(l.filter((x) => x.includes('sound move'))).toHaveLength(0);
+    expect(l.filter((x) => x.includes('sound rowMove'))).toHaveLength(0);
     // The next press moves, with its sound.
     await pad(page, 'DPadRight');
     await expect(page.locator('.tile.focused')).toHaveAttribute('data-index', '3');
     l = await logs(page);
-    expect(l.filter((x) => x.includes('action right, focus 4/10') && x.includes('sound move'))).toHaveLength(1);
+    expect(l.filter((x) => x.includes('action right, focus 4/10') && x.includes('sound rowMove'))).toHaveLength(1);
     // The same for the keyboard after a click.
     await tile(1).click();
     await page.mouse.move(800, 500, { steps: 4 });
@@ -591,7 +605,8 @@ test.describe('T1.1 Home (mocked core)', () => {
 
   test('B-9 (rev. m) / D-011: the ring pulses between two shades, no glow; ≥ 3:1 at both ends', async ({ page }) => {
     await page.setViewportSize({ width: 1920, height: 1080 });
-    const expected = { light: [[253, 0, 126], [217, 0, 108]], dark: [[255, 70, 162], [255, 105, 180]] } as const;
+    // B-9 (rev. p): the pulse starts at the bright end: light #FD007E then #D9006C; dark #FF69B4 then #FF46A2.
+    const expected = { light: [[253, 0, 126], [217, 0, 108]], dark: [[255, 105, 180], [255, 70, 162]] } as const;
     for (const preset of ['light', 'dark'] as const) {
       await open(page, `preset=${preset}`);
       const anims = await page.evaluate(() =>
@@ -601,12 +616,12 @@ test.describe('T1.1 Home (mocked core)', () => {
           dir: (a.effect as KeyframeEffect).getTiming().direction,
         })),
       );
-      const pulse = anims.find((a) => a.name.endsWith('ring-pulse'));
+      const pulse = anims.find((a) => a.name.includes('ring-pulse'));
       expect(pulse).toBeTruthy();
       expect(anims.some((a) => a.name.includes('glow'))).toBe(false);
       // 0.7 s each way, alternating: 1.4 s per cycle, eased.
-      expect((pulse?.duration ?? 0) * 2).toBeGreaterThanOrEqual(1200);
-      expect((pulse?.duration ?? 0) * 2).toBeLessThanOrEqual(1500);
+      // B-9 (rev. p): one cycle every 1.0 s.
+      expect((pulse?.duration ?? 0) * 2).toBe(1000);
       expect(pulse?.dir).toBe('alternate');
       // CSS applies the easing per keyframe: read it from the ring itself.
       expect(await page.evaluate(() => getComputedStyle(document.querySelector('.tile.focused .ring-alt') as Element).animationTimingFunction)).toBe('ease-in-out');
@@ -614,7 +629,7 @@ test.describe('T1.1 Home (mocked core)', () => {
       for (const [i, end] of (['start', 'end'] as const).entries()) {
         await page.evaluate((e) => {
           for (const a of document.getAnimations()) {
-            if (!(a as CSSAnimation).animationName.endsWith('ring-pulse')) continue;
+            if (!(a as CSSAnimation).animationName.includes('ring-pulse')) continue;
             const t = (a.effect as KeyframeEffect).getTiming();
             a.pause();
             a.currentTime = Number(t.delay ?? 0) + (e === 'start' ? 0 : Number(t.duration) - 0.01);
@@ -624,7 +639,7 @@ test.describe('T1.1 Home (mocked core)', () => {
         const ring = await page.locator('.tile.focused .ring-line').first().boundingBox();
         const img = decodePng(await page.screenshot());
         const strokeY = (ring?.y ?? 0) + 3;
-        const bg = pixel(img, 1900, 700);
+        const bg = pixel(img, 1900, 160); // plain background (the larger tiles now reach 1900, 700)
         const c = pixel(img, (ring?.x ?? 0) + (ring?.width ?? 0) / 2, strokeY);
         console.warn(`ring ${preset} ${end}: ${JSON.stringify(c)} vs bg ${JSON.stringify(bg)}: ${contrast(c, bg).toFixed(2)}`);
         expect(contrast(c, bg)).toBeGreaterThanOrEqual(3);
@@ -654,7 +669,7 @@ test.describe('T1.1 Home (mocked core)', () => {
     // (no icon before it) and ends inside the right margin.
     expect(b.textLeft).toBeCloseTo(a.textLeft, 1);
     expect(Math.abs(b.textLeft - b.rowLeft)).toBeLessThan(1);
-    expect(b.textRight).toBeLessThanOrEqual(b.vw * 0.95 + 1);
+    expect(b.textRight).toBeLessThanOrEqual(b.vw * 0.97 + 1);
     expect(await page.getByTestId('selected-title').evaluate((el) => getComputedStyle(el).overflow)).toBe('hidden');
     await shot(page, 't1-home-marquee-no-arrow');
   });
@@ -694,10 +709,12 @@ test.describe('T1.1 Home (mocked core)', () => {
     let l = (await logs(page)).slice(marker);
     const lines = l.filter((x) => x.startsWith('info: input down'));
     expect(lines).toHaveLength(9); // one line per press
-    expect(lines.filter((x) => x.includes('sound move'))).toHaveLength(6); // down, right, right, left, left, up (the third left stops)
-    expect(lines.some((x) => x.includes('end of drawer, no sound'))).toBe(true);
-    expect(lines.some((x) => x.includes('nothing below the drawer, no sound'))).toBe(true);
-    expect(lines.some((x) => x.includes('drawer Search: toast, sound select'))).toBe(true);
+    // B-1 (rev. q): sounds by place: the change of place, the drawer's own tick, the edge bump.
+    expect(lines.filter((x) => x.includes('sound rowDrawer'))).toHaveLength(2); // down, up
+    expect(lines.filter((x) => x.includes('sound drawerMove'))).toHaveLength(4); // right, right, left, left
+    expect(lines.some((x) => x.includes('end of drawer, bump left, sound edgeBump'))).toBe(true);
+    expect(lines.some((x) => x.includes('nothing below the drawer, bump down, sound edgeBump'))).toBe(true);
+    expect(lines.some((x) => x.includes('drawer Search: toast, sound error'))).toBe(true);
     expect(l.some((x) => x.includes('drawer: Search (press): its screen comes in T4'))).toBe(true);
     // Mouse: hover shows only an outline and the label; a click opens at once; nothing stays.
     const btn = (i: number) => page.locator(`[data-testid="drawer-button"][data-index="${i}"]`);
@@ -711,7 +728,7 @@ test.describe('T1.1 Home (mocked core)', () => {
     await btn(4).click();
     await expect(page.getByTestId('toast')).toBeVisible();
     l = await logs(page);
-    expect(l.some((x) => x.includes('input click (mouse) -> drawer Settings: toast, sound select'))).toBe(true);
+    expect(l.some((x) => x.includes('input click (mouse) -> drawer Settings: toast, sound error'))).toBe(true);
     // Away along the bottom (the path crosses no tile or button: hovering a tile would rightly
     // make the row the remembered place, A7).
     const b4 = (await btn(4).boundingBox()) ?? { x: 0, y: 0, width: 0, height: 0 };
@@ -784,5 +801,84 @@ test.describe('T1.1 Home (mocked core)', () => {
     expect((await logs(page)).some((x) => x.includes('icons stay hidden rather than shown as text'))).toBe(true);
     // The title text itself is still shown.
     await expect(page.getByTestId('selected-title')).toHaveText('Amber Lighthouse');
+  });
+
+  test('B-14 (rev. q) edge bumps: only the ring springs and settles; one bump per hold; the sound', async ({ page }) => {
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    await open(page);
+    // Watch one bump: the ring's offset at its furthest point, the tile before / during, and
+    // whether everything has settled 400 ms after the press.
+    const watch = async (ringSel: string, holderSel: string, press: () => Promise<unknown>, shotName: string) => {
+      const before = await page.locator(holderSel).boundingBox();
+      await press();
+      const mid = await page.evaluate((sel) => {
+        const ring = document.querySelector(sel) as HTMLElement | null;
+        const a = ring?.getAnimations().find((x) => (x.effect as KeyframeEffect).getKeyframes().some((k) => String(k['transform'] ?? '').includes('translate')));
+        if (!ring || !a) return null;
+        a.pause();
+        a.currentTime = Number((a.effect as KeyframeEffect).getTiming().duration) * 0.3; // the furthest point
+        const r = ring.getBoundingClientRect();
+        return { x: r.x, y: r.y, dur: Number((a.effect as KeyframeEffect).getTiming().duration) };
+      }, ringSel);
+      const during = await page.locator(holderSel).boundingBox();
+      await shot(page, shotName);
+      await page.evaluate((sel) => document.querySelector(sel)?.getAnimations().forEach((a) => a.play()), ringSel);
+      await page.waitForTimeout(400);
+      const settled = await page.evaluate((sel) => {
+        const ring = document.querySelector(sel) as HTMLElement | null;
+        return (ring?.getAnimations() ?? []).filter((x) => (x.effect as KeyframeEffect).getKeyframes().some((k) => String(k['transform'] ?? '').includes('translate'))).length;
+      }, ringSel);
+      const rest = await page.evaluate((sel) => (document.querySelector(sel) as HTMLElement).getBoundingClientRect(), ringSel);
+      return { before, during, mid, settled, rest };
+    };
+    // Row start: Left on the first tile.
+    const r = await watch('.tile.focused .ring', '.tile.focused', () => pad(page, 'DPadLeft'), 't14-bump-row-left-mid');
+    expect(r.mid).not.toBeNull();
+    expect((r.mid?.dur ?? 999)).toBeLessThanOrEqual(400);
+    expect(r.during).toEqual(r.before); // the tile stays still
+    expect((r.rest.x ?? 0) - (r.mid?.x ?? 0)).toBeGreaterThan(10); // the ring went left (about 15 px)
+    expect(r.settled).toBe(0); // settled within 400 ms
+    // Held at the edge: the repeats don't bump again.
+    for (let i = 0; i < 4; i++) await pad(page, 'DPadLeft', 'repeat');
+    let l = await logs(page);
+    expect(l.filter((x) => x.includes('end of row, bump left, sound edgeBump'))).toHaveLength(1);
+    expect(l.filter((x) => x.includes('end of row, held: no bump'))).toHaveLength(4);
+    // Regression (found in this build): a normal move after a bump must not replay the bump.
+    await pad(page, 'DPadRight');
+    const replays = await page.evaluate(() =>
+      [...document.querySelectorAll('.ring, .dring')].flatMap((e) => e.getAnimations()).filter((a) => (a.effect as KeyframeEffect).getKeyframes().some((k) => String(k['transform'] ?? '').includes('translate'))).length,
+    );
+    expect(replays).toBe(0);
+    await pad(page, 'DPadLeft');
+    // Up from the row: nothing above.
+    const u = await watch('.tile.focused .ring', '.tile.focused', () => pad(page, 'DPadUp'), 't14-bump-row-up-mid');
+    expect((u.rest.y ?? 0) - (u.mid?.y ?? 0)).toBeGreaterThan(8); // up about 12 px
+    expect(u.during).toEqual(u.before);
+    // The drawer's right end, then down where nothing is below.
+    await pad(page, 'DPadDown');
+    for (let i = 0; i < 5; i++) await pad(page, 'DPadRight');
+    const d = await watch('.dbtn.focused .dring', '.dbtn.focused', () => pad(page, 'DPadRight'), 't14-bump-drawer-right-mid');
+    expect((d.mid?.x ?? 0) - (d.rest.x ?? 0)).toBeGreaterThan(10);
+    expect(d.during).toEqual(d.before); // the button stays still
+    expect(d.settled).toBe(0);
+    const dn = await watch('.dbtn.focused .dring', '.dbtn.focused', () => pad(page, 'DPadDown'), 't14-bump-drawer-down-mid');
+    expect((dn.mid?.y ?? 0) - (dn.rest.y ?? 0)).toBeGreaterThan(8);
+    l = await logs(page);
+    expect(l.filter((x) => x.includes('bump') && x.includes('sound edgeBump'))).toHaveLength(4);
+  });
+
+  test('B-14: empty slots after the last game; no title there; A does nothing; "A OK" dimmed', async ({ page }) => {
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    await open(page);
+    expect(await page.getByTestId('empty-slot').count()).toBe(2);
+    for (let i = 0; i < 12; i++) await page.keyboard.press('ArrowRight');
+    await expect(page.locator('.tile.focused')).toHaveAttribute('data-testid', 'empty-slot');
+    await expect(page.getByTestId('selected-title-row')).toHaveCount(0);
+    await expect(page.getByTestId('prompt-confirm')).toHaveAttribute('data-dimmed', 'true');
+    await expect(page.getByTestId('prompt-options')).toHaveCount(0);
+    await page.keyboard.press('Enter');
+    expect((await logs(page)).some((x) => x.includes('empty slot: A does nothing'))).toBe(true);
+    expect(await contrastOf(page, '[data-testid="prompt-confirm"] .label')).toBeGreaterThanOrEqual(4.5);
+    await shot(page, 't14-empty-slot-focused');
   });
 });

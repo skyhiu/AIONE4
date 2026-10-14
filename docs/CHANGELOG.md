@@ -1,5 +1,26 @@
 # Changelog
 
+## 4.0.0-alpha.9 — the measured Switch Home (B-14, rev. p / q), the full sound set (B-1), B-15
+
+- **B-14 (measured from the user's Switch recording):** tiles 398 px, 12 apart, the first 155 from
+  the left, their top at 309; the ring 7 px directly around the art, jumping instantly; the row
+  slides one tile in 170 ms (strong ease-out); the title centred on the tile (capitals about 37 px,
+  baseline 21 px above the ring), long titles in a centred window (1.8 × the ring), holding 1.0 s,
+  scrolling at 90 px/s and repeating; empty slots after the last game (no title, A does nothing,
+  "A OK" dimmed); the drawer 110 px, 133 apart, the ring 10 px outside, icons in palette colours,
+  labels about 25 px caps; footer "+ Options" / "A Start" (a game), "A OK" (drawer).
+- **Edge bumps (rev. q):** a blocked press makes only the ring spring toward it and back (about
+  15 px at the drawer's ends in 200 ms; about 12 px up / down in 300 ms), with the edge-bump sound;
+  once per held press.
+- **B-9 (rev. p):** the ring's pulse one cycle per 1.0 s, restarting at the bright end on every move.
+- **B-1 (rev. q):** AIONE's sound set by function and place, one family in A major from FilmCow:
+  row move (every repeat, no pacing), drawer move, row ↔ drawer, edge bump, confirm, back, error
+  wired; launch, toggle on / off, open a destination, Home proposed; listening page with 28 sounds.
+- **B-15:** proposed extras behind `--extras=press,titlefade,labelfade` (off by default).
+- **Options:** the pad's Menu (≡) on a game shows "Coming in a later stage" (options come in T4).
+- **Fixed while building:** a bump replayed on later moves; a per-move layout read in the title
+  (a 62–65 ms long task in 1 of 3 runs; 0 of 5 after).
+
 ## 4.0.0-alpha.8 — T1.2 part 2: the drawer; D-013 to D-016; title, footer mark and letters (rev. o)
 
 - **The drawer** (Switch-style, in the palette): six round buttons under the game row: Search,

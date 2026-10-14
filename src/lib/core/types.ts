@@ -12,6 +12,8 @@ export interface AppInfo {
   fromAutostart: boolean;
   /** `--boot=default`: this run shows Window B even when a custom boot video exists. */
   bootDefault: boolean;
+  /** B-15: `--extras=press,titlefade,labelfade`: proposed extras for this run (off by default). */
+  extras: string[];
 }
 
 /** A custom boot video, copied once from the WPF copy into AIONE 4's `Boot` folder. */

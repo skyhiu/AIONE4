@@ -69,11 +69,13 @@ export function fromWheel(deltaY: number): InputEvent | null {
 }
 
 /** The actions Home and the dialogs use (T1.1). More come with the Quick Menu (T2). */
-export type UiAction = 'confirm' | 'back' | 'left' | 'right' | 'up' | 'down';
+export type UiAction = 'confirm' | 'back' | 'left' | 'right' | 'up' | 'down' | 'options';
 
 const ACTIONS: Record<InputSource, Record<string, UiAction>> = {
   controller: {
     A: 'confirm',
+    // B-14: Switch's "+ Options" is the pad's Menu button (≡).
+    Menu: 'options',
     B: 'back',
     DPadLeft: 'left',
     DPadRight: 'right',
@@ -103,7 +105,7 @@ export function toAction(ev: InputEvent): UiAction | null {
   const action = ACTIONS[ev.source][ev.control];
   if (!action) return null;
   // Confirm and back never repeat while held (one press, one action).
-  if (ev.kind === 'repeat' && (action === 'confirm' || action === 'back')) return null;
+  if (ev.kind === 'repeat' && (action === 'confirm' || action === 'back' || action === 'options')) return null;
   return action;
 }
 

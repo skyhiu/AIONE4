@@ -52,6 +52,7 @@ struct AppState {
     interface_scale: u32,
     from_autostart: bool,
     boot_default: bool,
+    extras: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -67,6 +68,8 @@ struct AppInfo {
     from_autostart: bool,
     /// `--boot=default`: show Window B even when a custom video exists (this run only).
     boot_default: bool,
+    /// B-15: `--extras=…` for this run.
+    extras: Vec<String>,
 }
 
 #[tauri::command]
@@ -80,6 +83,7 @@ fn app_info(state: tauri::State<'_, AppState>) -> AppInfo {
         interface_scale: state.interface_scale,
         from_autostart: state.from_autostart,
         boot_default: state.boot_default,
+        extras: state.extras.clone(),
     }
 }
 
@@ -527,6 +531,7 @@ pub fn run() {
         interface_scale: args.interface_scale.unwrap_or(100),
         from_autostart: args.from_autostart,
         boot_default: args.boot_default,
+        extras: args.extras.clone(),
     };
 
     let app = tauri::Builder::default()

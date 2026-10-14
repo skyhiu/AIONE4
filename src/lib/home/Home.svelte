@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   // Switch-style Home, still (T1.1): the status header, the game row with its focus ring, the
   // selected game's title, and the footer with prompts and branding. No drawer, background
   // video or launching yet (T1.2, T1.3); the drawer's space below the row is kept free so the
@@ -10,9 +11,9 @@
   import type { GameView, PcStatus } from '../core/types';
   import StatusHeader from '../frame/StatusHeader.svelte';
   import Footer from '../frame/Footer.svelte';
-  import Marquee from '../frame/Marquee.svelte';
   import type { GlyphDevice } from '../frame/glyphs';
-  import { DRAWER, titleIndex, type HomeState } from './model';
+  import { DRAWER, ROW, emptySlots, isEmptySlot, titleIndex, type HomeState } from './model';
+  import type { Prompt } from '../frame/glyphs';
 
   let {
     games,
@@ -32,6 +33,9 @@
     onDrawerHover = () => {},
     onDrawerClick = () => {},
     drawerPressed = null,
+    bump = null,
+    scale = 1,
+    extras = [],
     onClick,
   }: {
     games: GameView[];
@@ -55,63 +59,150 @@
     onDrawerClick?: (index: number) => void;
     /** The drawer button showing its press (squash-and-zoom), or null. */
     drawerPressed?: number | null;
+    /** B-14 (rev. q): the latest edge bump (direction, zone and a counter), or null. */
+    bump?: { dir: 'left' | 'right' | 'up' | 'down'; n: number; zone: 'row' | 'drawer' } | null;
+    /** Interface Scale as a factor (1 = 100 %), for the drawer's bump distance. */
+    scale?: number;
+    /** B-15: approved extras (none by default). */
+    extras?: string[];
   } = $props();
 
   let broken = $state(new Set<string>());
   let vw = $state(1920);
   let vh = $state(1080);
-  let titleEl: HTMLDivElement | undefined = $state();
-  /** The title box's own width, measured once per title / size change (never in a loop). */
+  let titleTrack: HTMLSpanElement | undefined = $state();
+  /** The title's natural width, measured once per title / size change (never in a loop). */
   let titleW = $state(0);
   /** No transition for the very first placement (it would slide in from the left). */
   let placed = $state(false);
   const shownTitle = $derived(suspended ? null : titleIndex(home, mode));
-  // Geometry in CSS px (design px × the window's height / 1080; see the design system).
+  // B-14 geometry in CSS px (design px × the window's height / 1080).
   const px = $derived(vh / 1080);
-  const rowStart = $derived(160 * px);
-  const rightEdge = $derived(vw * 0.95);
-  const maxTitleW = $derived(Math.max(0, rightEdge - rowStart));
-  const tileLeft = $derived(shownTitle === null ? rowStart : rowStart + (shownTitle - home.first) * 404 * px);
-  /** B-8: left-aligned with the tile; shifted left just enough to stay inside the margin. */
-  const titleX = $derived(Math.max(rowStart, Math.min(tileLeft, rightEdge - titleW)));
-  const shifted = $derived(titleX < tileLeft - 0.5);
+  const tileLeft = $derived(shownTitle === null ? ROW.left * px : (ROW.left + (shownTitle - home.first) * (ROW.tile + ROW.gap)) * px);
+  const tileCentre = $derived(tileLeft + (ROW.tile / 2) * px);
+  /** B-14: a long title's scroll window, centred on the tile, 1.8 × the ring's outer width. */
+  const windowW = $derived(1.8 * (ROW.tile + 14) * px);
+  const longTitle = $derived(titleW > windowW + 0.5);
+  const boxW = $derived(Math.min(titleW, windowW));
+  /** B-8 (rev. p): centred on the tile; near the screen's edges shifted just enough to stay on
+   *  screen (3 % margins). */
+  const titleX = $derived(Math.max(vw * 0.03, Math.min(tileCentre - boxW / 2, vw * 0.97 - boxW)));
+  const shifted = $derived(Math.abs(titleX - (tileCentre - boxW / 2)) > 0.5);
+  const empties = $derived(emptySlots(games.length, home.visible));
+  const onEmpty = $derived(home.zone === 'row' && isEmptySlot(home, home.focus));
+  const prompts = $derived<Prompt[]>(
+    loadState !== 'loaded' || suspended
+      ? []
+      : home.zone === 'drawer' && mode === 'pad'
+        ? [{ button: 'confirm', label: 'OK' }]
+        : onEmpty && mode === 'pad'
+          ? [{ button: 'confirm', label: 'OK', dimmed: true }]
+          : [
+              ...(device === 'keyboard' ? [] : [{ button: 'options', label: 'Options' } as Prompt]),
+              { button: 'confirm', label: 'Start' },
+            ],
+  );
 
+  // The title's natural width, measured with the canvas text API (no layout read at all, so a
+  // move never forces a layout: L-16, D-007); recomputed when the title, size or scale changes.
+  const measureCtx = typeof document === 'undefined' ? null : document.createElement('canvas').getContext('2d');
   $effect(() => {
-    // Re-measure when the title, the window or the scale changes (one read, no loop: L-16).
-    void shownTitle;
-    void vw;
-    void vh;
-    const el = titleEl;
-    if (!el) return;
-    titleW = el.getBoundingClientRect().width;
+    const name = shownTitle === null ? '' : (games[shownTitle]?.name ?? '');
+    const font = 3.17 * 16 * px * scale; // --text-title: 3.17 rem, rem = 16 × the UI unit
+    if (!measureCtx || !name) return;
+    measureCtx.font = `400 ${font}px "M PLUS Rounded 1c"`;
+    titleW = measureCtx.measureText(name).width;
     if (!placed) requestAnimationFrame(() => (placed = true));
   });
+
+  // B-14: a long title holds 1.0 s at the window's left, scrolls left at 90 px/s (scaled), and
+  // repeats after a gap of 4 cap heights; by transform only (L-16), one animation at a time.
+  let loop: Animation | null = null;
+  $effect(() => {
+    loop?.cancel();
+    loop = null;
+    const el = titleTrack;
+    if (!el || !longTitle || shownTitle === null) return;
+    const font = untrack(() => 3.17 * 16 * px * scale);
+    const gap = 4 * 0.73 * font;
+    const speed = (90 * font) / 50.7; // 90 px/s at the measured 50.7 px title size
+    const dist = titleW + gap;
+    const hold = 1000;
+    const dur = hold + (dist / speed) * 1000;
+    loop = el.animate(
+      [
+        { transform: 'translateX(0)' },
+        { transform: 'translateX(0)', offset: hold / dur },
+        { transform: `translateX(${-dist}px)` },
+      ],
+      { duration: dur, iterations: Infinity, easing: 'linear' },
+    );
+    loop.id = 'marquee';
+  });
+
+  // B-14 (rev. q): the edge bump. Only the focus ring springs toward the pressed direction and
+  // back (the tile or button stays still); transform only (L-16).
+  // Runs only when a new bump arrives (its counter): it must never replay on later moves.
+  $effect(() => {
+    const b = bump;
+    if (!b) return;
+    untrack(() => playBump(b));
+  });
+  function playBump(b: { dir: 'left' | 'right' | 'up' | 'down'; n: number; zone: 'row' | 'drawer' }) {
+    if (suspended) return;
+    const bump = b;
+    const ring = document.querySelector<HTMLElement>(
+      bump.zone === 'drawer' ? '.dbtn.focused .dring' : '.tile.focused .ring',
+    );
+    if (!ring) return;
+    const ui = bump.zone === 'drawer' ? px * (1 + (scale - 1) / 2) : px;
+    const horizontal = bump.dir === 'left' || bump.dir === 'right';
+    const sign = bump.dir === 'left' || bump.dir === 'up' ? -1 : 1;
+    // Drawer ends: about 15 px out, about 6 px back, settled in about 200 ms. Up / down: about
+    // 12 px, about 4 px back, about 300 ms (measured frame by frame, rev. q).
+    const [out, back, dur] = horizontal ? [15, 6, 200] : [12, 4, 300];
+    const t = (v: number) => (horizontal ? `translateX(${sign * v * ui}px)` : `translateY(${sign * v * ui}px)`);
+    ring.dataset['bump'] = String(bump.n);
+    ring.animate(
+      [
+        { transform: t(0) },
+        { transform: t(out), offset: 0.3, easing: 'ease-in-out' },
+        { transform: t(-back), offset: 0.65, easing: 'ease-in-out' },
+        { transform: t(back * 0.25), offset: 0.85 },
+        { transform: t(0) },
+      ],
+      // Linear overall: each segment's own easing shapes the spring, so the furthest point is
+      // exactly at 30 % (an overall ease-out would bend the timing and soften the spring).
+      { duration: dur, easing: 'linear' },
+    );
+  }
 </script>
 
 <svelte:window bind:innerWidth={vw} bind:innerHeight={vh} />
 
-<section class="home" data-testid="home" data-owner="home" data-suspended={suspended} data-mode={mode}>
+<section class="home" data-extras={extras.join(' ')} data-testid="home" data-owner="home" data-suspended={suspended} data-mode={mode}>
   <StatusHeader {padConnected} {status} {fixedTime} {...hour12 === undefined ? {} : { hour12 }} />
 
   <div class="row" data-testid="game-row" data-first={home.first} data-focus={home.focus} data-count={games.length}>
     {#if loadState === 'loaded' && shownTitle !== null && games[shownTitle]}
       {@const tg = games[shownTitle]}
-      <!-- B-8 (rev. o): just like Switch, the title alone in the accent text colour, above the
-           selected tile from its left edge; moved by transform only; shifted left near the right
-           margin; a long title scrolls within its own space, clipped at both ends. -->
+      <!-- B-8 (rev. p): just like Switch, the title alone in the accent text colour, centred above
+           the selected tile; moved by transform only; shifted to stay on screen near the edges; a
+           long title scrolls in a window centred on the tile (B-14), clipped at its edges. -->
       <div
         class="title"
         class:placed
-        bind:this={titleEl}
         style:transform={`translateX(${titleX}px)`}
-        style:max-width={`${maxTitleW}px`}
+        style:width={`${boxW}px`}
         data-testid="selected-title-row"
         data-index={shownTitle}
         data-shifted={shifted}
         data-owner="home-title"
       >
         <span class="title-text" data-testid="selected-title"
-          ><Marquee text={tg.name} align="start" testid="selected-title-text" /></span
+          >{#key tg.id}<span class="ttrack" bind:this={titleTrack} data-testid="selected-title-text" data-moving={longTitle}
+              ><span class="tt">{tg.name}</span>{#if longTitle}<span class="tgap"></span><span class="tt" aria-hidden="true">{tg.name}</span>{/if}</span
+            >{/key}</span
         >
       </div>
     {/if}
@@ -161,6 +252,24 @@
 
           </div>
         {/each}
+        {#each Array.from({ length: empties }, (_, k) => games.length + k) as i (i)}
+          <!-- B-14: an empty slot (focusable but the last; no title; A does nothing). -->
+          <div
+            class="tile empty"
+            data-testid="empty-slot"
+            data-index={i}
+            class:focused={!suspended && mode === 'pad' && home.zone === 'row' && home.focus === i}
+            class:hovered={!suspended && mode === 'mouse' && home.hover === i}
+            onmouseenter={() => i < home.slots && onHover(i)}
+            onmouseleave={() => onHover(null)}
+            role="presentation"
+          >
+            <span class="ring" aria-hidden="true" data-owner="home-ring"
+              ><span class="ring-line"></span><span class="ring-line ring-alt"></span></span
+            >
+            <span class="hover-line" aria-hidden="true"></span>
+          </div>
+        {/each}
       </div>
     {:else if loadState === 'empty'}
       <div class="message" data-testid="home-empty">
@@ -198,7 +307,7 @@
             onmouseleave={() => onDrawerHover(null)}
             onclick={() => onDrawerClick(i)}
           >
-            <span class="icon dicon" style:--w={item.weight} aria-hidden="true">{item.icon}</span>
+            <span class="icon dicon" style:--w={item.weight} style:color={`var(--drawer-${i + 1})`} aria-hidden="true">{item.icon}</span>
             <span class="dring" aria-hidden="true" data-owner="drawer-ring"
               ><span class="dring-line"></span><span class="dring-line dring-alt"></span></span
             >
@@ -211,11 +320,7 @@
       {/each}
     </nav>
   {/if}
-  <Footer
-    prompts={loadState === 'loaded' && !suspended ? [{ button: 'confirm', label: home.zone === 'drawer' && mode === 'pad' ? 'OK' : 'Start' }] : []}
-    {device}
-    branding
-  />
+  <Footer {prompts} {device} branding />
 </section>
 
 <style>
@@ -232,25 +337,26 @@
     position: absolute;
     left: 0;
     right: 0;
-    top: calc(292 * var(--px) - 3.75rem);
-    height: calc(3.75rem + 384 * var(--px) + 16 * var(--px));
+    top: 0;
+    height: calc((309 + 398 + 16) * var(--px));
     overflow: clip;
   }
   .track {
     position: absolute;
-    left: calc(160 * var(--px));
-    top: 3.75rem;
+    left: calc(155 * var(--px));
+    top: calc(309 * var(--px));
     display: flex;
-    gap: calc(20 * var(--px));
-    transform: translateX(calc(var(--first) * -404 * var(--px)));
-    transition: transform var(--motion-row) var(--ease-out);
+    gap: calc(12 * var(--px));
+    transform: translateX(calc(var(--first) * -410 * var(--px)));
+    /* B-14: the row slides one tile in about 170 ms with a strong ease-out. */
+    transition: transform 170ms cubic-bezier(0.16, 1, 0.3, 1);
     will-change: transform;
   }
   .tile {
     position: relative;
     flex: none;
-    width: calc(384 * var(--px));
-    height: calc(384 * var(--px));
+    width: calc(398 * var(--px));
+    height: calc(398 * var(--px));
     outline: none;
     transition: transform var(--motion-release) var(--ease-out);
   }
@@ -290,29 +396,23 @@
     overflow-wrap: anywhere;
   }
 
-  /* Focus ring (pad mode): a teal ring with a gap, fading and settling in while the previous
-     one fades out at the same time (A5); then a steady blink of the ring only while idle. */
+  /* B-14 / B-9 (rev. p): the focus ring is 7 px, directly around the art (no gap), and jumps
+     to the next tile instantly (no fade, no slide). */
   .ring {
     position: absolute;
-    inset: calc(-11 * var(--px));
-    border-radius: calc(10 * var(--px));
+    inset: calc(-7 * var(--px));
+    border-radius: calc(8 * var(--px));
     opacity: 0;
-    transform: scale(1.025);
-    transition:
-      opacity var(--motion-focus) var(--ease-in-out),
-      transform var(--motion-focus) var(--ease-in-out);
     pointer-events: none;
   }
   .ring-line {
     position: absolute;
     inset: 0;
     border-radius: inherit;
-    border: calc(6 * var(--px)) solid var(--color-ring);
-    box-shadow: inset 0 0 0 calc(5 * var(--px)) var(--color-ring-gap);
+    border: calc(7 * var(--px)) solid var(--color-ring);
   }
   .tile.focused .ring {
     opacity: 1;
-    transform: scale(1);
   }
   /* B-9 (rev. m): like Switch's selection frame, the ring itself pulses smoothly between two
      shades of the accent, with no glow. Two solid rings in the two shades; only the top one's
@@ -322,16 +422,17 @@
     border-color: var(--color-ring-alt);
     opacity: 0;
   }
+  /* B-9 (rev. p): one cycle every 1.0 s, restarting at the bright end on every move (the
+     focused class moves, so the animation starts again); which layer is the bright one depends
+     on the preset (--ring-pulse, app.css). */
   .tile.focused .ring-alt {
-    animation: ring-pulse calc(var(--motion-blink) / 2) ease-in-out var(--motion-focus) infinite alternate;
+    animation: var(--ring-pulse) 500ms ease-in-out infinite alternate;
   }
-  @keyframes ring-pulse {
-    from {
-      opacity: 0;
-    }
-    to {
-      opacity: 1;
-    }
+  /* B-14: the empty slots: plain, a light tint of the background with a hairline. */
+  .tile.empty {
+    background: var(--color-slot);
+    border-radius: calc(4 * var(--px));
+    box-shadow: inset 0 0 0 calc(2 * var(--px)) var(--color-slot-line);
   }
 
   /* Mouse mode: hover only (and the tile selected by a first click), never the focus ring. */
@@ -350,28 +451,58 @@
 
   /* B-8 (rev. k / l): the title above the selected tile. Positioned at the row's left and moved
      by transform (titleX), with the row's own motion, so it travels with the focus (L-16). */
+  /* B-14: the title's capitals about 37 px tall (font 3.17 rem; M PLUS Rounded 1c caps are
+     0.73 em), its baseline about 21 px above the ring's top (302), so at 281. The box's top is
+     placed from the baseline: line-height 1, the font's ascent about 0.86 em (measured). */
   .title {
     position: absolute;
     left: 0;
-    top: 0;
-    height: 3.75rem;
-    display: flex;
-    align-items: center;
-    width: max-content;
+    top: calc(281 * var(--px) - var(--title-ascent, 0.86) * var(--text-title));
+    height: calc(1.2 * var(--text-title));
+    overflow: hidden;
     color: var(--color-title);
     font-size: var(--text-title);
     font-weight: 400;
-    line-height: 1.35;
-    letter-spacing: 0.01em;
+    line-height: 1;
     white-space: nowrap;
+  }
+  .ttrack {
+    display: inline-flex;
+    will-change: transform;
+  }
+  .tgap {
+    display: inline-block;
+    width: calc(4 * 0.73em);
   }
   .title.placed {
     transition: transform var(--motion-row) var(--ease-out);
   }
   .title-text {
-    flex: 0 1 auto;
-    min-width: 0;
+    display: block;
     overflow: hidden;
+  }
+  /* B-15 extras (off unless approved; --extras=…): "labelfade": the drawer label fades in over
+     120 ms; "press": on A the focused ring squeezes to 97 % and back in 120 ms. */
+  .home[data-extras~='labelfade'] .dlabel {
+    animation: title-in 120ms ease-out;
+  }
+  .home[data-extras~='press'] .tile.pressed .ring,
+  .home[data-extras~='press'] .dbtn.pressed .dring {
+    animation: press-squeeze 120ms ease-out;
+  }
+  @keyframes press-squeeze {
+    50% {
+      transform: scale(0.97);
+    }
+  }
+  /* B-15 extra "titlefade" (off unless approved): the title fades in over 120 ms on change. */
+  .home[data-extras~='titlefade'] .ttrack {
+    animation: title-in 120ms ease-out;
+  }
+  @keyframes title-in {
+    from {
+      opacity: 0;
+    }
   }
 
   /* ---- The drawer (T1.2). Design px at 1080 p, scaled with Interface Scale (--ui): buttons
@@ -385,20 +516,22 @@
        button, its line 1.75 rem × 1.15) runs into the footer (5.5 rem) at large Interface Scales:
        then it moves up just enough, keeping 12 px clear. */
     top: min(
-      calc((292 + 384 + 86) * var(--px)),
-      calc(100vh - 5.5rem - 120 * var(--ui) - 2.0125rem - 12 * var(--px))
+      calc((309 + 398 + 53) * var(--px)),
+      calc(100vh - 5.5rem - 110 * var(--hdr) - 12 * var(--ui) - 2.461rem - 8 * var(--px))
     );
     display: flex;
     justify-content: center;
-    gap: calc(28 * var(--ui));
+    gap: calc(23 * var(--hdr)); /* B-14: 133 centre to centre */
   }
   .ditem {
     position: relative;
   }
   .dbtn {
     position: relative;
-    width: calc(108 * var(--ui));
-    height: calc(108 * var(--ui));
+    /* The discs and icons grow at half rate with Interface Scale (like the header), so the
+       drawer and its label fit between the row and the footer at 150 %; the label grows fully. */
+    width: calc(110 * var(--hdr));
+    height: calc(110 * var(--hdr));
     border-radius: 50%;
     border: none;
     padding: 0;
@@ -411,7 +544,7 @@
     outline: none;
   }
   .dicon {
-    font-size: calc(48 * var(--ui));
+    font-size: calc(48 * var(--hdr));
     line-height: 1;
     font-variation-settings:
       'wght' var(--w, 300),
@@ -442,7 +575,7 @@
      opacity pulsing; 6 px with a 5 px gap, so 11 px outside the button. */
   .dring {
     position: absolute;
-    inset: calc(-11 * var(--ui));
+    inset: calc(-10 * var(--hdr)); /* B-14: the ring about 10 px outside the button */
     border-radius: 50%;
     opacity: 0;
     pointer-events: none;
@@ -451,7 +584,7 @@
     position: absolute;
     inset: 0;
     border-radius: 50%;
-    border: calc(6 * var(--ui)) solid var(--color-ring);
+    border: calc(7 * var(--hdr)) solid var(--color-ring);
   }
   .dring-alt {
     border-color: var(--color-ring-alt);
@@ -461,7 +594,7 @@
     opacity: 1;
   }
   .dbtn.focused .dring-alt {
-    animation: ring-pulse calc(var(--motion-blink) / 2) ease-in-out var(--motion-focus) infinite alternate;
+    animation: var(--ring-pulse) 500ms ease-in-out infinite alternate;
   }
   .dbtn.hovered {
     box-shadow: 0 0 0 calc(4 * var(--ui)) var(--color-hover);
@@ -474,17 +607,18 @@
     transform: translateX(-50%);
     white-space: nowrap;
     color: var(--color-title);
-    font-size: var(--text-label);
-    font-weight: 500;
+    /* B-14: the label's capitals about 25 px (2.14 rem; caps 0.73 em). */
+    font-size: 2.14rem;
+    font-weight: 400;
     line-height: 1.15;
     pointer-events: none;
   }
 
   .message {
     position: absolute;
-    left: calc(160 * var(--px));
-    top: 3.75rem;
-    height: calc(384 * var(--px));
+    left: calc(155 * var(--px));
+    top: calc(309 * var(--px));
+    height: calc(398 * var(--px));
     display: flex;
     flex-direction: column;
     justify-content: center;

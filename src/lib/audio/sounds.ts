@@ -1,54 +1,46 @@
 // Menu sounds (B-1, audio model A): preloaded Web Audio buffers through AIONE's own gain stages,
 // AIONE Volume × Mute × the menu category × this play. AIONE never touches the Windows volume.
 //
-// Sounds (B-1 rev. h / j, alpha.5): AIONE's own menu family made from FilmCow recordings by
-// tools/sound/make_menu_family.py (docs/sound/SOUND_MAPPING.md): move (a clicky button, tuned to
-// E), select (a mechanical button with a little glass, F#: a step above), back (a metal switch,
-// D: a step below). 48 kHz mono; each levelled to the family (loudest 30 ms: move −20, select
-// −18, back −19 LUFS), true peaks under −1 dBFS.
+// Sounds (B-1 rev. q): AIONE's sound set by function and place, one family in A major, made
+// from FilmCow recordings by tools/sound/make_menu_family.py (docs/sound/SOUND_MAPPING.md):
+// row move (tiny 8 ms click, E), drawer move (a different tick, A), row <-> drawer (C#), edge
+// bump (dull, low A), confirm (F#), back (D), error (two falling bumps). 48 kHz mono, levelled
+// on the loudest 30 ms (row move −24 … confirm −18 LUFS), true peaks under −1 dBFS.
 //
 // **One sound per action, never doubled:** every action calls `play` once; a sound name is
-// monophonic (a new move stops the previous move), so sounds never stack.
-// **Repeats (holding a direction):** the first press always plays. While the direction repeats
-// (every 90 ms), the move sound plays at most every 180 ms (every second repeat, about 5.5 per
-// second) and 3 dB softer, so a long hold ticks evenly without becoming a buzz.
+// monophonic (a new row move stops the previous one), so sounds never stack.
+// **Repeats (B-1 rev. p, supersedes T1.1's pacing):** the row move plays on every move, every
+// hold repeat included (every 90 ms), like Switch; it is tiny and soft enough for that.
 
-import moveUrl from '../../../assets/sounds/filmcow-menu/move.wav?url';
-import selectUrl from '../../../assets/sounds/filmcow-menu/select.wav?url';
+import rowMoveUrl from '../../../assets/sounds/filmcow-menu/row_move.wav?url';
+import drawerMoveUrl from '../../../assets/sounds/filmcow-menu/drawer_move.wav?url';
+import rowDrawerUrl from '../../../assets/sounds/filmcow-menu/row_drawer.wav?url';
+import edgeBumpUrl from '../../../assets/sounds/filmcow-menu/edge_bump.wav?url';
+import confirmUrl from '../../../assets/sounds/filmcow-menu/confirm.wav?url';
 import backUrl from '../../../assets/sounds/filmcow-menu/back.wav?url';
+import errorUrl from '../../../assets/sounds/filmcow-menu/error.wav?url';
 
-export type SoundName = 'move' | 'select' | 'back';
+export type SoundName = 'rowMove' | 'drawerMove' | 'rowDrawer' | 'edgeBump' | 'confirm' | 'back' | 'error';
 
+/** AIONE's sounds by function and place (B-1 rev. q), made from FilmCow recordings by
+ *  tools/sound/make_menu_family.py (one family in A major; docs/sound/SOUND_MAPPING.md). */
 export const SOUND_FILES: Record<SoundName, { file: string; source: string; url: string }> = {
-  move: { file: 'move.wav', source: 'FilmCow "clicky button 7" (move B)', url: moveUrl },
-  select: { file: 'select.wav', source: 'FilmCow "mechanical button 8" + "glass ding 4" (select A)', url: selectUrl },
-  back: { file: 'back.wav', source: 'FilmCow "metal switch 1" (back B)', url: backUrl },
+  rowMove: { file: 'row_move.wav', source: 'FilmCow "clicky button 7", cut to 8 ms (your move B)', url: rowMoveUrl },
+  drawerMove: { file: 'drawer_move.wav', source: 'FilmCow "mouse click 2"', url: drawerMoveUrl },
+  rowDrawer: { file: 'row_drawer.wav', source: 'FilmCow "metal latches 2"', url: rowDrawerUrl },
+  edgeBump: { file: 'edge_bump.wav', source: 'FilmCow "wood hit 4", low and dull', url: edgeBumpUrl },
+  confirm: { file: 'confirm.wav', source: 'FilmCow "mechanical button 8" + "glass ding 4" (your select A)', url: confirmUrl },
+  back: { file: 'back.wav', source: 'FilmCow "metal switch 1" (your back B)', url: backUrl },
+  error: { file: 'error.wav', source: 'FilmCow "wood hit 4", two falling bumps', url: errorUrl },
 };
 
-/** Gain stages (AIONE's own, model A). Volume and mute become settings in T2 / T3. */
 export const GAINS = {
+  /** AIONE Volume and Mute (settings in T2 / T3). */
   volume: 1,
   muted: false,
-  /** Menu category: 0 dB; the files already carry the family's level (alpha.5). */
+  /** Menu category: 0 dB; the files carry the family's levels. */
   menu: 1,
-  /** A repeat's move sound: −3 dB. */
-  repeat: 0.7,
 };
-
-export const REPEAT_MIN_GAP_MS = 180;
-
-/** Decides whether a move sound plays (pure; tested). */
-export class RepeatPacer {
-  private last = -Infinity;
-  constructor(private readonly minGap = REPEAT_MIN_GAP_MS) {}
-  shouldPlay(kind: 'press' | 'repeat', now: number): boolean {
-    if (kind === 'press' || now - this.last >= this.minGap) {
-      this.last = now;
-      return true;
-    }
-    return false;
-  }
-}
 
 export interface PlayLog {
   (line: string): void;
@@ -60,7 +52,6 @@ export class MenuSounds {
   private menu: GainNode | null = null;
   private buffers = new Map<SoundName, AudioBuffer>();
   private voices = new Map<SoundName, AudioBufferSourceNode>();
-  private pacer = new RepeatPacer();
 
   constructor(private readonly log: PlayLog = () => {}) {}
 
@@ -101,7 +92,7 @@ export class MenuSounds {
     );
     const ms = Math.round(performance.now() - started);
     if (failures.length === 0) {
-      this.log(`menu sounds ready: ${this.buffers.size} sounds (FilmCow family: move, select, back) decoded in ${ms} ms; audio ${ctx.state}`);
+      this.log(`menu sounds ready: ${this.buffers.size} sounds (FilmCow family: row move, drawer move, row-drawer, edge bump, confirm, back, error) decoded in ${ms} ms; audio ${ctx.state}`);
     } else {
       this.log(
         `menu sounds ${this.buffers.size ? 'partly ' : ''}unavailable: ${this.buffers.size} of ${names.length} loaded in ${ms} ms; failed: ${failures.join('; ')}`,
@@ -114,18 +105,17 @@ export class MenuSounds {
     if (this.ctx?.state === 'suspended') void this.ctx.resume();
   }
 
-  /** Plays one sound for one action. Returns what really happened, for the log line:
-   *  'played', 'paced' (a repeat inside the 180 ms pacing) or 'unavailable' (not loaded). */
-  play(name: SoundName, kind: 'press' | 'repeat' = 'press'): 'played' | 'paced' | 'unavailable' {
+  /** Plays one sound for one action (B-1 rev. p: every move, every repeat included; a sound
+   *  never stacks on itself). Returns 'played' or 'unavailable' (not loaded), for the log. */
+  play(name: SoundName): 'played' | 'unavailable' {
     const ctx = this.ctx;
     const buf = this.buffers.get(name);
     if (!ctx || !buf || !this.menu) return 'unavailable';
-    if (name === 'move' && !this.pacer.shouldPlay(kind, performance.now())) return 'paced';
     this.voices.get(name)?.stop();
     const src = ctx.createBufferSource();
     src.buffer = buf;
     const g = ctx.createGain();
-    g.gain.value = kind === 'repeat' ? GAINS.repeat : 1;
+    g.gain.value = 1;
     src.connect(g);
     g.connect(this.menu);
     src.onended = () => {

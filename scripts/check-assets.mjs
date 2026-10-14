@@ -10,7 +10,8 @@ const need = (path) => {
 need('assets/glyphs/kenney-input-prompts/License.txt');
 // FilmCow menu sounds (B-1 rev. h) and the Window B boot sounds (B-5 final; the 50 Menu
 // Interface SFX pack was removed in T1.2, B-1 rev. i). Credits in docs/THIRD_PARTY_ASSETS.md.
-for (const f of ['move.wav', 'select.wav', 'back.wav', 'family.json']) need(`assets/sounds/filmcow-menu/${f}`);
+for (const f of ['row_move.wav', 'drawer_move.wav', 'row_drawer.wav', 'edge_bump.wav', 'confirm.wav', 'back.wav', 'error.wav', 'family.json'])
+  need(`assets/sounds/filmcow-menu/${f}`);
 for (const f of ['aione_boot_up.wav', 'aione_boot_down.wav']) need(`assets/sounds/boot/${f}`);
 for (const f of ['aione_mark_white.svg', 'aione_mark_color.svg', 'aione_app_icon.svg']) need(`assets/brand/${f}`);
 need('assets/icons/material-symbols-rounded/LICENSE');

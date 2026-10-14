@@ -34,8 +34,8 @@ test.describe('D-009 real build', () => {
       .filter((f) => f.endsWith('.js'))
       .map((f) => readFileSync(path.join(DIST, 'assets', f), 'utf8'))
       .join('\n');
-    const refs = [...new Set(js.match(/(?:move|select|back)-[\w-]+\.wav/g) ?? [])];
-    expect(refs.map((r) => r.split('-')[0]).sort()).toEqual(['back', 'move', 'select']);
+    const refs = [...new Set(js.match(/(?:row_move|drawer_move|row_drawer|edge_bump|confirm|back|error)-[\w-]+\.wav/g) ?? [])];
+    expect(refs.map((r) => r.split('-')[0]).sort()).toEqual(['back', 'confirm', 'drawer_move', 'edge_bump', 'error', 'row_drawer', 'row_move']);
     const results = await page.evaluate(async (files) => {
       const out: Record<string, string> = {};
       const ctx = new OfflineAudioContext(1, 48000, 48000);

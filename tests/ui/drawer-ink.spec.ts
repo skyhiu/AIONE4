@@ -8,9 +8,15 @@ test('drawer icons: one ink weight (KD-81: within ±25 % of the median)', async 
   await page.waitForTimeout(800);
   const out: [string, number][] = [];
   for (const b of await page.locator('.dicon').all()) {
+    // Coverage, independent of the icon's colour (each icon has its own palette colour, B-14):
+    // each pixel counts by how far it is from the disc towards the icon's own colour.
     const img = decodePng(await b.screenshot());
+    const disc = [img.data[0] ?? 0, img.data[1] ?? 0, img.data[2] ?? 0];
+    const dist = (i: number) => Math.hypot((img.data[i] ?? 0) - (disc[0] ?? 0), (img.data[i + 1] ?? 0) - (disc[1] ?? 0), (img.data[i + 2] ?? 0) - (disc[2] ?? 0));
+    let far = 1;
+    for (let i = 0; i < img.data.length; i += 4) far = Math.max(far, dist(i));
     let ink = 0;
-    for (let i = 0; i < img.data.length; i += 4) ink += (255 - (img.data[i] ?? 255)) / 255;
+    for (let i = 0; i < img.data.length; i += 4) ink += dist(i) / far;
     out.push([(await b.textContent()) ?? '', ink]);
   }
   const sorted = out.map((x) => x[1]).sort((a, b) => a - b);

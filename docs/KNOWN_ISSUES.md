@@ -32,6 +32,16 @@ an item Fixed and Verified.
 | QA-4 (T0 test): an autostart start is not marked | **Implemented, Unverified**: the entry runs `"<exe>" --from-autostart`; logged "started by Windows at sign-in". Unit test on the command. |
 | QA-5 (T0 retest): closing logged as "the user switched away" | **Implemented, Unverified**: exit stops the guard first ("AIONE is closing"); later foreground changes are ignored. Unit test on the guard's decision. Windows code compiles first in CI. |
 
+## B-14 / B-1 / B-15 (4.0.0-alpha.9)
+
+| Item | Status |
+|---|---|
+| B-14 measured Switch Home (row, ring, scroll, title, empty slots, drawer, footer) | Implemented, Unverified |
+| B-14 edge bumps (rev. q) | Implemented, Unverified (UI test: ring moves, tile still, settled < 400 ms, once per hold) |
+| B-9 rev. p: 1.0 s pulse from the bright end | Implemented, Unverified |
+| B-1 rev. q: the sound set by function and place | Implemented, Unverified (7 wired; the user picks by ear) |
+| B-15 extras (press, titlefade, labelfade) | Proposed, off by default (`--extras`) |
+
 ## T1.2 part 2 (4.0.0-alpha.8)
 
 | Item | Status |

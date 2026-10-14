@@ -1,5 +1,17 @@
 # Menu sounds
 
+## 4.0.0-alpha.9: the sound set by function and place (B-1 rev. q)
+
+Made by `tools/sound/make_menu_family.py` from the FilmCow candidates, one family in A major. Wired
+now (Home uses them): **row move** (row_move A, every move and repeat), **drawer move**
+(drawer_move A), **row ↔ drawer** (row_drawer A), **edge bump** (edge_bump A), **confirm**
+(confirm A, your select A), **back** (back A, your back B), **error** (error A, the "Coming in a
+later stage" toast). Proposed for their stages: launch, toggle on / off, open a destination,
+Guide / Home. All 28 sounds with sources and processing: the listening page
+(`AIONE4_4.0.0-alpha.9_sounds.zip`) and `assets/sounds/filmcow-menu/family.json`.
+
+# Menu sounds
+
 ## 4.0.0-alpha.5: AIONE's own family from FilmCow recordings (B-1 rev. h / j)
 
 **Status:** move, select and back (★) are **wired**, for the user to judge by ear on the listening

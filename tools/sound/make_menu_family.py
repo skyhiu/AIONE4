@@ -82,7 +82,7 @@ def hits_of(x, sr):
     return [(i * w, v) for i, v in out], e, w
 
 
-def cut(x, sr, pick, length_ms):
+def cut(x, sr, pick, length_ms, ring=False):
     hits, e, w = hits_of(x, sr)
     if pick == "loudest":
         k = int(np.argmax([v for _, v in hits]))
@@ -98,7 +98,8 @@ def cut(x, sr, pick, length_ms):
         i -= 1
     start = max(0, i * w - int(0.0015 * sr))
     end = start + int(length_ms / 1000 * sr)
-    if k + 1 < len(hits):
+    # Normally the cut ends before the next hit; a ringing layer (`ring`) keeps its full length.
+    if k + 1 < len(hits) and not ring:
         end = min(end, hits[k + 1][0] - int(0.003 * sr) - int(0.002 * sr))
     seg = x[start:end].copy()
     fi = max(1, int(0.0003 * sr))
@@ -110,7 +111,7 @@ def cut(x, sr, pick, length_ms):
                  "length_ms": round(len(seg) / sr * 1000, 1)}
 
 
-def tighten(seg, sr, hold_ms, tau_ms, floor_db):
+def tighten(seg, sr, hold_ms, tau_ms, floor_db, gate=True):
     e, w = envelope(seg, sr, 0.5)
     pk = int(e.argmax()) * w
     t = np.arange(len(seg))
@@ -119,6 +120,8 @@ def tighten(seg, sr, hold_ms, tau_ms, floor_db):
     g[h:] = np.exp(-(t[h:] - h) / (tau_ms / 1000 * sr))
     # Gentle gate: where the (decayed) signal nears the noise floor, fade it out over 3 ms.
     y = seg * g
+    if not gate:
+        return y
     e2, w2 = envelope(y, sr, 1)
     quiet = np.where((e2 < floor_db + 10) & (np.arange(len(e2)) * w2 > pk))[0]
     if len(quiet):
@@ -192,12 +195,15 @@ def build_layer(src, L):
     path = Path(src) / L["group"] / L["file"]
     x, sr = read_native(path)
     floor = noise_floor(x, sr)
-    seg, info = cut(x, sr, L.get("pick", "loudest"), L["len"])
+    seg, info = cut(x, sr, L.get("pick", "loudest"), L["len"], L.get("ring", False))
     seg = hp(seg, sr, L.get("hp", 150))
     if L.get("lp"):
         seg = lp(seg, sr, L["lp"])
-    seg = tighten(seg, sr, L.get("hold", 4), L.get("tau", 18), floor)
-    dom = dominant(seg, sr)
+    # Long sounds (jingles, Home) keep their natural tail: no gate (the decay still applies).
+    seg = tighten(seg, sr, L.get("hold", 4), L.get("tau", 18), floor, L.get("gate", True))
+    # The band searched for the resonance to tune; low sounds (bumps, Home) search lower.
+    lo, hi = L.get("band", (400, 7000))
+    dom = dominant(seg, sr, lo, hi)
     semis = 0.0
     if L.get("note"):
         semis = tune_semitones(dom, L["note"])
@@ -236,79 +242,104 @@ def build(src, recipe):
     return y, info
 
 
-# A major family: move E, select F# (a step above), back D (a step below), launch A, error F → E.
-TARGET = {"move": -20.0, "select": -18.0, "back": -19.0, "launch": -16.0, "drawer_open": -21.0,
-          "drawer_close": -21.0, "end_of_row": -22.0, "toggle": -19.0, "error": -18.0}
+# AIONE's full sound set by function and place (B-1 rev. q), one family in A major:
+# row move E (every repeat: tiny, bright, soft), drawer move A (a different tick), row <-> drawer
+# C# (a change of place), edge bump low A (dull), confirm F# (a step above the move), back D (a
+# step below), error F -> E, launch A, toggle on E / off C#, open a destination A-C#-E, Home low A.
+# Targets: loudness of the loudest 30 ms (LUFS); the frequent sounds are the softest.
+TARGET = {"row_move": -24.0, "drawer_move": -23.0, "row_drawer": -21.0, "edge_bump": -22.0, "confirm": -18.0,
+          "back": -19.0, "error": -19.0, "launch": -16.0, "toggle_on": -20.0, "toggle_off": -20.0,
+          "open": -18.0, "home": -18.0}
+
+R1, R2, R3, R4 = "rec_1_move_taps", "rec_2_select_confirm", "rec_3_back_close", "rec_4_soft_bumps"
+M1, M2, M3, M4, M5, M6 = "mech_1_move", "mech_2_select", "mech_3_snap_launch", "mech_4_back_toggle", "mech_5_drawer", "mech_6_bumps"
+
+
+def L(group, file, length, tau, note=None, **kw):
+    d = {"group": group, "file": f"{file}.wav", "pick": kw.pop("pick", "loudest"), "len": length, "tau": tau,
+         "hold": kw.pop("hold", 1), "hp": kw.pop("hp", 200)}
+    if note:
+        d["note"] = note
+    d.update(kw)
+    return d
+
 
 RECIPES = {
-    "move": [
-        {"id": "A", "label": "Ratchet tick", "layers": [
-            {"group": "mech_1_move", "file": "clicky squeaky knob 17.wav", "pick": "loudest", "len": 28, "tau": 6, "hold": 1.5, "hp": 300, "note": "E"}]},
-        {"id": "B", "label": "Clicky button", "layers": [
-            {"group": "rec_1_move_taps", "file": "clicky button 7.wav", "pick": "first", "len": 30, "tau": 7, "hold": 1.5, "hp": 250, "note": "E"}]},
-        {"id": "C", "label": "Toy snap tick", "layers": [
-            {"group": "mech_2_select", "file": "plastic toy mechanism snap 6.wav", "pick": "loudest", "len": 25, "tau": 5, "hold": 1, "hp": 300, "note": "E"}]},
+    "row_move": [
+        {"id": "A", "label": "Clicky button, tiny (your move B, cut to 8 ms)", "layers": [L(R1, "clicky button 7", 9, 2.0, "E", pick="first", hp=1200)]},
+        {"id": "B", "label": "Button pressed, tiny", "layers": [L(R1, "button pressed 3", 9, 2.0, "E", hp=1200)]},
+        {"id": "C", "label": "Ratchet tick, tiny", "layers": [L(M1, "clicky squeaky knob 17", 8, 1.8, "E", hp=1800)]},
     ],
-    "select": [
-        {"id": "A", "label": "Button + glass", "layers": [
-            {"group": "mech_2_select", "file": "mechanical button 8.wav", "pick": "loudest", "len": 60, "tau": 14, "hold": 3, "hp": 150, "note": "F#"},
-            {"group": "rec_2_select_confirm", "file": "glass ding 4.wav", "pick": "first", "len": 140, "tau": 45, "hold": 4, "hp": 600, "note": "F#", "gain": -13, "at": 2}]},
-        {"id": "B", "label": "Metal pop-up", "layers": [
-            {"group": "rec_2_select_confirm", "file": "metal button pop up 7.wav", "pick": "loudest", "len": 70, "tau": 16, "hold": 3, "hp": 200, "note": "F#"}]},
-        {"id": "C", "label": "Light switch", "layers": [
-            {"group": "rec_2_select_confirm", "file": "light switch on.wav", "pick": "loudest", "len": 60, "tau": 14, "hold": 3, "hp": 150, "note": "F#"}]},
+    "drawer_move": [
+        {"id": "A", "label": "Mouse click", "layers": [L(R1, "mouse click 2", 14, 3.0, "A", hp=600)]},
+        {"id": "B", "label": "Plastic switch", "layers": [L(R1, "plastic switch 2", 14, 3.0, "A", hp=600)]},
+        {"id": "C", "label": "Tape recorder button", "layers": [L(M2, "tape recorder button 3", 16, 3.5, "A", hp=500)]},
+    ],
+    "row_drawer": [
+        {"id": "A", "label": "Small latch, a change of place", "layers": [L(R3, "metal latches 2", 45, 10, "C#", hold=3, hp=250)]},
+        {"id": "B", "label": "Sliding door, short", "layers": [L(R3, "small sliding door opens 2", 60, 16, "C#", pick="first", hold=6, hp=250)]},
+        {"id": "C", "label": "Metal plate slide, short", "layers": [L(M5, "small metal plate slide 1", 60, 16, "C#", pick="first", hold=6, hp=250)]},
+    ],
+    "edge_bump": [
+        {"id": "A", "label": "Soft wood bump, low (A4)", "layers": [L(R4, "wood hit 4", 85, 22, "A", hold=3, hp=80, lp=1600, band=(150, 650), ring=True)]},
+        {"id": "B", "label": "Ping-pong ball, muted (A4)", "layers": [L(R4, "ping pong ball hit 2", 80, 22, "A", hold=3, hp=90, lp=2200, band=(150, 1000), ring=True)]},
+        {"id": "C", "label": "Spring hit, muted", "layers": [L(M6, "spring medium hit 2", 85, 22, "A", hold=3, hp=90, lp=2000, band=(150, 1000), ring=True)]},
+    ],
+    "confirm": [
+        {"id": "A", "label": "Button + glass (your select A)", "layers": [
+            L(M2, "mechanical button 8", 50, 12, "F#", hold=3, hp=150),
+            L(R2, "glass ding 4", 110, 35, "F#", pick="first", hold=4, hp=600, gain=-13, at=2)]},
+        {"id": "B", "label": "Switch press + clink", "layers": [
+            L(R2, "switch press 3", 45, 11, "F#", hold=3, hp=150),
+            L(R2, "glass clink 2", 90, 30, "F#", pick="first", hold=3, hp=700, gain=-14, at=2)]},
     ],
     "back": [
-        {"id": "A", "label": "Old metal switch", "layers": [
-            {"group": "mech_4_back_toggle", "file": "old metal switch 1.wav", "pick": "loudest", "len": 55, "tau": 12, "hold": 3, "hp": 150, "lp": 9000, "note": "D"}]},
-        {"id": "B", "label": "Metal switch (rec)", "layers": [
-            {"group": "rec_3_back_close", "file": "metal switch 1.wav", "pick": "loudest", "len": 50, "tau": 11, "hold": 3, "hp": 150, "lp": 9000, "note": "D"}]},
-        {"id": "C", "label": "Soft button, lower", "layers": [
-            {"group": "mech_2_select", "file": "mechanical button 7.wav", "pick": "loudest", "len": 55, "tau": 12, "hold": 3, "hp": 120, "lp": 6000, "note": "D"}]},
-    ],
-    "launch": [
-        {"id": "A", "label": "Snap + glass on A", "layers": [
-            {"group": "mech_3_snap_launch", "file": "mechanism snap together 6.wav", "pick": "loudest", "len": 120, "tau": 30, "hold": 4, "hp": 120, "note": "A"},
-            {"group": "rec_2_select_confirm", "file": "glass ding 4.wav", "pick": "first", "len": 320, "tau": 110, "hold": 6, "hp": 500, "note": "A|C#|E", "gain": -9, "at": 4}]},
-        {"id": "B", "label": "Tape eject", "layers": [
-            {"group": "mech_3_snap_launch", "file": "tape recorder eject 5.wav", "pick": "loudest", "len": 160, "tau": 40, "hold": 6, "hp": 120, "note": "A"}]},
-    ],
-    "drawer_open": [
-        {"id": "A", "label": "Case slide on", "layers": [
-            {"group": "mech_5_drawer", "file": "plastic case slide on 9.wav", "pick": "first", "len": 200, "tau": 60, "hold": 20, "hp": 200}]},
-        {"id": "B", "label": "Lens extend", "layers": [
-            {"group": "mech_5_drawer", "file": "camera lens extend 2.wav", "pick": "first", "len": 220, "tau": 70, "hold": 30, "hp": 200}]},
-    ],
-    "drawer_close": [
-        {"id": "A", "label": "Case slide off", "layers": [
-            {"group": "mech_5_drawer", "file": "plastic case slide off 1.wav", "pick": "loudest", "len": 120, "tau": 30, "hold": 6, "hp": 200}]},
-        {"id": "B", "label": "Lens contract", "layers": [
-            {"group": "mech_5_drawer", "file": "camera lens contract 4.wav", "pick": "loudest", "len": 160, "tau": 40, "hold": 8, "hp": 200}]},
-    ],
-    "end_of_row": [
-        {"id": "A", "label": "Soft wood bump", "layers": [
-            {"group": "rec_4_soft_bumps", "file": "wood hit 4.wav", "pick": "loudest", "len": 60, "tau": 14, "hold": 2, "hp": 120, "lp": 3500, "note": "A|C#|E"}]},
-        {"id": "B", "label": "Tin pop, muted", "layers": [
-            {"group": "mech_6_bumps", "file": "tin pop 5.wav", "pick": "loudest", "len": 50, "tau": 12, "hold": 2, "hp": 150, "lp": 4000, "note": "A|C#|E"}]},
-    ],
-    "toggle": [
-        {"id": "A", "label": "Metal switch", "layers": [
-            {"group": "mech_4_back_toggle", "file": "metal switch 7.wav", "pick": "loudest", "len": 40, "tau": 9, "hold": 2, "hp": 200, "note": "E"}]},
-        {"id": "B", "label": "Metal latch (rec)", "layers": [
-            {"group": "rec_2_select_confirm", "file": "metal latch 4.wav", "pick": "loudest", "len": 45, "tau": 10, "hold": 2, "hp": 200, "note": "E"}]},
+        {"id": "A", "label": "Metal switch (your back B)", "layers": [L(R3, "metal switch 1", 48, 11, "D", hold=3, hp=150, lp=9000)]},
+        {"id": "B", "label": "Switch, lower", "layers": [L(R3, "switch 3", 48, 11, "D", hold=3, hp=150, lp=8000)]},
     ],
     "error": [
         {"id": "A", "label": "Two wood bumps, falling", "layers": [
-            {"group": "rec_4_soft_bumps", "file": "wood hit 4.wav", "pick": "loudest", "len": 60, "tau": 16, "hold": 2, "hp": 120, "lp": 3000, "note": "F"},
-            {"group": "rec_4_soft_bumps", "file": "wood hit 4.wav", "pick": "loudest", "len": 70, "tau": 20, "hold": 2, "hp": 120, "lp": 2800, "note": "E", "at": 95}]},
+            L(R4, "wood hit 4", 60, 16, "F", hold=2, hp=120, lp=3000),
+            L(R4, "wood hit 4", 70, 20, "E", hold=2, hp=120, lp=2800, at=95)]},
         {"id": "B", "label": "Two tin pops, falling", "layers": [
-            {"group": "mech_6_bumps", "file": "tin pop 2.wav", "pick": "loudest", "len": 50, "tau": 12, "hold": 2, "hp": 150, "lp": 3500, "note": "F"},
-            {"group": "mech_6_bumps", "file": "tin pop 2.wav", "pick": "loudest", "len": 60, "tau": 16, "hold": 2, "hp": 150, "lp": 3300, "note": "E", "at": 95}]},
+            L(M6, "tin pop 2", 50, 12, "F", hold=2, hp=150, lp=3500),
+            L(M6, "tin pop 2", 60, 16, "E", hold=2, hp=150, lp=3300, at=95)]},
+    ],
+    "launch": [
+        {"id": "A", "label": "Snap + glass on A", "layers": [
+            L(M3, "mechanism snap together 6", 100, 26, "A", hold=4, hp=120),
+            L(R2, "glass ding 4", 160, 60, "A|C#|E", pick="first", hold=6, hp=500, gain=-9, at=4)]},
+        {"id": "B", "label": "Gumball machine pop", "layers": [L(M3, "gumball machine 3", 100, 28, "A", hold=4, hp=150)]},
+    ],
+    "toggle_on": [
+        {"id": "A", "label": "Plastic toy snap (on)", "layers": [L(M4, "plastic toy snapping shut 2", 45, 10, "E", hold=2, hp=200)]},
+        {"id": "B", "label": "Metal switch (on)", "layers": [L(M4, "metal switch 7", 40, 9, "E", hold=2, hp=200)]},
+    ],
+    "toggle_off": [
+        {"id": "A", "label": "Plastic toy snap (off, lower)", "layers": [L(M4, "plastic toy snapping shut 2", 45, 10, "C#", hold=2, hp=200, lp=7000)]},
+        {"id": "B", "label": "Metal switch (off, lower)", "layers": [L(M4, "metal switch 7", 40, 9, "C#", hold=2, hp=200, lp=7000)]},
+    ],
+    "open": [
+        {"id": "A", "label": "Glass arpeggio A-C#-E (about 0.8 s)", "layers": [
+            L(R2, "glass ding 4", 420, 150, "A", pick="first", hold=6, hp=400, gate=False, ring=True),
+            L(R2, "glass ding 4", 420, 150, "C#", pick="first", hold=6, hp=400, at=120, gate=False, ring=True),
+            L(R2, "glass ding 4", 560, 200, "E", pick="first", hold=6, hp=400, at=240, gate=False, ring=True)]},
+        {"id": "B", "label": "Clink + ding (about 0.6 s)", "layers": [
+            L(R2, "glass clink 2", 160, 60, "E", pick="first", hold=3, hp=500, gate=False, ring=True),
+            L(R2, "ding 2", 520, 190, "A", pick="first", hold=6, hp=300, at=120, gate=False, ring=True)]},
+    ],
+    "home": [
+        {"id": "A", "label": "Low thump + low glass A (about 0.5 s)", "layers": [
+            L(R4, "wood drop 1", 160, 50, "A", hold=4, hp=50, lp=1200, band=(60, 500), ring=True),
+            L(R2, "ding 2", 520, 180, "A", pick="first", hold=8, hp=120, lp=2500, gain=-5, at=10, band=(150, 1200), gate=False, ring=True)]},
+        {"id": "B", "label": "Low spring + glass (about 0.5 s)", "layers": [
+            L(M6, "spring medium hit 2", 160, 50, "A", hold=4, hp=50, lp=1200, band=(60, 500), ring=True),
+            L(R2, "glass ding 4", 500, 170, "A", pick="first", hold=8, hp=150, lp=2500, gain=-6, at=10, band=(150, 1200), gate=False, ring=True)]},
     ],
 }
-# Chosen from the measurements and the spectrograms (crisp single transient, natural decay):
-WIRED = {"move": "B", "select": "A", "back": "B"}
-PROPOSED_ONLY = ["launch", "drawer_open", "drawer_close", "end_of_row", "toggle", "error"]
+# Wired in AIONE now (the ones Home uses); the others are for their stages.
+WIRED = {"row_move": "A", "drawer_move": "A", "row_drawer": "A", "edge_bump": "A", "confirm": "A", "back": "A", "error": "A"}
+PROPOSED_ONLY = ["launch", "toggle_on", "toggle_off", "open", "home"]
 
 
 def main(src, out, repo=None):
@@ -341,11 +372,15 @@ def main(src, out, repo=None):
 
 
 ROLE_TEXT = {
-    "move": "Moving the focus (every press and paced repeat).", "select": "Confirming (A / Enter, a second click).",
-    "back": "Going back or closing (B / Esc).", "launch": "Starting a game (T1.3).",
-    "drawer_open": "Opening the drawer (T1.2).", "drawer_close": "Closing the drawer (T1.2).",
-    "end_of_row": "A press at the end of a row (nothing to move to).", "toggle": "Flipping a toggle (Settings, T3).",
-    "error": "Something cannot be done.",
+    "row_move": "Each move in the game row, every hold repeat included (tiny, bright, soft).",
+    "drawer_move": "Each move in the drawer (a different tick from the row's).",
+    "row_drawer": "Moving between the game row and the drawer (a change of place).",
+    "edge_bump": "Every blocked move: the edge bumps (duller, lower).",
+    "confirm": "A on a drawer button or in a dialog.", "back": "B (a step lower than confirm).",
+    "error": "Not available, e.g. the \"Coming in a later stage\" toast.",
+    "launch": "Starting a game (T1.3).", "toggle_on": "A toggle turned on (T2+).", "toggle_off": "A toggle turned off (T2+).",
+    "open": "Opening a destination such as Settings (from its stage).",
+    "home": "Guide brings AIONE back, or returning to Home.",
 }
 
 
