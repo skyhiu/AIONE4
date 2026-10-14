@@ -19,15 +19,21 @@ import edgeBumpUrl from '../../../assets/sounds/filmcow-menu/edge_bump.wav?url';
 import confirmUrl from '../../../assets/sounds/filmcow-menu/confirm.wav?url';
 import backUrl from '../../../assets/sounds/filmcow-menu/back.wav?url';
 import errorUrl from '../../../assets/sounds/filmcow-menu/error.wav?url';
+import wrapUrl from '../../../assets/sounds/filmcow-menu/wrap.wav?url';
+import optionsOpenUrl from '../../../assets/sounds/filmcow-menu/options_open.wav?url';
+import optionsCloseUrl from '../../../assets/sounds/filmcow-menu/options_close.wav?url';
 
-export type SoundName = 'rowMove' | 'drawerMove' | 'edgeBump' | 'confirm' | 'back' | 'error';
+export type SoundName = 'rowMove' | 'drawerMove' | 'edgeBump' | 'wrap' | 'confirm' | 'back' | 'error' | 'optionsOpen' | 'optionsClose';
 
 /** AIONE's sounds by function and place (B-1 rev. q), made from FilmCow recordings by
  *  tools/sound/make_menu_family.py (one family in A major; docs/sound/SOUND_MAPPING.md). */
 export const SOUND_FILES: Record<SoundName, { file: string; source: string; url: string }> = {
   rowMove: { file: 'row_move.wav', source: 'FilmCow "clicky button 7", cut to 8 ms (your move B)', url: rowMoveUrl },
   drawerMove: { file: 'drawer_move.wav', source: 'FilmCow "mouse click 2"', url: drawerMoveUrl },
-  edgeBump: { file: 'edge_bump.wav', source: 'FilmCow "wood hit 4", low and dull', url: edgeBumpUrl },
+  edgeBump: { file: 'edge_bump.wav', source: 'FilmCow "mouse click 2", 30 ms, E7, -10 dB below the click (rev. s)', url: edgeBumpUrl },
+  wrap: { file: 'wrap.wav', source: 'FilmCow "clicky button 7" + "wood drop 1" (+3 dB, low tail; rev. s)', url: wrapUrl },
+  optionsOpen: { file: 'options_open.wav', source: 'FilmCow "switch press 3", F#7, the loudest (rev. s)', url: optionsOpenUrl },
+  optionsClose: { file: 'options_close.wav', source: 'FilmCow "metal switch 1" + "wood drop 1", C#7, low tail (rev. s)', url: optionsCloseUrl },
   confirm: { file: 'confirm.wav', source: 'FilmCow "mechanical button 8" + "glass ding 4" (your select A)', url: confirmUrl },
   back: { file: 'back.wav', source: 'FilmCow "metal switch 1" (your back B)', url: backUrl },
   error: { file: 'error.wav', source: 'FilmCow "wood hit 4", two falling bumps', url: errorUrl },
@@ -91,7 +97,7 @@ export class MenuSounds {
     );
     const ms = Math.round(performance.now() - started);
     if (failures.length === 0) {
-      this.log(`menu sounds ready: ${this.buffers.size} sounds (FilmCow family: row move, drawer move, edge bump, confirm, back, error) decoded in ${ms} ms; audio ${ctx.state}`);
+      this.log(`menu sounds ready: ${this.buffers.size} sounds (FilmCow family: row move, drawer move, edge bump, wrap, confirm, back, error, options open, options close) decoded in ${ms} ms; audio ${ctx.state}`);
     } else {
       this.log(
         `menu sounds ${this.buffers.size ? 'partly ' : ''}unavailable: ${this.buffers.size} of ${names.length} loaded in ${ms} ms; failed: ${failures.join('; ')}`,
@@ -106,7 +112,7 @@ export class MenuSounds {
 
   /** Plays one sound for one action (B-1 rev. p: every move, every repeat included; a sound
    *  never stacks on itself). Returns 'played' or 'unavailable' (not loaded), for the log. */
-  play(name: SoundName): 'played' | 'unavailable' {
+  play(name: SoundName, gainDb = 0): 'played' | 'unavailable' {
     const ctx = this.ctx;
     const buf = this.buffers.get(name);
     if (!ctx || !buf || !this.menu) return 'unavailable';
@@ -114,7 +120,8 @@ export class MenuSounds {
     const src = ctx.createBufferSource();
     src.buffer = buf;
     const g = ctx.createGain();
-    g.gain.value = 1;
+    // B-1 (rev. s): e.g. the quieter row-move repeats during a hold (-4 dB).
+    g.gain.value = 10 ** (gainDb / 20);
     src.connect(g);
     g.connect(this.menu);
     src.onended = () => {

@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>AIONE 4 — the sound set by function and place (4.0.0-alpha.9)</title>
+    <title>AIONE 4 — the sound set by function and place (4.0.0-alpha.11)</title>
     <style>
       body { margin: 0; background: #ebebeb; color: #2d2d2d; font: 16px/1.45 'Segoe UI', system-ui, sans-serif; }
       main { max-width: 1100px; margin: 0 auto; padding: 24px; }
@@ -27,7 +27,7 @@
         One family in A major, a sound for each function and place (B-1 rev. q): row move on E, drawer move on A, row &#8596;
         drawer on C#, the edge bump on a low A, confirm a step above (F#), back a step below (D), error falling F &#8594; E,
         launch on A, toggles E / C#, opening a destination A&#8211;C#&#8211;E, Home on a low A. Every sound is cut to its hit,
-        cleaned, tuned, levelled and checked for peaks. <b>&#9733;</b> marks the set wired into alpha.9 (the seven Home uses
+        cleaned, tuned, levelled and checked for peaks. <b>&#9733;</b> marks the set wired into alpha.11 (the nine Home uses
         now); the rest are alternatives and proposals. Tell me your picks, for example "drawer move B, edge bump C".
       </p>
 
@@ -35,7 +35,8 @@
       <div class="bar" id="pickers"></div>
       <div class="bar">
         <button id="demo-row">Row: 4 moves, then A</button>
-        <button id="demo-hold">Hold right 2 s, bump at the end</button>
+        <button id="demo-hold">Hold right, bump, bump, wrap</button>
+        <button id="demo-options">Options open, then close</button>
         <button id="demo-drawer">Down to the drawer, 3 moves, bump, A</button>
         <button id="demo-back">Move, move, B</button>
       </div>
@@ -62,7 +63,7 @@
         a.play();
       }
       document.querySelectorAll('button[data-src]').forEach((b) => (b.onclick = () => play(b.dataset.src)));
-      const roles = ['row_move', 'drawer_move', 'row_drawer', 'edge_bump', 'confirm', 'back', 'error'];
+      const roles = ['row_move', 'drawer_move', 'edge_bump', 'wrap', 'confirm', 'back', 'error', 'options_open', 'options_close'];
       const pickers = document.getElementById('pickers');
       for (const role of roles) {
         const label = document.createElement('label');
@@ -87,16 +88,24 @@
         say('confirm', 1150);
       };
       document.getElementById('demo-hold').onclick = () => {
+        // rev. s: the repeats get quieter after the first few (-4 dB); bump at the end, bump on the
+        // next press, then the wrap.
         say('row_move', 0);
         let t = 400;
-        for (let i = 0; i < 6; i++, t += 90) say('row_move', t);
+        for (let i = 0; i < 8; i++, t += 90) setTimeout(() => play(pick('row_move'), i >= 3 ? 0.63 : 1, 'row_move'), t);
         say('edge_bump', t);
+        say('edge_bump', t + 600);
+        say('wrap', t + 1300);
       };
       document.getElementById('demo-drawer').onclick = () => {
-        say('row_drawer', 0);
+        say('drawer_move', 0);
         [300, 520, 740].forEach((t) => say('drawer_move', t));
         say('edge_bump', 980);
         say('error', 1400);
+      };
+      document.getElementById('demo-options').onclick = () => {
+        say('options_open', 0);
+        say('options_close', 900);
       };
       document.getElementById('demo-back').onclick = () => {
         say('row_move', 0);

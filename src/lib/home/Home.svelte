@@ -34,9 +34,10 @@
     onDrawerClick = () => {},
     drawerPressed = null,
     bump = null,
+    wrapping = false,
     scale = 1,
     extras = [],
-    ringStyle = 'separator',
+
     onClick,
   }: {
     games: GameView[];
@@ -61,13 +62,14 @@
     /** The drawer button showing its press (squash-and-zoom), or null. */
     drawerPressed?: number | null;
     /** B-14 (rev. q): the latest edge bump (direction, zone and a counter), or null. */
-    bump?: { dir: 'left' | 'right' | 'up' | 'down'; n: number; zone: 'row' | 'drawer'; whole: boolean } | null;
+    bump?: { dir: 'left' | 'right' | 'up' | 'down'; n: number; zone: 'row' | 'drawer' } | null;
+    /** B-14 (rev. s): the row is whipping to its other end (a 200 ms slide). */
+    wrapping?: boolean;
     /** Interface Scale as a factor (1 = 100 %), for the drawer's bump distance. */
     scale?: number;
-    /** B-15: proposed extras switched on for this run (press, labelfade). */
+    /** B-15 (rev. t): the extras on this run (all three by default; none with `--extras=none`). */
     extras?: string[];
-    /** D-018: 'separator' (default) or 'plain' (`--ring=plain`, for comparison). */
-    ringStyle?: 'separator' | 'plain';
+
   } = $props();
 
   let broken = $state(new Set<string>());
@@ -114,7 +116,9 @@
     const font = 3.17 * 16 * px * scale; // --text-title: 3.17 rem, rem = 16 × the UI unit
     if (!measureCtx || !name) return;
     measureCtx.font = `400 ${font}px "M PLUS Rounded 1c"`;
-    titleW = measureCtx.measureText(name).width;
+    // + 0.04 em: the rendered text can be a pixel or two wider than the canvas measurement at
+    // large sizes (alpha.11: 2 px at 2560 px, 150 %), so the box always holds the whole title.
+    titleW = measureCtx.measureText(name).width + 0.04 * font;
     if (!placed) requestAnimationFrame(() => (placed = true));
   });
 
@@ -151,30 +155,10 @@
     if (!b) return;
     untrack(() => playBump(b));
   });
-  function playBump(b: { dir: 'left' | 'right' | 'up' | 'down'; n: number; zone: 'row' | 'drawer'; whole: boolean }) {
+  function playBump(b: { dir: 'left' | 'right' | 'up' | 'down'; n: number; zone: 'row' | 'drawer' }) {
     if (suspended) return;
     const horizontal = b.dir === 'left' || b.dir === 'right';
     const sign = b.dir === 'left' || b.dir === 'up' ? -1 : 1;
-    // B-14 (rev. r): at the row's ends the WHOLE row (tiles and ring) lurches about 170 px toward
-    // the press and springs back in about 150 ms. The `translate` property composes with the
-    // row's own scroll transform (no conflict with its slide).
-    if (b.whole) {
-      const track = document.querySelector<HTMLElement>('.track');
-      if (!track) return;
-      const d = (v: number) => `${sign * v * px}px 0`;
-      track.dataset['rowBump'] = String(b.n);
-      track.animate(
-        [
-          { translate: d(0) },
-          { translate: d(170), offset: 0.25, easing: 'ease-in-out' },
-          { translate: d(-14), offset: 0.6, easing: 'ease-in-out' },
-          { translate: d(4), offset: 0.8 },
-          { translate: d(0) },
-        ],
-        { duration: 150, easing: 'linear' },
-      );
-      return;
-    }
     const ring = document.querySelector<HTMLElement>(b.zone === 'drawer' ? '.dbtn.focused .dring' : '.tile.focused .ring');
     if (!ring) return;
     const ui = b.zone === 'drawer' ? px * (1 + (scale - 1) / 2) : px;
@@ -182,15 +166,16 @@
     // B-14 (rev. r, re-measured): snappy. The full push within one frame (16 ms), back past the
     // centre by about 66 ms (overshoot 6 px sideways, 4 px up / down), a 2–4 px wobble settled by
     // about 200 ms (sideways) or 180 ms (up / down).
-    const [out, back, wob, dur] = horizontal ? [15, 6, 3, 200] : [12, 4, 2, 180];
+    // The row's ends (rev. s, measured): about 14 px, overshoot about 4, settled in about 150 ms.
+    const [out, back, wob, dur] = b.zone === 'row' && horizontal ? [14, 4, 2, 150] : horizontal ? [15, 6, 3, 200] : [12, 4, 2, 180];
     ring.dataset['bump'] = String(b.n);
     ring.animate(
       [
         { transform: t(0) },
         { transform: t(out), offset: 16 / dur },
         { transform: t(-back), offset: 66 / dur, easing: 'ease-in-out' },
-        { transform: t(wob), offset: 110 / dur, easing: 'ease-in-out' },
-        { transform: t(-wob / 2), offset: 150 / dur, easing: 'ease-in-out' },
+        { transform: t(wob), offset: Math.min(0.9, 110 / dur), easing: 'ease-in-out' },
+        { transform: t(-wob / 2), offset: Math.min(0.95, 135 / dur), easing: 'ease-in-out' },
         { transform: t(0) },
       ],
       { duration: dur, easing: 'linear' },
@@ -200,7 +185,7 @@
 
 <svelte:window bind:innerWidth={vw} bind:innerHeight={vh} />
 
-<section class="home" data-extras={extras.join(' ')} data-ring={ringStyle} data-testid="home" data-owner="home" data-suspended={suspended} data-mode={mode}>
+<section class="home" data-extras={extras.join(' ')} data-testid="home" data-owner="home" data-suspended={suspended} data-mode={mode}>
   <StatusHeader {padConnected} {status} {fixedTime} {...hour12 === undefined ? {} : { hour12 }} />
 
   <div class="row" data-testid="game-row" data-first={home.first} data-focus={home.focus} data-count={games.length}>
@@ -227,7 +212,7 @@
       </div>
     {/if}
     {#if loadState === 'loaded'}
-      <div class="track" style:--first={home.first} data-owner="home-row">
+      <div class="track" class:wrapping style:--first={home.first} data-owner="home-row">
         {#each games as g, i (g.id)}
           {@const copy = g.tile && !broken.has(g.id)}
           {@const url = copy ? mediaUrl(g, 'tile') : g.tileArt && !broken.has(`${g.id}#o`) ? mediaUrl(g, g.tileArt) : ''}
@@ -370,6 +355,10 @@
     transform: translateX(calc(var(--first) * -410 * var(--px)));
     /* B-14: the row slides one tile in about 170 ms with a strong ease-out. */
     transition: transform 170ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  /* B-14 (rev. s): the wrap whips the row to its other end in about 200 ms (strong ease-out). */
+  .track.wrapping {
+    transition-duration: 200ms;
     will-change: transform;
   }
   .tile {
@@ -418,29 +407,25 @@
 
   /* B-14 / B-9 (rev. p): the focus ring is 7 px, directly around the art (no gap), and jumps
      to the next tile instantly (no fade, no slide). */
-  /* D-018 / B-9 (rev. r): a 2 px white separator between the ring and the picture, so the ring
-     stands out against any art; the ring (7 px) sits outside it. `--ring=plain` (one run) shows
-     the alpha.9 ring without it, for comparison. */
+  /* B-9 (rev. s, measured on Switch), from outside in: a faint halo (4 px, a pale accent tint at
+     low opacity), the ring (7 px), a bright edge (1.5 px, the peak tint), a 4 px pure white band
+     before the picture (both presets). 4 + 1.5 + 7 = 12.5 px outside the art. */
   .ring {
     position: absolute;
-    inset: calc(-9 * var(--px));
-    border-radius: calc(10 * var(--px));
+    inset: calc(-12.5 * var(--px));
+    border-radius: calc(14 * var(--px));
     opacity: 0;
     pointer-events: none;
+    box-shadow: 0 0 0 calc(4 * var(--px)) var(--color-ring-halo);
   }
   .ring-line {
     position: absolute;
     inset: 0;
     border-radius: inherit;
     border: calc(7 * var(--px)) solid var(--color-ring);
-    box-shadow: inset 0 0 0 calc(2 * var(--px)) #ffffff;
-  }
-  .home[data-ring='plain'] .ring {
-    inset: calc(-7 * var(--px));
-    border-radius: calc(8 * var(--px));
-  }
-  .home[data-ring='plain'] .ring-line {
-    box-shadow: none;
+    box-shadow:
+      inset 0 0 0 calc(4 * var(--px)) #ffffff,
+      inset 0 0 0 calc(5.5 * var(--px)) var(--color-ring-peak);
   }
   .tile.focused .ring {
     opacity: 1;
@@ -456,8 +441,15 @@
   /* B-9 (rev. p): one cycle every 1.0 s, restarting at the bright end on every move (the
      focused class moves, so the animation starts again); which layer is the bright one depends
      on the preset (--ring-pulse, app.css). */
+  /* B-9 (rev. s): the pulse is a flash: each cycle (1.0 s) starts at the bright peak (also on
+     every move: the focused class moves, so the animation restarts), fades slowly to the base
+     over 0.75 s, then rises fast (0.2 s) back to the peak. The peak may drop below 3:1 against
+     the background (the user's exception, like Switch); the base meets it. */
+  .ring-alt {
+    border-color: var(--color-ring-peak);
+  }
   .tile.focused .ring-alt {
-    animation: var(--ring-pulse) 500ms ease-in-out infinite alternate;
+    animation: aione-ring-flash 1000ms linear infinite;
   }
   /* B-14: the empty slots: plain, a light tint of the background with a hairline. */
   .tile.empty {
@@ -519,22 +511,63 @@
     overflow-x: clip;
     overflow-y: visible;
   }
-  /* B-15 extras (off unless approved; --extras=…): "labelfade": the drawer label fades in over
-     120 ms; "press": on A the focused ring squeezes to 97 % and back in 120 ms. */
-  .home[data-extras~='labelfade'] .dlabel {
-    animation: title-in 120ms ease-out;
+  /* B-15 (rev. t): the extras, approved and ON by default (`--extras=none` turns all three off
+     for one run). "press": the WHOLE focused tile or drawer button dips to about 94 % and springs
+     back over about 0.18 s when A, a click or a tap activates it. "labelfade": the drawer label
+     fades in and rises about 4 px over about 0.15 s. "titlefade": the title fades in over 120 ms.
+     Transform / opacity only (L-16). */
+  .home[data-extras~='press'] .tile.pressed {
+    transform: none;
+    animation: press-dip 180ms linear;
   }
-  .home[data-extras~='press'] .tile.pressed .ring,
-  .home[data-extras~='press'] .dbtn.pressed .dring {
-    animation: press-squeeze 120ms ease-out;
-  }
-  @keyframes press-squeeze {
-    50% {
-      transform: scale(0.97);
+  @keyframes press-dip {
+    0% {
+      transform: scale(1);
+      animation-timing-function: cubic-bezier(0.3, 0, 0.6, 1);
+    }
+    35% {
+      transform: scale(0.94);
+      animation-timing-function: cubic-bezier(0.2, 0.7, 0.4, 1);
+    }
+    75% {
+      transform: scale(1.015);
+    }
+    100% {
+      transform: scale(1);
     }
   }
-  /* B-15 (rev. r): "titlefade" approved, on by default: the title fades in over 120 ms on change. */
-  .ttrack {
+  .home[data-extras~='press'] .dbtn.pressed {
+    animation: press-dip-drawer 180ms linear;
+  }
+  .home[data-extras~='press'] .dbtn.pressed .dicon {
+    animation: none;
+  }
+  @keyframes press-dip-drawer {
+    0% {
+      transform: scale(1.08);
+      animation-timing-function: cubic-bezier(0.3, 0, 0.6, 1);
+    }
+    35% {
+      transform: scale(1.015);
+      animation-timing-function: cubic-bezier(0.2, 0.7, 0.4, 1);
+    }
+    75% {
+      transform: scale(1.096);
+    }
+    100% {
+      transform: scale(1.08);
+    }
+  }
+  .home[data-extras~='labelfade'] .dlabel {
+    animation: label-rise 150ms ease-out;
+  }
+  @keyframes label-rise {
+    from {
+      opacity: 0;
+      translate: 0 calc(4 * var(--ui));
+    }
+  }
+  .home[data-extras~='titlefade'] .ttrack {
     animation: title-in 120ms ease-out;
   }
   @keyframes title-in {
@@ -635,8 +668,11 @@
   .dbtn.focused .dring {
     opacity: 1;
   }
+  .dring-alt {
+    border-color: var(--color-ring-peak);
+  }
   .dbtn.focused .dring-alt {
-    animation: var(--ring-pulse) 500ms ease-in-out infinite alternate;
+    animation: aione-ring-flash 1000ms linear infinite;
   }
   .dbtn.hovered {
     box-shadow: 0 0 0 calc(4 * var(--ui)) var(--color-hover);

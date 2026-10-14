@@ -67,70 +67,36 @@
    "proposal_only": false
   }
  ],
- "row_drawer": [
-  {
-   "file": "row_drawer_A.wav",
-   "id": "A",
-   "label": "Small latch, a change of place",
-   "layers": [
-    {
-     "source": "rec_3_back_close/metal latches 2.wav",
-     "library": "FilmCow Recorded SFX",
-     "source_rate": 48000,
-     "noise_floor_db": -60.5,
-     "hit": 1,
-     "of_hits": 5,
-     "start_ms": 166.5,
-     "length_ms": 45.0,
-     "resonance_hz": 562,
-     "tuned_semitones": -0.25,
-     "tuned_to": "C#5 (554 Hz)",
-     "high_pass_hz": 250,
-     "low_pass_hz": null,
-     "decay_tau_ms": 10,
-     "hold_ms": 3,
-     "gain_db": 0,
-     "offset_ms": 0
-    }
-   ],
-   "length_ms": 28.4,
-   "loudest_30ms_lufs": -21.0,
-   "true_peak_dbfs": -12.46,
-   "sample_peak_dbfs": -12.47,
-   "wired": true,
-   "proposal_only": false
-  }
- ],
  "edge_bump": [
   {
    "file": "edge_bump_A.wav",
    "id": "A",
-   "label": "Soft wood bump, low (A4)",
+   "label": "Short soft tick, E7 (2.6 kHz)",
    "layers": [
     {
-     "source": "rec_4_soft_bumps/wood hit 4.wav",
+     "source": "rec_1_move_taps/mouse click 2.wav",
      "library": "FilmCow Recorded SFX",
      "source_rate": 48000,
-     "noise_floor_db": -108.0,
-     "hit": 1,
-     "of_hits": 1,
-     "start_ms": 13.5,
-     "length_ms": 85.0,
-     "resonance_hz": 434,
-     "tuned_semitones": 0.25,
-     "tuned_to": "A4 (440 Hz)",
-     "high_pass_hz": 80,
-     "low_pass_hz": 1600,
-     "decay_tau_ms": 22,
-     "hold_ms": 3,
+     "noise_floor_db": -200.0,
+     "hit": 2,
+     "of_hits": 2,
+     "start_ms": 109.5,
+     "length_ms": 30.0,
+     "resonance_hz": 2602,
+     "tuned_semitones": 0.23,
+     "tuned_to": "E7 (2637 Hz)",
+     "high_pass_hz": 600,
+     "low_pass_hz": 6000,
+     "decay_tau_ms": 7,
+     "hold_ms": 1,
      "gain_db": 0,
      "offset_ms": 0
     }
    ],
-   "length_ms": 83.8,
-   "loudest_30ms_lufs": -22.0,
-   "true_peak_dbfs": -8.13,
-   "sample_peak_dbfs": -8.15,
+   "length_ms": 29.6,
+   "loudest_30ms_lufs": -34.0,
+   "true_peak_dbfs": -20.23,
+   "sample_peak_dbfs": -20.4,
    "wired": true,
    "proposal_only": false
   }
@@ -271,6 +237,146 @@
    "loudest_30ms_lufs": -19.0,
    "true_peak_dbfs": -4.75,
    "sample_peak_dbfs": -4.8,
+   "wired": true,
+   "proposal_only": false
+  }
+ ],
+ "wrap": [
+  {
+   "file": "wrap_A.wav",
+   "id": "A",
+   "label": "Click + low thump (90 ms)",
+   "layers": [
+    {
+     "source": "rec_1_move_taps/clicky button 7.wav",
+     "library": "FilmCow Recorded SFX",
+     "source_rate": 48000,
+     "noise_floor_db": -71.9,
+     "hit": 1,
+     "of_hits": 1,
+     "start_ms": 73.0,
+     "length_ms": 14.0,
+     "resonance_hz": 4594,
+     "tuned_semitones": 2.39,
+     "tuned_to": "E8 (5274 Hz)",
+     "high_pass_hz": 900,
+     "low_pass_hz": null,
+     "decay_tau_ms": 3.5,
+     "hold_ms": 1,
+     "gain_db": 0,
+     "offset_ms": 0
+    },
+    {
+     "source": "rec_4_soft_bumps/wood drop 1.wav",
+     "library": "FilmCow Recorded SFX",
+     "source_rate": 48000,
+     "noise_floor_db": -200.0,
+     "hit": 3,
+     "of_hits": 5,
+     "start_ms": 480.5,
+     "length_ms": 90.0,
+     "resonance_hz": 357,
+     "tuned_semitones": 3.6,
+     "tuned_to": "A4 (440 Hz)",
+     "high_pass_hz": 50,
+     "low_pass_hz": 900,
+     "decay_tau_ms": 28,
+     "hold_ms": 3,
+     "gain_db": -4,
+     "offset_ms": 4
+    }
+   ],
+   "length_ms": 77.1,
+   "loudest_30ms_lufs": -21.0,
+   "true_peak_dbfs": -12.33,
+   "sample_peak_dbfs": -12.68,
+   "wired": true,
+   "proposal_only": false
+  }
+ ],
+ "options_open": [
+  {
+   "file": "options_open_A.wav",
+   "id": "A",
+   "label": "Switch press, bright (F#7)",
+   "layers": [
+    {
+     "source": "rec_2_select_confirm/switch press 3.wav",
+     "library": "FilmCow Recorded SFX",
+     "source_rate": 48000,
+     "noise_floor_db": -93.4,
+     "hit": 1,
+     "of_hits": 1,
+     "start_ms": 130.0,
+     "length_ms": 50.0,
+     "resonance_hz": 4184,
+     "tuned_semitones": -5.99,
+     "tuned_to": "F#7 (2960 Hz)",
+     "high_pass_hz": 800,
+     "low_pass_hz": null,
+     "decay_tau_ms": 13,
+     "hold_ms": 2,
+     "gain_db": 0,
+     "offset_ms": 0
+    }
+   ],
+   "length_ms": 70.6,
+   "loudest_30ms_lufs": -15.0,
+   "true_peak_dbfs": -4.39,
+   "sample_peak_dbfs": -4.41,
+   "wired": true,
+   "proposal_only": false
+  }
+ ],
+ "options_close": [
+  {
+   "file": "options_close_A.wav",
+   "id": "A",
+   "label": "Metal switch (C#7) + low tail",
+   "layers": [
+    {
+     "source": "rec_3_back_close/metal switch 1.wav",
+     "library": "FilmCow Recorded SFX",
+     "source_rate": 48000,
+     "noise_floor_db": -65.3,
+     "hit": 1,
+     "of_hits": 1,
+     "start_ms": 138.5,
+     "length_ms": 50.0,
+     "resonance_hz": 2250,
+     "tuned_semitones": -0.25,
+     "tuned_to": "C#7 (2217 Hz)",
+     "high_pass_hz": 400,
+     "low_pass_hz": null,
+     "decay_tau_ms": 12,
+     "hold_ms": 2,
+     "gain_db": 0,
+     "offset_ms": 0
+    },
+    {
+     "source": "rec_4_soft_bumps/wood drop 1.wav",
+     "library": "FilmCow Recorded SFX",
+     "source_rate": 48000,
+     "noise_floor_db": -200.0,
+     "hit": 3,
+     "of_hits": 5,
+     "start_ms": 480.5,
+     "length_ms": 70.0,
+     "resonance_hz": 363,
+     "tuned_semitones": 3.32,
+     "tuned_to": "A4 (440 Hz)",
+     "high_pass_hz": 50,
+     "low_pass_hz": 800,
+     "decay_tau_ms": 22,
+     "hold_ms": 3,
+     "gain_db": -8,
+     "offset_ms": 3
+    }
+   ],
+   "length_ms": 60.8,
+   "loudest_30ms_lufs": -19.0,
+   "true_peak_dbfs": -7.05,
+   "sample_peak_dbfs": -7.32,
    "wired": true,
    "proposal_only": false
   }

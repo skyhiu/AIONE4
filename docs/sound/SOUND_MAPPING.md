@@ -1,5 +1,12 @@
 # Menu sounds
 
+## 4.0.0-alpha.11 (B-1 rev. s)
+Wired: row move (repeats −4 dB after the third in a hold), drawer move, **edge bump** (new: 30 ms,
+E7 2637 Hz, −34 LUFS = −10 dB below the click), **wrap** (77 ms, −21 LUFS = +3 dB, a low A4 tail),
+confirm, back, error, **Options open** (71 ms, F#7 2960 Hz, −15 LUFS, the loudest) and **close**
+(61 ms, C#7 2217 Hz, −19 LUFS, a low tail). Made, not wired: **drag tick** (9 ms, A6 1760 Hz,
+−32 LUFS) for B-16 (T1.3). All with 2–3 alternatives on the listening page.
+
 ## 4.0.0-alpha.9: the sound set by function and place (B-1 rev. q)
 
 Made by `tools/sound/make_menu_family.py` from the FilmCow candidates, one family in A major. Wired

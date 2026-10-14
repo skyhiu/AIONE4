@@ -1,5 +1,27 @@
 # Changelog
 
+## 4.0.0-alpha.11 — the last build of T1.2 (rev. s / t)
+
+- **Release guard (alpha.10 QA-1):** a release only when app code changed, named explicitly in
+  `scripts/release-guard.cjs`; a test replays `aed4477` (CI only) and expects no release.
+- **B-9 (rev. s), the ring as on Switch:** a faint halo, the 7 px ring, a 1.5 px bright edge and a
+  4 px white band (both presets). The pulse is a flash: base → peak (light #FD007E → #FFB0D7, dark
+  #FF46A2 → #FFC2E0), starting at the peak on every move, fading over 0.75 s, rising in 0.2 s, once
+  per 1.0 s. Measured luminance × 2.56 (light) and × 2.31 (dark); the base meets 3:1, the peak may
+  not (the user's exception). `--ring=plain` removed.
+- **B-14 (rev. s):** the row's ends bump the ring only (14 px, settled in 150 ms); held: once per
+  hold; the first fresh press: a bump; the next: the wrap (200 ms, the wrap sound). Rev. r's
+  whole-row bump and 300 ms rule removed.
+- **B-1 (rev. s):** wrap (+3 dB, 77 ms, low tail), edge bump (30 ms, E7, −10 dB), Options open
+  (F#7, the loudest) and close (C#7, low tail) on the Options toast, hold repeats 4 dB quieter after
+  the first three; the drag tick made for B-16. Nine sounds.
+- **B-15 (rev. t):** press (the whole tile or drawer button dips to 94 % and springs back, 0.18 s)
+  and labelfade (fade + 4 px rise, 0.15 s) on by default with titlefade; `--extras=none` turns all
+  off for one run.
+- **B-16 (mouse and touch drag) moved to T1.3**, as allowed.
+- **Fixed:** a long title's last 2 px clipped at 2560 px / 150 % (the canvas measurement ran short).
+- **Tests:** Rust 84; Vitest 57; Playwright 83 with 114 screenshots.
+
 ## 4.0.0-alpha.10 — completes T1.2 (rev. r)
 
 - **D-017:** the title clips sideways only (`overflow-x: clip`); descenders reach the font's full

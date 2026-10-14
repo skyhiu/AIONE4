@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { decodePng, pixel } from './png';
 import { shot, waitForIcons } from './helpers';
 
-// Rev. r (alpha.10): D-017 descenders, D-018 the ring's separator, D-014, Tab for Options.
+// Rev. r / s (alpha.10–11): D-017 descenders, the ring's white band, D-014, Tab for Options, the extras.
 const BASE = 'time=12:24&h12=1&pad=connected';
 const logs = (page: Page) => page.evaluate(() => window.__aioneMock?.logs ?? []);
 const lum = (c: number[]) => {
@@ -63,63 +63,44 @@ test.describe('rev. r (alpha.10)', () => {
       }
 
   for (const preset of ['light', 'dark'])
-    for (const ring of ['separator', 'plain']) {
-      test(`D-018: the ring against the background and a dark / light picture (${preset}, ${ring})`, async ({ page }) => {
-        await page.setViewportSize({ width: 1920, height: 1080 });
-        await open(page, `preset=${preset}${ring === 'plain' ? '&ring=plain' : ''}`);
-        // Two test pictures: a dark navy and a light grey, on the first two tiles.
-        await page.evaluate(() => {
-          const solid = (c: string) => {
-            const cv = document.createElement('canvas');
-            cv.width = cv.height = 64;
-            const g = cv.getContext('2d') as CanvasRenderingContext2D;
-            g.fillStyle = c;
-            g.fillRect(0, 0, 64, 64);
-            return cv.toDataURL();
-          };
-          const imgs = document.querySelectorAll<HTMLImageElement>('[data-testid="tile"] img');
-          if (imgs[0]) imgs[0].src = solid('#203A60');
-          if (imgs[1]) imgs[1].src = solid('#F0F0F0');
-        });
-        const out: string[] = [];
-        for (const [tile, art] of [[0, 'dark'], [1, 'light']] as const) {
-          if (tile === 1) await page.keyboard.press('ArrowRight');
-          for (const end of ['start', 'end'] as const) {
-            await page.evaluate((e) => {
-              for (const a of document.getAnimations()) {
-                if (!(a as CSSAnimation).animationName?.includes('ring-pulse')) continue;
-                a.pause();
-                a.currentTime = e === 'start' ? 0 : 499;
-              }
-            }, end);
-            await page.waitForTimeout(120);
-            const g = await page.evaluate(() => {
-              const r = (document.querySelector('.tile.focused .ring') as HTMLElement).getBoundingClientRect();
-              const t = (document.querySelector('.tile.focused') as HTMLElement).getBoundingClientRect();
-              return { rx: r.x + r.width / 2, ry: r.y + 3, sepY: r.y + 7.9, artY: t.y + 12, x: t.x + t.width / 2 };
-            });
-            const img = decodePng(await page.screenshot());
-            const ringC = pixel(img, g.rx, g.ry);
-            const sepC = pixel(img, g.rx, g.sepY);
-            const artC = pixel(img, g.x, g.artY);
-            const bg = pixel(img, 1900, 160);
-            const vsBg = contrast(ringC, bg);
-            // The ring's inner neighbour: the separator (or, plain, the picture itself).
-            const inner = ring === 'separator' ? sepC : artC;
-            const vsInner = contrast(ringC, inner);
-            // What separates the indicator from the picture: the better of the ring and the separator.
-            const vsArt = Math.max(contrast(ringC, artC), ring === 'separator' ? contrast(sepC, artC) : 0);
-            out.push(`${art} art, ${end}: ring ${JSON.stringify(ringC)} vs bg ${vsBg.toFixed(2)}, vs inner ${vsInner.toFixed(2)}, indicator vs picture ${vsArt.toFixed(2)}`);
-            expect(vsBg).toBeGreaterThanOrEqual(3);
-            if (ring === 'separator') expect(sepC).toEqual([255, 255, 255]);
-            if (ring === 'separator' && preset === 'light') expect(vsArt).toBeGreaterThanOrEqual(3);
-          }
-          await page.evaluate(() => document.getAnimations().forEach((a) => a.play()));
-          await shot(page, `t15-ring-${ring}-${preset}-on-${art}`);
-        }
-        console.warn(`D-018 ${preset} ${ring}: ${out.join(' | ')}`);
+    test(`B-9 (rev. s): the 4 px white band separates the ring from a dark and a light picture (${preset})`, async ({ page }) => {
+      await page.setViewportSize({ width: 1920, height: 1080 });
+      await open(page, `preset=${preset}`);
+      await page.evaluate(() => {
+        const solid = (c: string) => {
+          const cv = document.createElement('canvas');
+          cv.width = cv.height = 64;
+          const g = cv.getContext('2d') as CanvasRenderingContext2D;
+          g.fillStyle = c;
+          g.fillRect(0, 0, 64, 64);
+          return cv.toDataURL();
+        };
+        const imgs = document.querySelectorAll<HTMLImageElement>('[data-testid="tile"] img');
+        if (imgs[0]) imgs[0].src = solid('#203A60');
+        if (imgs[1]) imgs[1].src = solid('#F0F0F0');
       });
-    }
+      const out: string[] = [];
+      for (const [tile, art] of [[0, 'dark'], [1, 'light']] as const) {
+        if (tile === 1) await page.keyboard.press('ArrowRight');
+        await page.evaluate(() => document.querySelectorAll('.ring-alt').forEach((e) => e.getAnimations().forEach((a) => (a.pause(), (a.currentTime = 760)))));
+        await page.waitForTimeout(120);
+        const g = await page.evaluate(() => {
+          const r = (document.querySelector('.tile.focused .ring') as HTMLElement).getBoundingClientRect();
+          const t = (document.querySelector('.tile.focused') as HTMLElement).getBoundingClientRect();
+          return { x: r.x + r.width / 2, ringY: r.y + 3.5, bandY: t.y - 2, artY: t.y + 12 };
+        });
+        const img = decodePng(await page.screenshot());
+        const ringC = pixel(img, g.x, g.ringY);
+        const band = pixel(img, g.x, g.bandY);
+        const artC = pixel(img, g.x, g.artY);
+        const bg = pixel(img, 1900, 160);
+        out.push(`${art} art: ring vs bg ${contrast(ringC, bg).toFixed(2)}, band ${JSON.stringify(band)} vs picture ${contrast(band, artC).toFixed(2)}, ring vs band ${contrast(ringC, band).toFixed(2)}`);
+        expect(band).toEqual([255, 255, 255]); // the band is pure white in both presets (rev. t)
+        expect(contrast(ringC, bg)).toBeGreaterThanOrEqual(3); // the base meets 3:1
+        await shot(page, `t16-band-${preset}-on-${art}`);
+      }
+      console.warn(`B-9 band ${preset}: ${out.join(' | ')}`);
+    });
 
   test('D-014: Home ready under black before the Boot Up; the skip says so', async ({ page }) => {
     await page.goto(`./?${BASE}&boot=custom`);
@@ -150,11 +131,53 @@ test.describe('rev. r (alpha.10)', () => {
     await page.keyboard.up('Tab');
     await expect(page.getByTestId('toast')).toHaveText('Coming in a later stage');
     let l = await logs(page);
-    expect(l.filter((x) => x.includes('input down Tab (keyboard) -> action options, options: toast, sound error'))).toHaveLength(1);
+    // B-1 (rev. s): the open sound with the toast; never repeats.
+    expect(l.filter((x) => x.includes('input down Tab (keyboard) -> action options, options: toast, sound optionsOpen'))).toHaveLength(1);
     expect(l.some((x) => x.includes('input repeat Tab'))).toBe(false);
+    // B (Esc) dismisses it, with the close sound.
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('toast')).toHaveCount(0);
+    l = await logs(page);
+    expect(l.some((x) => x.includes('input down Esc (keyboard) -> action back, options: closed (B), sound optionsClose'))).toBe(true);
     await page.keyboard.press('ContextMenu');
     l = await logs(page);
     expect(l.some((x) => x.includes('input down ContextMenu (keyboard) -> action options'))).toBe(true);
     await shot(page, 't15-tab-options');
+  });
+
+  test('B-15 (rev. t): press dips the whole tile to about 94 %; the label rises; --extras=none turns them off', async ({ page }) => {
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    await open(page, '');
+    expect(await page.getByTestId('home').getAttribute('data-extras')).toBe('titlefade press labelfade');
+    // A on a game: the whole tile dips (to about 94 % at 35 % of 0.18 s) and springs back.
+    await page.keyboard.press('Enter');
+    const dip = await page.evaluate(() => {
+      const a = document.querySelector('.tile.pressed')?.getAnimations().find((x) => (x as CSSAnimation).animationName?.includes('press-dip'));
+      if (!a) return null;
+      a.pause();
+      a.currentTime = 63;
+      const r = (document.querySelector('.tile.pressed') as HTMLElement).getBoundingClientRect();
+      return { w: r.width, dur: Number((a.effect as KeyframeEffect).getTiming().duration) };
+    });
+    expect(dip?.dur).toBe(180);
+    expect((dip?.w ?? 0) / 398).toBeGreaterThan(0.93);
+    expect((dip?.w ?? 0) / 398).toBeLessThan(0.95);
+    await shot(page, 't16-press-dip');
+    await page.evaluate(() => document.querySelectorAll('.tile').forEach((e) => e.getAnimations().forEach((a) => a.finish())));
+    // The drawer label: fades in and rises about 4 px over about 0.15 s.
+    await page.keyboard.press('ArrowDown');
+    const rise = await page.evaluate(() => {
+      const a = document.querySelector('[data-testid="drawer-label"]')?.getAnimations()[0] as CSSAnimation | undefined;
+      if (!a) return null;
+      const k: ComputedKeyframe = (a.effect as KeyframeEffect).getKeyframes()[0] ?? { offset: 0, computedOffset: 0, composite: 'auto', easing: 'linear' };
+      return { name: a.animationName, dur: Number((a.effect as KeyframeEffect).getTiming().duration), from: String(k['translate'] ?? ''), opacity: k['opacity'] };
+    });
+    expect(rise?.name).toContain('label-rise');
+    expect(rise?.dur).toBe(150);
+    expect(rise?.from).toMatch(/^0px 4px$/);
+    expect(String(rise?.opacity)).toBe('0');
+    // --extras=none: all three off for one run.
+    await open(page, 'extras=none');
+    expect(await page.getByTestId('home').getAttribute('data-extras')).toBe('');
   });
 });

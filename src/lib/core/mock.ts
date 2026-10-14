@@ -328,7 +328,6 @@ export function createMock(search: string): { core: Core; control: MockControl }
         fromAutostart: false,
         bootDefault: params.get('boot') === 'default-switch',
         extras: (params.get('extras') ?? '').split(',').filter(Boolean),
-        ringPlain: params.get('ring') === 'plain',
       }),
     uiReady() {
       control.uiReadyCalls += 1;

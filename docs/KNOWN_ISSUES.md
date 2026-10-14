@@ -34,6 +34,17 @@ an item Fixed and Verified.
 | QA-4 (T0 test): an autostart start is not marked | **Implemented, Unverified**: the entry runs `"<exe>" --from-autostart`; logged "started by Windows at sign-in". Unit test on the command. |
 | QA-5 (T0 retest): closing logged as "the user switched away" | **Implemented, Unverified**: exit stops the guard first ("AIONE is closing"); later foreground changes are ignored. Unit test on the guard's decision. Windows code compiles first in CI. |
 
+## Rev. s / t (4.0.0-alpha.11, the last build of T1.2)
+
+| Item | Status |
+|---|---|
+| alpha.10 QA-1: the release guard (app code named) | Implemented, Unverified (unit test replays `aed4477`) |
+| B-9 rev. s: the ring's halo, edge, 4 px white band, the flash | Implemented, Unverified (UI test: luminance × 2.56 / × 2.31; band 4 px; base ≥ 3:1) |
+| B-14 rev. s: ring bumps at the row's ends; the second press wraps | Implemented, Unverified |
+| B-1 rev. s: wrap, edge bump, Options open / close, quieter repeats | Implemented, Unverified (the user listens) |
+| B-15 rev. t: press, labelfade, titlefade on; `--extras=none` | Implemented, Unverified |
+| B-16: mouse and touch drag | **Moved to T1.3** |
+
 ## B-14 / B-1 / B-15 (4.0.0-alpha.9)
 
 | Item | Status |

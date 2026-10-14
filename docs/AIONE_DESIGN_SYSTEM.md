@@ -230,3 +230,17 @@ scales text; tiles follow the window only).
 - **B-15:** `titlefade` on by default; `press`, `labelfade` behind `--extras`.
 - **Options:** pad Menu (≡), keyboard Tab and the Menu key; never repeats.
 
+## Rev. s / t (alpha.11) — current values, superseding the rev. r section above where they differ
+- **Ring (B-9 rev. s):** outside in: a 4 px halo (`--color-ring-halo`: the accent at 18–22 %), the
+  7 px ring (`--color-ring`), a 1.5 px bright edge (`--color-ring-peak`), a 4 px white band, the
+  picture (12.5 px in all). **Flash:** the peak layer (`--color-ring-peak`: light #FFB0D7, dark
+  #FFC2E0) fully shown at 0 % (every move restarts it), fading to 0 by 75 % (ease-out), resting to
+  80 %, rising to 100 % (1.0 s, `aione-ring-flash`). The drawer's ring flashes the same way.
+- **Row's ends (B-14 rev. s):** only the ring bumps (14 px, back 4, settled at 150 ms); the second
+  fresh press at the same end wraps (the track's slide 200 ms instead of 170).
+- **Sounds:** nine (row move, drawer move, edge bump, wrap, confirm, back, error, Options open /
+  close); repeats −4 dB after the third in a hold.
+- **Extras (B-15 rev. t):** `press` (tile / drawer button: 1 → 0.94 at 35 % → 1.015 at 75 % → 1,
+  180 ms), `labelfade` (opacity 0 and +4 px → rest, 150 ms), `titlefade` (120 ms); all on;
+  `--extras=none` off.
+

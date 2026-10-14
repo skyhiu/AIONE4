@@ -152,6 +152,12 @@ jobs:
     permissions:
       contents: write
     steps:
+      # The release guard's rule (scripts/release-guard.cjs, tested by tests/unit/release-guard.test.ts).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: scripts
+          persist-credentials: false
+
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: windows-build
@@ -179,16 +185,17 @@ jobs:
             const tag = `v${version}`;
             const { owner, repo } = context.repo;
 
-            // A11 (alpha.9 QA-5): a push that changes no app code (only CI, tests, docs or tools)
-            // never publishes or replaces a release. Compared over the whole push (before..after).
+            // A11 (alpha.10 QA-1): a release only when APP CODE changed, named explicitly in
+            // scripts/release-guard.cjs (src/, src-tauri/, assets/, index.html, package.json and its
+            // lockfile, the Vite and Svelte config). Compared over the whole push (before..after).
+            const { appFiles } = require(`${process.env.GITHUB_WORKSPACE}/scripts/release-guard.cjs`);
             const before = context.payload.before;
             if (before && !/^0+$/.test(before)) {
               const cmp = await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${before}...${context.sha}` });
               const files = (cmp.data.files ?? []).map((f) => f.filename);
-              const notApp = /^(\.github\/|docs\/|tests\/|tools\/|scripts\/ci-run\.mjs$|[^/]+\.md$)/;
-              const app = files.filter((f) => !notApp.test(f));
-              if (files.length > 0 && app.length === 0) {
-                core.notice(`No app code changed in this push (${files.length} files: CI, tests, docs or tools): no release published; ${tag} stays as it was.`);
+              const app = appFiles(files);
+              if (app.length === 0) {
+                core.notice(`No app code changed in this push (${files.length} files, e.g. ${files.slice(0, 3).join(', ')}): no release published; ${tag} stays as it was.`);
                 return;
               }
               core.info(`App files changed in this push: ${app.length} (e.g. ${app.slice(0, 3).join(', ')})`);

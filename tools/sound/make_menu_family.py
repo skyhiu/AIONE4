@@ -247,7 +247,7 @@ def build(src, recipe):
 # C# (a change of place), edge bump low A (dull), confirm F# (a step above the move), back D (a
 # step below), error F -> E, launch A, toggle on E / off C#, open a destination A-C#-E, Home low A.
 # Targets: loudness of the loudest 30 ms (LUFS); the frequent sounds are the softest.
-TARGET = {"row_move": -24.0, "drawer_move": -23.0, "row_drawer": -21.0, "edge_bump": -22.0, "confirm": -18.0,
+TARGET = {"wrap": -21.0, "options_open": -15.0, "options_close": -19.0, "drag_tick": -32.0, "row_move": -24.0, "drawer_move": -23.0, "row_drawer": -21.0, "edge_bump": -34.0, "confirm": -18.0,
           "back": -19.0, "error": -19.0, "launch": -16.0, "toggle_on": -20.0, "toggle_off": -20.0,
           "open": -18.0, "home": -18.0}
 
@@ -280,10 +280,39 @@ RECIPES = {
         {"id": "B", "label": "Sliding door, short", "layers": [L(R3, "small sliding door opens 2", 60, 16, "C#", pick="first", hold=6, hp=250)]},
         {"id": "C", "label": "Metal plate slide, short", "layers": [L(M5, "small metal plate slide 1", 60, 16, "C#", pick="first", hold=6, hp=250)]},
     ],
+    # rev. s (measured): about 30 ms, about -10 dB below the move click, main about 2.65 kHz (E7).
     "edge_bump": [
-        {"id": "A", "label": "Soft wood bump, low (A4)", "layers": [L(R4, "wood hit 4", 85, 22, "A", hold=3, hp=80, lp=1600, band=(150, 650), ring=True)]},
-        {"id": "B", "label": "Ping-pong ball, muted (A4)", "layers": [L(R4, "ping pong ball hit 2", 80, 22, "A", hold=3, hp=90, lp=2200, band=(150, 1000), ring=True)]},
-        {"id": "C", "label": "Spring hit, muted", "layers": [L(M6, "spring medium hit 2", 85, 22, "A", hold=3, hp=90, lp=2000, band=(150, 1000), ring=True)]},
+        {"id": "A", "label": "Short soft tick, E7 (2.6 kHz)", "layers": [L(R1, "mouse click 2", 30, 7, "E", hold=1, hp=600, lp=6000, band=(1800, 3500))]},
+        {"id": "B", "label": "Plastic switch, low tick", "layers": [L(R1, "plastic switch 2", 30, 7, "E", hold=1, hp=600, lp=6000, band=(1800, 3500))]},
+        {"id": "C", "label": "Button pressed, soft", "layers": [L(R1, "button pressed 3", 30, 7, "E", hold=1, hp=600, lp=6000, band=(1800, 3500))]},
+    ],
+    # rev. s: louder than the click (+3 dB), about 90 ms, with a short low tail.
+    "wrap": [
+        {"id": "A", "label": "Click + low thump (90 ms)", "layers": [
+            L(R1, "clicky button 7", 14, 3.5, "E", pick="first", hp=900),
+            L(R4, "wood drop 1", 90, 28, "A", hold=3, hp=50, lp=900, band=(60, 500), gain=-4, at=4, ring=True)]},
+        {"id": "B", "label": "Switch + low spring (90 ms)", "layers": [
+            L(R2, "switch press 3", 16, 4, "E", hp=700),
+            L(M6, "spring medium hit 2", 90, 28, "A", hold=3, hp=50, lp=900, band=(60, 500), gain=-4, at=4, ring=True)]},
+    ],
+    # rev. s: open about 50 ms, bright (about 3 kHz, F#7), the loudest; close about 50 ms, lower
+    # (about 2.1 kHz, C#7) with a low tail.
+    "options_open": [
+        {"id": "A", "label": "Switch press, bright (F#7)", "layers": [L(R2, "switch press 3", 50, 13, "F#", hold=2, hp=800, band=(2000, 4500))]},
+        {"id": "B", "label": "Tape button, bright (F#7)", "layers": [L(M2, "tape recorder button 3", 50, 13, "F#", hold=2, hp=800, band=(2000, 4500))]},
+    ],
+    "options_close": [
+        {"id": "A", "label": "Metal switch (C#7) + low tail", "layers": [
+            L(R3, "metal switch 1", 50, 12, "C#", hold=2, hp=400, band=(1500, 3000)),
+            L(R4, "wood drop 1", 70, 22, "A", hold=3, hp=50, lp=800, band=(60, 500), gain=-8, at=3, ring=True)]},
+        {"id": "B", "label": "Switch (C#7) + low tail", "layers": [
+            L(R3, "switch 3", 50, 12, "C#", hold=2, hp=400, band=(1500, 3000)),
+            L(M6, "spring medium hit 2", 70, 22, "A", hold=3, hp=50, lp=800, band=(60, 500), gain=-8, at=3, ring=True)]},
+    ],
+    # rev. s: a soft, low tick (about 1.6-1.8 kHz, A6) as tiles pass while dragging (B-16).
+    "drag_tick": [
+        {"id": "A", "label": "Soft click, A6 (1.76 kHz)", "layers": [L(R1, "mouse click 2", 12, 3, "A", hp=400, lp=5000, band=(1200, 2400))]},
+        {"id": "B", "label": "Soft button, A6", "layers": [L(R1, "button pressed 3", 12, 3, "A", hp=400, lp=5000, band=(1200, 2400))]},
     ],
     "confirm": [
         {"id": "A", "label": "Button + glass (your select A)", "layers": [
@@ -338,9 +367,9 @@ RECIPES = {
     ],
 }
 # Wired in AIONE now (the ones Home uses); the others are for their stages.
-WIRED = {"row_move": "A", "drawer_move": "A", "edge_bump": "A", "confirm": "A", "back": "A", "error": "A"}
+WIRED = {"row_move": "A", "drawer_move": "A", "edge_bump": "A", "confirm": "A", "back": "A", "error": "A", "wrap": "A", "options_open": "A", "options_close": "A"}
 # rev. r: no separate row <-> drawer sound (entering a section plays its own move sound).
-PROPOSED_ONLY = ["row_drawer", "launch", "toggle_on", "toggle_off", "open", "home"]
+PROPOSED_ONLY = ["row_drawer", "drag_tick", "launch", "toggle_on", "toggle_off", "open", "home"]
 
 
 def main(src, out, repo=None):
@@ -376,7 +405,11 @@ ROLE_TEXT = {
     "row_move": "Each move in the game row, every hold repeat included (tiny, bright, soft).",
     "drawer_move": "Each move in the drawer (a different tick from the row's).",
     "row_drawer": "Moving between the game row and the drawer (a change of place).",
-    "edge_bump": "Every blocked move: the edge bumps (duller, lower).",
+    "edge_bump": "Every blocked move: the ring bumps (rev. s: about 30 ms, about -10 dB below the click, lower).",
+    "wrap": "The row whipping to its other end (rev. s: louder than the click, about 90 ms, a low tail).",
+    "options_open": "Opening a game's options with the pad's Menu or Tab (rev. s: bright, the loudest).",
+    "options_close": "Closing the options (rev. s: lower, with a low tail).",
+    "drag_tick": "Each tile passing while dragging the row with the mouse or a finger (B-16).",
     "confirm": "A on a drawer button or in a dialog.", "back": "B (a step lower than confirm).",
     "error": "Not available, e.g. the \"Coming in a later stage\" toast.",
     "launch": "Starting a game (T1.3).", "toggle_on": "A toggle turned on (T2+).", "toggle_off": "A toggle turned off (T2+).",

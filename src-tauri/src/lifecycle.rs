@@ -20,8 +20,8 @@ use std::time::Duration;
 pub const WAIT_TIMEOUT: Duration = Duration::from_secs(15);
 pub const RUN_VALUE_NAME: &str = "AIONE 4";
 /// Passed by the Start with Windows entry (T0 QA-4).
-/// B-15: the proposed extras a run may switch on ("titlefade" is on by default since rev. r).
-pub const EXTRAS: [&str; 2] = ["press", "labelfade"];
+/// B-15 (rev. t): the extras are all on by default; `--extras=none` turns them off for one run.
+pub const EXTRAS: [&str; 1] = ["none"];
 
 pub const FROM_AUTOSTART: &str = "--from-autostart";
 /// Interface Scale steps (reference A8: 90–150 % by 10).
@@ -38,12 +38,10 @@ pub struct Args {
     /// `--boot=default`: this run shows the default "Window B" Boot Up / Boot Down even when a
     /// custom video exists (T1.2, for testing; never stored).
     pub boot_default: bool,
-    /// B-15: `--extras=press,labelfade`: proposed extras switched on for this run
+    /// B-15 (rev. t): `--extras=none` turns the extras (press, labelfade, titlefade) off for this run
     /// (off by default until the user approves each; never stored). Unknown names are ignored.
     pub extras: Vec<String>,
-    /// D-018 / B-9 (rev. r): `--ring=plain` shows the ring without its white separator, for
-    /// comparison (this run only).
-    pub ring_plain: bool,
+
     pub unknown: Vec<String>,
 }
 
@@ -69,8 +67,6 @@ pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Args {
             }
         } else if a == "--boot=default" {
             out.boot_default = true;
-        } else if a == "--ring=plain" {
-            out.ring_plain = true;
         } else if let Some(v) = a.strip_prefix("--extras=") {
             out.extras = v
                 .split(',')
@@ -241,12 +237,7 @@ pub fn log_start(args: &Args) {
             ),
         );
     }
-    if args.ring_plain {
-        logging::lifecycle(
-            Level::Info,
-            "--ring=plain: the focus ring without its white separator for this run (not stored)",
-        );
-    }
+
     if args.boot_default {
         logging::lifecycle(
             Level::Info,
@@ -371,12 +362,10 @@ mod tests {
         assert_eq!(p(&[]), Args::default());
         assert!(p(&["--from-autostart"]).from_autostart);
         assert!(p(&["--boot=default"]).boot_default);
-        // rev. r: titlefade is always on, so only press and labelfade are switches.
-        assert_eq!(
-            p(&["--extras=press,LabelFade,titlefade,unknown"]).extras,
-            vec!["press", "labelfade"]
-        );
-        assert!(p(&["--ring=plain"]).ring_plain);
+        // rev. t: the extras are on by default; only "none" is a switch.
+        assert_eq!(p(&["--extras=None"]).extras, vec!["none"]);
+        assert!(p(&["--extras=press,labelfade"]).extras.is_empty());
+
         assert!(p(&[]).extras.is_empty());
         assert_eq!(p(&["--interface-scale=150"]).interface_scale, Some(150));
         assert_eq!(p(&["--interface-scale=90%"]).interface_scale, Some(90));

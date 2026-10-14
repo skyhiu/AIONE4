@@ -113,6 +113,8 @@
   let device = $state<GlyphDevice>('xbox');
   let pressed = $state<number | null>(null);
   let pressTimer: ReturnType<typeof setTimeout> | null = null;
+  /** B-15 (rev. t): the extras are on unless this run says `--extras=none`. */
+  const extrasOn = $derived(!(info?.extras ?? []).includes('none'));
   let mouseTravel = 0;
 
   const dialogOpen = $derived(flow.phase !== 'hidden');
@@ -138,27 +140,32 @@
   }
 
   /** The log wording for one sound request (QA-6: says what really happened). */
-  function play(name: SoundName): string {
-    return sounds.play(name) === 'played' ? `sound ${name}` : 'no sound (sounds unavailable)';
+  function play(name: SoundName, gainDb = 0): string {
+    return sounds.play(name, gainDb) === 'played' ? `sound ${name}${gainDb ? ` (${gainDb} dB)` : ''}` : 'no sound (sounds unavailable)';
   }
 
   /** B-14 (rev. q): a blocked move. The focus ring springs toward the pressed direction and back
    *  (the tile or button stays still), with the edge-bump sound. A held direction bumps once:
    *  its repeats at the same edge do nothing. */
-  let bump = $state<{ dir: 'left' | 'right' | 'up' | 'down'; n: number; zone: 'row' | 'drawer'; whole: boolean } | null>(null);
+  let bump = $state<{ dir: 'left' | 'right' | 'up' | 'down'; n: number; zone: 'row' | 'drawer' } | null>(null);
   let bumpHeld: string | null = null;
-  /** B-14 (rev. r): a blocked move. Up / down and the drawer's ends: only the ring springs
-   *  (snappy). The row's ends: the whole row lurches (`whole`). Once per held press. */
-  function edge(dir: 'left' | 'right' | 'up' | 'down', kind: 'press' | 'repeat', what: string, whole = false): string {
+  /** B-14 (rev. s): a blocked move bumps the ring only (never the row), with the edge-bump sound;
+   *  once per held press. */
+  function edge(dir: 'left' | 'right' | 'up' | 'down', kind: 'press' | 'repeat', what: string): string {
     if (kind === 'repeat' && bumpHeld === dir) return `${what}, held: no bump`;
     bumpHeld = dir;
-    bump = { dir, n: (bump?.n ?? 0) + 1, zone: home.zone, whole };
-    return `${what}, ${whole ? 'row bump' : 'bump'} ${dir}, ${play('edgeBump')}`;
+    bump = { dir, n: (bump?.n ?? 0) + 1, zone: home.zone };
+    return `${what}, bump ${dir}, ${play('edgeBump')}`;
   }
-  /** When the focus last moved (for "fast scrolling into an end": a press within this time of
-   *  the last move bumps instead of wrapping). */
-  let lastMoveAt = 0;
-  const FAST_SCROLL_MS = 300;
+  /** B-14 (rev. s): the end where a fresh press has already bumped (the next one wraps). */
+  let endPressBumped: string | null = null;
+  /** The row whips to its other end in 200 ms (its normal slide is 170 ms). */
+  let wrapping = $state(false);
+  let wrapTimer: ReturnType<typeof setTimeout> | null = null;
+  /** B-1 (rev. s): during a hold the row-move repeats get quieter after the first few. */
+  let holdRepeats = 0;
+  const QUIET_AFTER = 3;
+  const QUIET_DB = -4;
 
   function onKeyPhase(ev: InputEvent, release?: ReleaseInfo) {
     if (ev.kind === 'up') {
@@ -257,17 +264,28 @@
         if (moved) {
           home = next;
           bumpHeld = null;
-          lastMoveAt = performance.now();
-          return `${where(home.focus)}, ${play('rowMove')}`;
+          endPressBumped = null;
+          holdRepeats = kind === 'repeat' ? holdRepeats + 1 : 0;
+          const quiet = holdRepeats > QUIET_AFTER ? QUIET_DB : 0;
+          return `${where(home.focus)}, ${play('rowMove', quiet)}`;
         }
-        // B-14 (rev. r): at the row's end. A fresh press while resting there wraps (the row
-        // whips across); holding, or fast scrolling into the end, bumps the whole row.
-        const fast = performance.now() - lastMoveAt < FAST_SCROLL_MS;
-        if (kind === 'repeat' || fast) return edge(action, kind, `end of row${fast && kind !== 'repeat' ? ' (fast scrolling)' : ''}`, true);
-        home = wrapRow(home, dir);
+        // B-14 (rev. s): at the row's end only the ring bumps. Holding: once per hold. The first
+        // fresh press at this end: another bump. The next press at the same end: the wrap.
+        if (kind === 'repeat') return edge(action, kind, 'end of row');
+        if (endPressBumped !== action) {
+          endPressBumped = action;
+          return edge(action, kind, 'end of row');
+        }
+        endPressBumped = null;
         bumpHeld = null;
-        lastMoveAt = performance.now();
-        return `wrap to ${dir > 0 ? 'the first game' : 'the last slot'}: ${where(home.focus)}, ${play('rowMove')}`;
+        wrapping = true;
+        if (wrapTimer) clearTimeout(wrapTimer);
+        wrapTimer = setTimeout(() => {
+          wrapping = false;
+          wrapTimer = null;
+        }, 260);
+        home = wrapRow(home, dir);
+        return `wrap to ${dir > 0 ? 'the first game' : 'the last slot'}: ${where(home.focus)}, ${play('wrap')}`;
       }
       case 'up':
       case 'down': {
@@ -286,18 +304,18 @@
         if (home.focus >= games.length) return 'empty slot: A does nothing';
         return start(home.focus, 'press');
       case 'options': {
-        // B-14: "+ Options" on a game; the game's options come in T4.
+        // B-14: "+ Options" on a game; the game's options come in T4. B-1 (rev. s): the open
+        // sound now, the close sound when the toast is dismissed (B, or after 2.4 s).
         if (home.zone !== 'row' || home.focus >= games.length) return 'options: nothing here';
         toast = 'Coming in a later stage';
+        optionsToast = true;
         if (toastTimer) clearTimeout(toastTimer);
-        toastTimer = setTimeout(() => {
-          toast = null;
-          toastTimer = null;
-        }, 2400);
+        toastTimer = setTimeout(() => closeOptionsToast('timeout'), 2400);
         core?.log('info', `options for "${games[home.focus]?.name ?? ''}": they come in T4; toast "Coming in a later stage"`);
-        return `options: toast, ${play('error')}`;
+        return `options: toast, ${play('optionsOpen')}`;
       }
       case 'back':
+        if (optionsToast) return `options: ${closeOptionsToast('B')}`;
         // B-14 (rev. r): B in the drawer returns to the game I was on, with the row's click.
         if (home.zone === 'drawer') {
           home = { ...home, zone: 'row' };
@@ -305,6 +323,19 @@
         }
         return 'home: nothing to go back to';
     }
+  }
+
+  /** B-1 (rev. s): the Options toast stands in for T4's Options panel: open / close sounds. */
+  let optionsToast = false;
+  function closeOptionsToast(how: string): string {
+    if (!optionsToast) return 'nothing to close';
+    optionsToast = false;
+    toast = null;
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = null;
+    const line = `closed (${how}), ${play('optionsClose')}`;
+    if (how === 'timeout') core?.log('info', `options toast ${line}`);
+    return line;
   }
 
   /** T1.2: the drawer's screens come in later stages (T2–T4); a press shows a plain toast. */
@@ -361,7 +392,7 @@
     pressTimer = setTimeout(() => {
       pressed = null;
       pressTimer = null;
-    }, 90);
+    }, extrasOn ? 200 : 90);
   }
 
   function applyEffect(effect: FlowEffect) {
@@ -793,9 +824,9 @@
     {onDrawerClick}
     {drawerPressed}
     {bump}
+    {wrapping}
     scale={(info?.interfaceScale ?? 100) / 100}
-    extras={info?.extras ?? []}
-    ringStyle={info?.ringPlain ? 'plain' : 'separator'}
+    extras={extrasOn ? ['titlefade', 'press', 'labelfade'] : []}
   />{/if}
   {#if toast && phase === 'home'}
     <div class="toast" role="status" data-testid="toast">{toast}</div>

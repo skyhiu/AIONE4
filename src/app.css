@@ -51,7 +51,10 @@
   /* B-9: hot pink accent (brand #FF46A2), light preset values for A8 contrast. */
   --color-accent: #fd007e; /* ring and accent shapes: 3.2:1 on the background */
   --color-ring: #fd007e;
-  --color-ring-alt: #d9006c; /* B-9 rev. m: the ring's pulse partner, 4.2:1 */
+  --color-ring-alt: #d9006c; /* (rev. m; kept for the B-9 contrast table) */
+  /* B-9 (rev. s): the flash's peak (may drop below 3:1, the user's exception) and the halo. */
+  --color-ring-peak: #ffb0d7;
+  --color-ring-halo: rgba(253, 0, 126, 0.18);
   /* B-9 rev. p: the pulse restarts at the bright end on every move: in light the base ring
      (#FD007E) is the brighter one, so the darker layer starts hidden. */
   --ring-pulse: aione-ring-pulse;
@@ -129,6 +132,8 @@
   --color-accent: #ff46a2; /* brand pink: 4.4:1 */
   --color-ring: #ff46a2;
   --color-ring-alt: #ff69b4; /* 5.2:1 */
+  --color-ring-peak: #ffc2e0;
+  --color-ring-halo: rgba(255, 70, 162, 0.22);
   /* In dark the pulse partner (#FF69B4) is the brighter one: it starts shown. */
   --ring-pulse: aione-ring-pulse-dark;
   --color-slot: #363636;
@@ -208,22 +213,22 @@ body {
   cursor: none;
 }
 
-/* B-9 (rev. p): the ring's pulse, one cycle every 1.0 s (0.5 s each way, alternating),
-   starting at the bright end on every move. Global so the preset can choose the direction. */
-@keyframes aione-ring-pulse {
-  from {
+/* B-9 (rev. s): the ring's flash, one cycle per 1.0 s, starting at the bright peak: a slow fade to
+   the base over 0.75 s (ease-out), a short rest, a fast rise (0.2 s) back to the peak. Opacity of
+   the peak layer only (A7: transform / opacity). */
+@keyframes aione-ring-flash {
+  0% {
+    opacity: 1;
+    animation-timing-function: cubic-bezier(0.3, 0, 0.4, 1);
+  }
+  75% {
     opacity: 0;
   }
-  to {
+  80% {
+    opacity: 0;
+    animation-timing-function: cubic-bezier(0.2, 0, 0.2, 1);
+  }
+  100% {
     opacity: 1;
   }
 }
-@keyframes aione-ring-pulse-dark {
-  from {
-    opacity: 1;
-  }
-  to {
-    opacity: 0;
-  }
-}
-
