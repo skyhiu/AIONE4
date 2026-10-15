@@ -213,10 +213,7 @@
       followingId = null;
       core?.log('info', `${describeInput(ev, 'back', `the wait for "${name}" cancelled (B): Home`)}`);
       // Rev. ai: the core ends the watch and says what was counted.
-      core
-        ?.cancelStart(id)
-        .then((m) => core?.log('info', m))
-        .catch(() => {});
+      core?.cancelStart(id).catch(() => {}); // the core logs its own line (once)
       runningId = null;
       pendingId = null;
       returnHome(`the wait for "${name}" was cancelled`);
@@ -442,6 +439,8 @@
   let launching = $state<'none' | 'starting' | 'ingame'>('none');
   /** The black veil over Home (its fade is 0.2 s, linear). */
   let veil = $state(false);
+  /** D-037: when the running game's window appeared (performance.now()). */
+  let appearedAt = -1e9;
   /** D-032: the text on the veil while waiting for a launcher's game. */
   let veilText = $state<string | null>(null);
   /** B-18 (rev. ah): the game whose launcher wait B can cancel. */
@@ -1020,6 +1019,7 @@
             pendingId = null;
             veilText = null;
             followingId = null;
+            appearedAt = performance.now();
             core?.log('info', `"${e.name}": its window appeared after ${e.ms} ms; the launch is complete`);
             // The transition always completes: a window that appears early waits for the fade.
             launchTimers.push(setTimeout(() => {
@@ -1030,7 +1030,21 @@
       );
       // T1.3 (B-7): AIONE came back to the front while a game runs (Guide, Alt-Tab).
       const onFocus = () => {
-        if (launching === 'ingame') returnHome('AIONE is in front again');
+        if (launching !== 'ingame') return;
+        // D-037: in the first seconds after the game appeared, AIONE getting the front without
+        // Guide is the game swapping its window: hand the front back instead of showing Home.
+        const id = runningId;
+        if (id && performance.now() - appearedAt < 5000) {
+          void core?.msSinceGuide().then((ms) => {
+            if (ms < 1500 || launching !== 'ingame') return returnHome('AIONE is in front again');
+            core
+              ?.returnToGame(id)
+              .then(() => core?.log('info', `the game swapped its window: front handed back (${ms === Number.MAX_SAFE_INTEGER ? 'no Guide' : `last Guide ${ms} ms ago`})`))
+              .catch(() => returnHome('AIONE is in front again'));
+          });
+          return;
+        }
+        returnHome('AIONE is in front again');
       };
       window.addEventListener('focus', onFocus);
       unlisteners.push(() => window.removeEventListener('focus', onFocus));

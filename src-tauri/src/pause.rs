@@ -198,61 +198,93 @@ pub fn resume_left_over() {
     );
 }
 
-/// D-035 (rev. ah): the process now in front; if AIONE paused it (the game or a process it
-/// started), the game is resumed at once, by whatever route it came to the front.
-pub fn on_foreground(pid: u32) -> bool {
-    let paused = PAUSED.lock().map(|p| p.contains(&pid)).unwrap_or(false);
+/// D-035 (rev. aj): what AIONE watches to resume the game as soon as the user starts leaving AIONE
+/// (a paused program can't answer Windows, so it can never "get the front" itself).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Leaving {
+    /// Another window took the front (any program, the taskbar, Start, the Game Bar, Steam).
+    Foreground,
+    /// Alt-Tab or the task switcher started (before a window is chosen).
+    SwitchStart,
+}
+
+/// D-035 (rev. aj): AIONE is being left: resume the paused game at once. `program` names the
+/// window that took the front (for the log). Returns whether a game was resumed.
+pub fn on_leaving(what: Leaving, program: &str) -> bool {
+    let paused = PAUSED.lock().map(|p| !p.is_empty()).unwrap_or(false);
     if paused {
-        resume_running("the game came to the front");
+        match what {
+            Leaving::Foreground => resume_running(&format!("AIONE lost the front: {program}")),
+            Leaving::SwitchStart => resume_running("Alt-Tab started"),
+        };
     }
     paused
 }
 
-/// D-035: watches the foreground for as long as AIONE runs (a WinEvent hook on its own thread,
-/// like the start-up guard's; that one ends after the guard's seconds).
+/// D-035 (rev. aj): two WinEvent hooks for AIONE's lifetime, on their own thread:
+/// `EVENT_SYSTEM_FOREGROUND` (another window took the front; AIONE's own windows are skipped with
+/// `WINEVENT_SKIPOWNPROCESS`) and `EVENT_SYSTEM_SWITCHSTART` (Alt-Tab started).
 #[cfg(windows)]
 pub fn start_watch() {
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::Accessibility::{SetWinEventHook, HWINEVENTHOOK};
     use windows::Win32::UI::WindowsAndMessaging::{
         DispatchMessageW, GetMessageW, GetWindowThreadProcessId, TranslateMessage,
-        EVENT_SYSTEM_FOREGROUND, MSG, WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS,
+        EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_SWITCHSTART, MSG, WINEVENT_OUTOFCONTEXT,
+        WINEVENT_SKIPOWNPROCESS,
     };
-    unsafe extern "system" fn on_fg(
+    unsafe extern "system" fn on_event(
         _h: HWINEVENTHOOK,
-        _e: u32,
+        event: u32,
         window: HWND,
         _o: i32,
         _c: i32,
         _t: u32,
         _time: u32,
     ) {
+        if !PAUSED.lock().map(|p| !p.is_empty()).unwrap_or(false) {
+            return;
+        }
+        if event == EVENT_SYSTEM_SWITCHSTART {
+            on_leaving(Leaving::SwitchStart, "");
+            return;
+        }
         let mut pid = 0u32;
         unsafe { GetWindowThreadProcessId(window, Some(&mut pid)) };
-        if pid != 0 && PAUSED.lock().map(|p| p.contains(&pid)).unwrap_or(false) {
-            std::thread::spawn(move || on_foreground(pid));
-        }
+        let program = crate::launch::exe_name(pid).unwrap_or_else(|| format!("process {pid}"));
+        on_leaving(Leaving::Foreground, &program);
     }
     std::thread::spawn(|| {
-        // SAFETY: an out-of-context hook with a static callback, kept for AIONE's lifetime; the
-        // message loop below delivers its events on this thread.
-        let hook = unsafe {
+        // SAFETY: out-of-context hooks with a static callback, kept for AIONE's lifetime; the message
+        // loop below delivers their events on this thread.
+        let flags = WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS;
+        let fg = unsafe {
             SetWinEventHook(
                 EVENT_SYSTEM_FOREGROUND,
                 EVENT_SYSTEM_FOREGROUND,
                 None,
-                Some(on_fg),
+                Some(on_event),
                 0,
                 0,
-                WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS,
+                flags,
             )
         };
-        if hook.0.is_null() {
+        let sw = unsafe {
+            SetWinEventHook(
+                EVENT_SYSTEM_SWITCHSTART,
+                EVENT_SYSTEM_SWITCHSTART,
+                None,
+                Some(on_event),
+                0,
+                0,
+                flags,
+            )
+        };
+        if fg.0.is_null() || sw.0.is_null() {
             logging::lifecycle(
                 Level::Warn,
-                "pause: the foreground watch could not be installed (SetWinEventHook failed)",
+                "pause: a leaving watch could not be installed (SetWinEventHook failed)",
             );
-            return;
         }
         let mut msg = MSG::default();
         while unsafe { GetMessageW(&mut msg, None, 0, 0) }.0 > 0 {
@@ -368,16 +400,20 @@ mod tests {
         assert!(anti_cheat(None, &running).unwrap().contains("running"));
     }
 
-    /// D-035: the game (or a process it started) coming to the front resumes it; others don't.
+    /// D-035 (rev. aj): leaving AIONE by any route resumes the game; nothing when nothing is paused.
     #[test]
-    fn the_game_coming_to_the_front_resumes_it() {
+    fn leaving_aione_resumes_the_game() {
         if let Ok(mut p) = PAUSED.lock() {
-            *p = vec![4242, 4243];
+            *p = vec![4242];
         }
-        assert!(!on_foreground(7)); // another program: still paused
-        assert_eq!(PAUSED.lock().unwrap().len(), 2);
-        assert!(on_foreground(4243)); // a process the game started: resumed
+        assert!(on_leaving(Leaving::Foreground, "explorer.exe")); // the taskbar or Start
         assert!(PAUSED.lock().unwrap().is_empty());
+        if let Ok(mut p) = PAUSED.lock() {
+            *p = vec![4242];
+        }
+        assert!(on_leaving(Leaving::SwitchStart, "")); // Alt-Tab started
+        assert!(PAUSED.lock().unwrap().is_empty());
+        assert!(!on_leaving(Leaving::Foreground, "other.exe")); // nothing paused: nothing to do
     }
 
     /// Windows only: a real process is suspended and resumed (a mock game: `ping`).
@@ -394,6 +430,30 @@ mod tests {
         assert!(n > 0, "no thread suspended");
         assert!(child.try_wait().unwrap().is_none());
         assert_eq!(resume_process(child.id()), n);
+        let _ = child.kill();
+    }
+
+    /// Windows only (D-035, rev. aj): a real suspended process (a mock game) is resumed by a
+    /// "leaving AIONE" event, through the same path the hooks use.
+    #[cfg(windows)]
+    #[test]
+    fn a_real_paused_process_resumes_when_aione_is_left() {
+        let mut child = std::process::Command::new("ping")
+            .args(["-n", "30", "127.0.0.1"])
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let n = suspend_process(child.id());
+        assert!(n > 0);
+        if let Ok(mut p) = PAUSED.lock() {
+            *p = vec![child.id()];
+        }
+        assert!(on_leaving(Leaving::Foreground, "explorer.exe"));
+        assert!(PAUSED.lock().unwrap().is_empty());
+        // Resumed: suspending again finds its threads running (suspend count back to 0 first).
+        assert_eq!(suspend_process(child.id()), n);
+        let _ = resume_process(child.id());
         let _ = child.kill();
     }
 }

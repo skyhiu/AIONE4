@@ -299,6 +299,12 @@ fn return_to_game(id: String) -> Result<String, String> {
     launch::return_to_game(&id)
 }
 
+/// D-037: milliseconds since the last Guide press (the UI tells a window swap from Guide).
+#[tauri::command]
+fn ms_since_guide() -> u64 {
+    launch::ms_since_guide()
+}
+
 /// T1.3: the running game, if any.
 #[tauri::command]
 fn running_game() -> Option<String> {
@@ -800,6 +806,7 @@ pub fn run() {
             close_game,
             force_close_game,
             cancel_start,
+            ms_since_guide,
             return_to_game,
             running_game
         ])
@@ -817,6 +824,7 @@ pub fn run() {
                     // B-17 (rev. aa): Guide pressed in front: a second later, a plain hint if Steam
                     // or the Game Bar took the front.
                     if ev.control == "Guide" && ev.kind == "down" {
+                        launch::note_guide();
                         std::thread::spawn(|| {
                             std::thread::sleep(std::time::Duration::from_millis(1000));
                             if let Some(h) = launch::guide_hint() {
@@ -833,6 +841,7 @@ pub fn run() {
                         "Guide pressed while AIONE is in the background: bringing AIONE to the front",
                     );
                     show_and_focus(&guide_handle, "Guide");
+                    launch::note_guide();
                     // B-20: the running game is paused while AIONE is in front.
                     std::thread::spawn(|| {
                         pause::pause_running("Guide: AIONE in front");

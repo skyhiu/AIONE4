@@ -512,11 +512,18 @@ export function createMock(search: string): { core: Core; control: MockControl }
       followHandlers.push(h);
       return Promise.resolve(() => {});
     },
+    msSinceGuide() {
+      // The tests' focus events stand for Guide (just pressed); ?guidems=999999: no Guide (a swap).
+      return Promise.resolve(Number(params.get('guidems') ?? 0));
+    },
     cancelStart(id) {
       if (running !== id) return Promise.reject(new Error("that game isn't starting"));
       running = null;
       cancelled = true;
-      return Promise.resolve(`start "${id}": the wait was cancelled (B): ended, nothing counted`); // as the core says
+      // As the core does: its own line, logged once.
+      const line = `start "${id}": the wait was cancelled (B): ended, nothing counted`;
+      control.logs.push(`info: ${line}`);
+      return Promise.resolve(line);
     },
     forceCloseGame(id) {
       control.closes.push(`force:${id}`);

@@ -187,6 +187,8 @@ export interface Core {
   forceCloseGame(id: string): Promise<void>;
   /** B-18 (rev. ah): B on "Starting <game>…" cancels the launcher wait. */
   cancelStart(id: string): Promise<string>;
+  /** D-037: milliseconds since the last Guide press. */
+  msSinceGuide(): Promise<number>;
   /** D-026: the running game's window appeared. */
   onGameWindow(handler: (e: { id: string; name: string; ms: number }) => void): Promise<Unlisten>;
   /** T1.3: the running game's id, if any. */

@@ -294,7 +294,10 @@ test.describe('T1.3 launching (mocked core)', () => {
     const l = await logs(page);
     expect(l.some((x) => /the wait for "Amber Lighthouse" cancelled \(B\): Home/.test(x))).toBe(true);
     // Rev. ai: the core's own line says what was counted (here: nothing; the game never appeared).
-    expect(l.some((x) => x.includes('the wait was cancelled (B): ended, nothing counted'))).toBe(true);
+    // QA-2 (alpha.22): the core's line, logged exactly once.
+    await page.waitForTimeout(200);
+    const l2 = await logs(page);
+    expect(l2.filter((x) => x.includes('the wait was cancelled (B): ended, nothing counted')).length).toBe(1);
     await expect(page.getByTestId('playing-badge')).toHaveCount(0);
   });
 
@@ -323,5 +326,28 @@ test.describe('T1.3 launching (mocked core)', () => {
     await page.waitForTimeout(600);
     expect(await page.evaluate(() => window.__aioneMock?.closes)).toEqual(['Amber Lighthouse', 'Amber Lighthouse', 'force:Amber Lighthouse']);
     await expect(page.getByTestId('playing-badge')).toHaveCount(0);
+  });
+
+  test('D-037: AIONE gets the front just after the game appeared (a window swap): the front goes back, no Home', async ({ page }) => {
+    await open(page, 'guidems=999999');
+    await pad(page, 'A');
+    await page.waitForTimeout(1100); // the game's window appeared, the launch complete
+    await page.evaluate(() => window.dispatchEvent(new Event('focus'))); // the swap: AIONE briefly in front
+    await page.waitForTimeout(400);
+    expect(await veil(page)).toBe(1); // still black: no Home
+    const l = await logs(page);
+    expect(l.some((x) => x.includes('the game swapped its window: front handed back'))).toBe(true);
+    expect(l.some((x) => x.includes('Home again'))).toBe(false);
+  });
+
+  test('D-037: Guide right after the game appeared still brings Home (not taken for a swap)', async ({ page }) => {
+    await open(page, 'guidems=200');
+    await pad(page, 'A');
+    await page.waitForTimeout(1100);
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await page.waitForTimeout(400);
+    await expect.poll(() => veil(page), { timeout: 2000 }).toBe(0);
+    const l = await logs(page);
+    expect(l.some((x) => x.includes('Home again: AIONE is in front again'))).toBe(true);
   });
 });

@@ -349,11 +349,16 @@ unminimizes it). A background Guide press is consumed in the input gate (D-028).
 - **Mechanism:** every thread of the game's process and of the processes it started is suspended
   with `SuspendThread` (found with `CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD)`) and resumed with
   `ResumeThread`. The undocumented `NtSuspendProcess` isn't used.
-- **When:** at once when Guide brings AIONE to the front over a running game (rev. ah). Resumed on A
-  Continue, Guide back, before any close (Close Software, Close and start, force close), when AIONE
-  closes, and **the moment the game or a process it started gets the front by any route** (a
-  taskbar click, Alt-Tab, the Game Bar, Steam: D-035), watched with a WinEvent foreground hook
-  (`EVENT_SYSTEM_FOREGROUND`, out of context) on its own thread for AIONE's lifetime.
+- **When:** at once when Guide brings AIONE to the front over a running game (rev. ah). The game is
+  only ever paused **while AIONE itself is in front** (rev. aj, D-035).
+- **Resumed (rev. aj):** on A Continue, Guide back, before any close, when AIONE closes, and **the
+  moment the user starts leaving AIONE** (a paused program can't answer Windows, so it can never
+  "get the front" itself; alpha.22's Alt-Tab froze everything). Two WinEvent hooks on their own
+  thread for AIONE's lifetime (out of context, skipping AIONE's own windows):
+  - `EVENT_SYSTEM_FOREGROUND`: any other window took the front (a program, the taskbar, Start, the
+    Game Bar, Steam) → `resume (AIONE lost the front: <program>)`;
+  - `EVENT_SYSTEM_SWITCHSTART`: Alt-Tab / the task switcher started, before a window is chosen →
+    `resume (Alt-Tab started)`.
 - **Never:** Steam's client / helper, Explorer, the Game Bar, AIONE; games with an anti-cheat in
   their folder or running (Easy Anti-Cheat, BattlEye, Vanguard); `"NoPause": true` in game.json.
 - **Safety:** the paused processes are recorded in `paused.json` in the data folder; the next start

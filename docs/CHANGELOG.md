@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.0.0-alpha.23 — completing T1.3 part 1 (rev. aj)
+
+- **D-035 (B-20 rev. aj):** the paused game resumes the moment the user starts leaving AIONE: any
+  other window taking the front (EVENT_SYSTEM_FOREGROUND) or Alt-Tab starting
+  (EVENT_SYSTEM_SWITCHSTART). Paused only while AIONE itself is in front.
+- **D-037:** within 5 s of the game appearing, AIONE getting the front without Guide (a game
+  swapping its first window) hands the front back to the game instead of showing Home.
+- **QA-2:** the cancel line is logged once (by the core).
+- Eden: unverified (eden_cli.txt not attached).
+
 ## 4.0.0-alpha.22 — completing T1.3 part 1 (rev. ai)
 
 - **D-036:** once a process is the game (counted when its window appeared, or followed after a

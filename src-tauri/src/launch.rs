@@ -98,6 +98,30 @@ pub fn running_game_info() -> Option<GameInfo> {
     })
 }
 
+/// D-037: when Guide was last pressed (in front or in the background).
+static LAST_GUIDE: Mutex<Option<Instant>> = Mutex::new(None);
+
+pub fn note_guide() {
+    if let Ok(mut g) = LAST_GUIDE.lock() {
+        *g = Some(Instant::now());
+    }
+}
+
+/// D-037: milliseconds since the last Guide press (u64::MAX if never).
+pub fn ms_since_guide() -> u64 {
+    LAST_GUIDE
+        .lock()
+        .ok()
+        .and_then(|g| *g)
+        .map(|t| t.elapsed().as_millis() as u64)
+        .unwrap_or(u64::MAX)
+}
+
+/// A process's program name (for the log).
+pub fn exe_name(pid: u32) -> Option<String> {
+    exe_of(pid)
+}
+
 /// Every running process (pid, parent, path).
 pub fn processes() -> Vec<(u32, u32, Option<std::path::PathBuf>)> {
     process_list()
