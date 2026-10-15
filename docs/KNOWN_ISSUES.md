@@ -34,6 +34,16 @@ an item Fixed and Verified.
 | QA-4 (T0 test): an autostart start is not marked | **Implemented, Unverified**: the entry runs `"<exe>" --from-autostart`; logged "started by Windows at sign-in". Unit test on the command. |
 | QA-5 (T0 retest): closing logged as "the user switched away" | **Implemented, Unverified**: exit stops the guard first ("AIONE is closing"); later foreground changes are ignored. Unit test on the guard's decision. Windows code compiles first in CI. |
 
+## T1.3 part 1, continued (4.0.0-alpha.16)
+
+| Item | Status |
+|---|---|
+| D-024 (the guard vs the game) | Implemented, Unverified (the guard ends at the launch) |
+| D-025 / B-18 (one game at a time, close question, badge, footer, polite close) | Implemented, Unverified (UI tests; the Windows close needs the PC) |
+| D-026 (black until the window) | Implemented, Unverified (UI test with a window that never appears) |
+| B-11 rev. ab (playtime in WPF's fields and date style) | Implemented, Unverified (Rust test) |
+| B-16 (mouse and touch dragging, clickable prompts) | Implemented, Unverified (UI test with the mouse) |
+
 ## T1.3 part 1 (4.0.0-alpha.15)
 
 | Item | Status |

@@ -177,6 +177,10 @@ export interface Core {
   launchGame(id: string): Promise<LaunchResult>;
   /** T1.3 (B-7): A or Guide on the running game brings it back to the front. */
   returnToGame(id: string): Promise<string>;
+  /** B-18: closes the running game politely (as its window's ✕ would); waits up to 10 s. */
+  closeGame(id: string): Promise<void>;
+  /** D-026: the running game's window appeared. */
+  onGameWindow(handler: (e: { id: string; name: string; ms: number }) => void): Promise<Unlisten>;
   /** T1.3: the running game's id, if any. */
   runningGame(): Promise<string | null>;
   /** T1.3: the running game ended (the core has brought AIONE back to the front). */

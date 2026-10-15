@@ -38,6 +38,9 @@ pub struct Started {
 
 #[derive(Debug, Clone)]
 struct Running {
+    /// B-18 / D-025: each launch's watcher has its own generation; a watcher whose game is no
+    /// longer the tracked one stops at once (never a second end line).
+    gen: u64,
     id: String,
     name: String,
     pid: Option<u32>,
@@ -47,6 +50,19 @@ struct Running {
 }
 
 static RUNNING: Mutex<Option<Running>> = Mutex::new(None);
+static GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// What the watcher reports to the app.
+pub enum Event {
+    /// The game's window appeared (D-026: the UI lifts the black screen only now).
+    Window { id: String, name: String, ms: u128 },
+    /// The game ended (once): its session's length in minutes (B-11).
+    Ended {
+        id: String,
+        name: String,
+        minutes: f64,
+    },
+}
 
 /// The id of the game that is running, if any.
 pub fn running_id() -> Option<String> {
@@ -106,12 +122,12 @@ pub fn target_of(f: &crate::games::LaunchFields) -> Result<(String, String), Str
     Err("its game.json has no Shortcut and no SteamAppId".into())
 }
 
-/// Starts the game (or brings it to the front if it is already running). `on_exit` is called
-/// once, from the watcher thread, when the game's process ends.
+/// Starts the game (or brings it to the front if it is already running). `report` gets the
+/// game's window and its end (once), from the watcher thread.
 pub fn launch(
     data: &Path,
     id: &str,
-    on_exit: impl Fn(String, String, u64) + Send + 'static,
+    report: impl Fn(Event) + Send + 'static,
 ) -> Result<Started, String> {
     let f = crate::games::launch_fields(data, id)?;
     // Already running: bring it to the front, never start it twice.
@@ -154,7 +170,9 @@ pub fn launch(
                 )
         ),
     );
+    let gen = GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
     let run = Running {
+        gen,
         id: id.into(),
         name: f.name.clone(),
         pid,
@@ -163,9 +181,17 @@ pub fn launch(
         started: Instant::now(),
     };
     if let Ok(mut g) = RUNNING.lock() {
-        *g = Some(run);
+        if let Some(old) = g.replace(run) {
+            logging::lifecycle(
+                Level::Warn,
+                &format!(
+                    "\"{}\" is no longer tracked (another game was started)",
+                    old.name
+                ),
+            );
+        }
     }
-    std::thread::spawn(move || watch(on_exit));
+    std::thread::spawn(move || watch(gen, report));
     Ok(Started {
         id: id.into(),
         name: f.name,
@@ -206,13 +232,18 @@ fn alive(r: &Running) -> bool {
     }
 }
 
-/// The watcher: finds the game's window, follows a launcher to the real game, and reports the
-/// game's exit. Ends when the game ends (or after 2 minutes without ever finding a game).
-fn watch(on_exit: impl Fn(String, String, u64)) {
+/// The watcher (one per launch): finds the game's window, follows a launcher to the real game,
+/// and reports the game's end once. It stops at once when its game is no longer the tracked one.
+fn watch(gen: u64, report: impl Fn(Event)) {
     let mut found_logged = false;
     loop {
         std::thread::sleep(Duration::from_millis(250));
-        let Some(mut r) = RUNNING.lock().ok().and_then(|g| g.clone()) else {
+        let Some(mut r) = RUNNING
+            .lock()
+            .ok()
+            .and_then(|g| g.clone())
+            .filter(|r| r.gen == gen)
+        else {
             return;
         };
         let since = r.started.elapsed();
@@ -249,45 +280,128 @@ fn watch(on_exit: impl Fn(String, String, u64)) {
                         r.exe.clone().unwrap_or_default()
                     ),
                 );
+                report(Event::Window {
+                    id: r.id.clone(),
+                    name: r.name.clone(),
+                    ms: since.as_millis(),
+                });
             }
-            if r.window.is_none() && since > Duration::from_secs(120) {
+            // A launcher that closed without starting a game counts as ended (B-18); so does a
+            // start that never shows a window within 2 minutes.
+            let launcher_gone =
+                r.pid.is_some_and(|p| !process_alive(p)) && since > Duration::from_secs(10);
+            if r.window.is_none() && (launcher_gone || since > Duration::from_secs(120)) {
                 logging::lifecycle(
                     Level::Warn,
                     &format!(
-                        "start \"{}\": no game window within 2 minutes; no longer watching",
-                        r.name
+                        "start \"{}\": no game window ({}); counted as ended",
+                        r.name,
+                        if launcher_gone {
+                            "its launcher closed"
+                        } else {
+                            "2 minutes passed"
+                        }
                     ),
                 );
-                clear_if(&r.id);
-                on_exit(r.id.clone(), r.name.clone(), 0);
+                if take_if(gen) {
+                    report(Event::Ended {
+                        id: r.id.clone(),
+                        name: r.name.clone(),
+                        minutes: since.as_secs_f64() / 60.0,
+                    });
+                }
                 return;
             }
         }
-        // 2. The game's exit.
+        // 2. The game's end: its process ending (an emulator: the emulator ending, B-18).
         if r.window.is_some() && !alive(&r) {
-            let minutes = since.as_secs() / 60;
-            logging::lifecycle(
-                Level::Info,
-                &format!("\"{}\" exited after {} min", r.name, minutes),
-            );
-            clear_if(&r.id);
-            on_exit(r.id.clone(), r.name.clone(), minutes);
+            let minutes = since.as_secs_f64() / 60.0;
+            if take_if(gen) {
+                logging::lifecycle(
+                    Level::Info,
+                    &format!("\"{}\" ended after {:.1} min", r.name, minutes),
+                );
+                report(Event::Ended {
+                    id: r.id.clone(),
+                    name: r.name.clone(),
+                    minutes,
+                });
+            }
             return;
         }
         if let Ok(mut g) = RUNNING.lock() {
-            if g.as_ref().is_some_and(|x| x.id == r.id) {
+            if g.as_ref().is_some_and(|x| x.gen == gen) {
                 *g = Some(r);
             }
         }
     }
 }
 
-fn clear_if(id: &str) {
-    if let Ok(mut g) = RUNNING.lock() {
-        if g.as_ref().is_some_and(|x| x.id == id) {
-            *g = None;
+/// Clears the tracked game if it is still this watcher's; true when it was (the end is then
+/// reported exactly once).
+fn take_if(gen: u64) -> bool {
+    RUNNING
+        .lock()
+        .map(|mut g| {
+            if g.as_ref().is_some_and(|x| x.gen == gen) {
+                *g = None;
+                true
+            } else {
+                false
+            }
+        })
+        .unwrap_or(false)
+}
+
+/// B-18: closes the running game politely (WM_CLOSE to its windows, as its ✕ would; never
+/// killed) and waits up to `wait` for its process to end. The watcher reports the end.
+pub fn close_game(id: &str, wait: Duration) -> Result<(), String> {
+    let r = RUNNING
+        .lock()
+        .ok()
+        .and_then(|g| g.clone())
+        .filter(|r| r.id == id)
+        .ok_or("that game isn't running")?;
+    let Some(pid) = r.pid else {
+        return Err("its process isn't known, so AIONE can't close it".into());
+    };
+    let n = close_windows_of(pid);
+    logging::lifecycle(
+        Level::Info,
+        &format!(
+            "close \"{}\": asked {n} window(s) of {} to close (as their ✕ would)",
+            r.name,
+            r.exe.clone().unwrap_or_default()
+        ),
+    );
+    let t0 = Instant::now();
+    while t0.elapsed() < wait {
+        std::thread::sleep(Duration::from_millis(200));
+        if !process_alive(pid) {
+            logging::lifecycle(
+                Level::Info,
+                &format!(
+                    "close \"{}\": ended after {} ms",
+                    r.name,
+                    t0.elapsed().as_millis()
+                ),
+            );
+            return Ok(());
         }
     }
+    logging::lifecycle(
+        Level::Warn,
+        &format!(
+            "close \"{}\": still running after {} s; left as it is (never forced)",
+            r.name,
+            wait.as_secs()
+        ),
+    );
+    Err(format!(
+        "{} is still running after {} seconds (it may be asking to save); it was left as it is",
+        r.name,
+        wait.as_secs()
+    ))
 }
 
 // ---------- the platform layer ----------
@@ -295,7 +409,7 @@ fn clear_if(id: &str) {
 #[cfg(windows)]
 mod win {
     use windows::core::{BOOL, HSTRING, PCWSTR};
-    use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM};
+    use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, WPARAM};
     use windows::Win32::System::Threading::{
         GetExitCodeProcess, GetProcessId, OpenProcess, QueryFullProcessImageNameW,
         PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
@@ -385,6 +499,30 @@ mod win {
         (s.found != 0).then_some(s.found)
     }
 
+    struct Closer {
+        pid: u32,
+        sent: usize,
+    }
+
+    unsafe extern "system" fn close_each(h: HWND, l: LPARAM) -> BOOL {
+        let c = unsafe { &mut *(l.0 as *mut Closer) };
+        let mut pid = 0u32;
+        unsafe { GetWindowThreadProcessId(h, Some(&mut pid)) };
+        if pid == c.pid && unsafe { IsWindowVisible(h) }.as_bool() {
+            if unsafe { PostMessageW(Some(h), WM_CLOSE, WPARAM(0), LPARAM(0)) }.is_ok() {
+                c.sent += 1;
+            }
+        }
+        BOOL(1)
+    }
+
+    /// WM_CLOSE to every visible top-level window of the process (as its ✕ would).
+    pub fn close_windows_of(pid: u32) -> usize {
+        let mut c = Closer { pid, sent: 0 };
+        let _ = unsafe { EnumWindows(Some(close_each), LPARAM(&mut c as *mut Closer as isize)) };
+        c.sent
+    }
+
     pub fn foreground_program() -> Option<(isize, u32, String)> {
         let h = unsafe { GetForegroundWindow() };
         if h.is_invalid() {
@@ -398,7 +536,10 @@ mod win {
 }
 
 #[cfg(windows)]
-use win::{exe_of, foreground_program, process_alive, shell_open, top_window_of, window_alive};
+use win::{
+    close_windows_of, exe_of, foreground_program, process_alive, shell_open, top_window_of,
+    window_alive,
+};
 
 #[cfg(not(windows))]
 fn shell_open(_target: &str, _folder: &Path) -> Result<Option<u32>, String> {
@@ -423,6 +564,10 @@ fn top_window_of(_pid: u32) -> Option<isize> {
 #[cfg(not(windows))]
 fn foreground_program() -> Option<(isize, u32, String)> {
     None
+}
+#[cfg(not(windows))]
+fn close_windows_of(_pid: u32) -> usize {
+    0
 }
 
 #[cfg(test)]

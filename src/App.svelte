@@ -46,6 +46,7 @@
   import bootDownSound from '../assets/sounds/boot/aione_boot_down.wav?url';
   import type { BootMedia } from './lib/core/types';
   import CopyDialog from './lib/components/CopyDialog.svelte';
+  import ConfirmDialog from './lib/components/ConfirmDialog.svelte';
 
   /** Mouse movement that counts as deliberate (A7): beyond this many CSS pixels. */
   const MOUSE_THRESHOLD_PX = 6;
@@ -250,6 +251,18 @@
 
   /** One action to the active context. Returns what it did, for the log line. */
   function act(action: UiAction, kind: 'press' | 'repeat'): string {
+    // B-18: the close question takes the input while it is open.
+    if (confirm) {
+      if (action === 'left' || action === 'right') {
+        const f = action === 'left' ? 'yes' : 'no';
+        if (confirm.focus === f) return 'question: already there';
+        confirm = { ...confirm, focus: f };
+        return `question: focus ${f === 'yes' ? confirm.yes : 'Cancel'}, ${play('drawerMove')}`;
+      }
+      if (action === 'confirm') return answer(confirm.focus === 'yes', 'A');
+      if (action === 'back') return answer(false, 'B');
+      return 'question: no action';
+    }
     if (dialogOpen) {
       const before = flow;
       const [next, effect] = flowAction(flow, action);
@@ -311,6 +324,13 @@
         // B-14: A does nothing on an empty slot (its "A OK" prompt is dimmed).
         if (home.focus >= games.length) return 'empty slot: A does nothing';
         return start(home.focus, 'press');
+      case 'close': {
+        // B-18: X (Delete) on the running game asks to close it.
+        const g = home.zone === 'row' ? games[home.focus] : undefined;
+        if (!g || g.id !== runningId) return 'no action (not the running game)';
+        confirm = { kind: 'close', id: g.id, title: `Close ${g.name}?`, text: 'Unsaved progress will be lost.', yes: 'Close', focus: 'no' };
+        return `asked: close "${g.name}"?, ${play('optionsOpen')}`;
+      }
       case 'guide':
         // B-7 (T1.3): Guide in front returns to the running game.
         if (runningId) return returnToGame(runningId, 'Guide');
@@ -408,12 +428,23 @@
   let runningId = $state<string | null>(null);
   let launchTimers: ReturnType<typeof setTimeout>[] = [];
   const LAUNCH_STILL_MS = 550;
-  const LAUNCH_FADE_MS = 200;
+  /** Rev. ab: the fade about 0.3 s, eased (measured on Switch). */
+  const LAUNCH_FADE_MS = 300;
+  /** D-026: black until the game's window appears, at most about 45 s. */
+  const START_TIMEOUT_MS = Number(new URLSearchParams(location.search).get('starttimeout') ?? 45000);
+  /** The game being started (until its window appears). */
+  let pendingId: string | null = null;
+  /** performance.now() when the launch's fade ends (a window that appears earlier waits for it). */
+  let fadeEndAt = 0;
+  /** B-18: the close question (switching games, or X Close Software). */
+  let confirm = $state<{ kind: 'switch' | 'close'; id: string; nextId?: string; title: string; text: string; yes: string; focus: 'yes' | 'no' } | null>(null);
 
-  /** B-11: the row's order: played games most recent first, then the never-played ones A-Z. */
+  /** B-11: the row's order: the running game first (B-18), then played games most recent first,
+   *  then the never-played ones A-Z. */
   function sortForHome(list: GameView[]): GameView[] {
     const when = (g: GameView) => (g.lastPlayed ? Date.parse(g.lastPlayed) : NaN);
     return [...list].sort((a, b) => {
+      if (runningId && (a.id === runningId) !== (b.id === runningId)) return a.id === runningId ? -1 : 1;
       const x = when(a), y = when(b);
       if (!isNaN(x) && !isNaN(y)) return y - x || a.id.localeCompare(b.id);
       if (!isNaN(x)) return -1;
@@ -437,8 +468,23 @@
     pressFeedback(index);
     // An already-running game is brought to the front, never started twice (Part B).
     if (runningId === g.id) return returnToGame(g.id, how);
+    // B-18: one game at a time: another game while one runs asks first (Cancel focused).
+    if (runningId) {
+      const r = games.find((x) => x.id === runningId);
+      confirm = {
+        kind: 'switch',
+        id: runningId,
+        nextId: g.id,
+        title: `Close ${r?.name ?? 'the running game'} and start ${g.name}?`,
+        text: `Unsaved progress in ${r?.name ?? 'the running game'} will be lost.`,
+        yes: 'Close and start',
+        focus: 'no',
+      };
+      return `asked: close "${r?.name ?? runningId}" and start "${g.name}"?, ${play('optionsOpen')}`;
+    }
     launching = 'starting';
     const t0 = performance.now();
+    fadeEndAt = t0 + LAUNCH_STILL_MS + LAUNCH_FADE_MS;
     const s = play('launch');
     launchTimers.push(setTimeout(() => (veil = true), LAUNCH_STILL_MS));
     const req = core ? core.launchGame(g.id) : Promise.reject(new Error('no core'));
@@ -449,10 +495,21 @@
         runningId = g.id;
         // B-11: the start is recorded by the core; the row shows it at once (the game first).
         games = sortForHome(games.map((x) => (x.id === g.id ? { ...x, lastPlayed: new Date().toISOString(), playCount: x.playCount + 1 } : x)));
+        launchTimers.push(setTimeout(() => focusGame(g.id), Math.max(0, LAUNCH_STILL_MS + LAUNCH_FADE_MS - ms)));
+        // D-026: black, input locked, until the game's window appears (or the timeout).
+        if (r.alreadyRunning) {
+          launching = 'ingame';
+          return;
+        }
+        pendingId = g.id;
         launchTimers.push(setTimeout(() => {
-          focusGame(g.id);
-          if (launching === 'starting') launching = 'ingame';
-        }, Math.max(0, LAUNCH_STILL_MS + LAUNCH_FADE_MS - ms)));
+          if (launching !== 'starting' || pendingId !== g.id) return;
+          pendingId = null;
+          launching = 'none';
+          veil = false;
+          core?.log('warn', `launch "${g.name}": no window after ${Math.round(START_TIMEOUT_MS / 1000)} s: Home again ("Still starting")`);
+          showMessage(`Still starting ${g.name}…`);
+        }, START_TIMEOUT_MS));
       })
       .catch((e: unknown) => {
         const reason = e instanceof Error ? e.message : String(e);
@@ -486,6 +543,32 @@
         play('error');
       });
     return `back to the running game "${g?.name ?? id}" (${how}), ${play('confirm')}`;
+  }
+
+  /** B-18: the answer to the close question. */
+  function answer(yes: boolean, how: string): string {
+    const q = confirm;
+    if (!q) return 'no question';
+    confirm = null;
+    const running = games.find((x) => x.id === q.id);
+    if (!yes) return `question: Cancel (${how}), ${play('back')}`;
+    core?.log('info', `close "${running?.name ?? q.id}": asked by the user (${q.kind === 'switch' ? 'to start another game' : 'Close Software'})`);
+    core
+      ?.closeGame(q.id)
+      .then(() => {
+        core?.log('info', `close "${running?.name ?? q.id}": done`);
+        if (q.kind === 'switch' && q.nextId) {
+          const next = games.findIndex((x) => x.id === q.nextId);
+          if (next >= 0) core?.log('info', start(next, 'after closing the running game'));
+        }
+      })
+      .catch((e: unknown) => {
+        const reason = e instanceof Error ? e.message : String(e);
+        core?.log('warn', `close "${running?.name ?? q.id}" failed: ${reason}`);
+        showMessage(reason);
+        play('error');
+      });
+    return `question: ${q.yes} (${how}), ${play('confirm')}`;
   }
 
   /** AIONE is in front again (Guide, the game ended): Home fades in, the focus on that game. */
@@ -823,10 +906,25 @@
         await c.onGameExited((e) => {
           core?.log('info', `"${e.name}" ended after ${e.minutes} min`);
           const id = e.id;
+          if (pendingId === id) pendingId = null;
           runningId = id;
           returnHome(`"${e.name}" ended`);
-          focusGame(id);
           runningId = null;
+          games = sortForHome(games);
+          focusGame(id);
+        }),
+      );
+      // D-026: the game's window appeared: only now is AIONE behind the game ('ingame').
+      unlisteners.push(
+        await c.onGameWindow((e) => {
+          if (launching === 'starting' && pendingId === e.id) {
+            pendingId = null;
+            core?.log('info', `"${e.name}": its window appeared after ${e.ms} ms; the launch is complete`);
+            // The transition always completes: a window that appears early waits for the fade.
+            launchTimers.push(setTimeout(() => {
+              if (launching === 'starting') launching = 'ingame';
+            }, Math.max(0, fadeEndAt - performance.now())));
+          }
         }),
       );
       // T1.3 (B-7): AIONE came back to the front while a game runs (Guide, Alt-Tab).
@@ -965,6 +1063,16 @@
     {drawerPressed}
     {bump}
     {wrapping}
+    {runningId}
+    onDragTick={() => play('scrollTick')}
+    onDragEnd={(first) => {
+      home = { ...home, first, hover: null };
+      core?.log('info', `input drag (mouse / touch) -> the row at tile ${first + 1}, glide 150 ms`);
+    }}
+    onPrompt={(button) => {
+      const action = button === 'close' ? 'close' : button;
+      core?.log('info', `input click footer "${button}" (mouse) -> ${act(action, 'press')}`);
+    }}
     scale={(info?.interfaceScale ?? 100) / 100}
     extras={extrasOn ? ['titlefade', 'press', 'labelfade'] : []}
   />{/if}
@@ -982,7 +1090,10 @@
       }}
     />
   {/if}
-  <!-- T1.3: the launch veil: Home fades to black (0.2 s, evenly) after 0.55 s still. -->
+  {#if confirm}
+    <ConfirmDialog title={confirm.title} text={confirm.text} yes={confirm.yes} focus={confirm.focus} onAnswer={(y) => core?.log('info', `input click question -> ${answer(y, 'click')}`)} />
+  {/if}
+  <!-- T1.3: the launch veil: Home fades to black (0.3 s, eased) after 0.55 s still. -->
   <div class="launch-veil" class:on={veil} data-testid="launch-veil" aria-hidden="true"></div>
 </main>
 
@@ -993,7 +1104,7 @@
     background: #000;
     opacity: 0;
     pointer-events: none;
-    transition: opacity 200ms linear;
+    transition: opacity 300ms ease-in-out; /* rev. ab: about 0.3 s, eased */
     z-index: 900;
   }
   .launch-veil.on {

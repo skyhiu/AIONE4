@@ -234,16 +234,22 @@ pub fn launch_fields(data: &Path, id: &str) -> Result<LaunchFields, String> {
     })
 }
 
-/// B-11 / B-6 (T1.3): records a start in the game's own `game.json`: `LastPlayed` (now, RFC 3339
-/// UTC) and `PlayCount` + 1, keeping every other field (and the field names' spelling). A
-/// `game.json` written by a newer AIONE 4 is never rewritten. Written atomically.
-pub fn record_start(
-    data: &Path,
-    id: &str,
-    now: chrono::DateTime<chrono::Utc>,
-) -> Result<(String, u64), String> {
-    let path = games_dir(data).join(id).join(GAME_FILE);
-    let mut obj = read_object(&path)?;
+/// B-11 (rev. ab): dates as WPF writes them: local time with the offset and microseconds
+/// (`2026-10-12T02:36:57.347729+07:00`). Both that and UTC `Z` are read.
+pub fn wpf_date(t: chrono::DateTime<chrono::Local>) -> String {
+    t.to_rfc3339_opts(chrono::SecondsFormat::Micros, false)
+}
+
+fn key_for(obj: &Obj, name: &str) -> String {
+    obj.keys()
+        .find(|k| norm(k) == norm(name))
+        .cloned()
+        .unwrap_or_else(|| name.to_string())
+}
+
+/// A `game.json` read for a change; refused if a newer AIONE 4 wrote it (B-6).
+fn read_for_change(path: &Path) -> Result<Obj, String> {
+    let obj = read_object(path)?;
     if let Some(v) = field(&obj, SCHEMA_FIELD).and_then(|v| v.as_u64()) {
         if v > LIBRARY_SCHEMA as u64 {
             return Err(format!(
@@ -251,26 +257,65 @@ pub fn record_start(
             ));
         }
     }
-    let key = |obj: &Obj, name: &str| {
-        obj.keys()
-            .find(|k| norm(k) == norm(name))
-            .cloned()
-            .unwrap_or_else(|| name.to_string())
-    };
-    let when = now.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-    let count = number(&obj, "PlayCount") + 1;
-    let k = key(&obj, "LastPlayed");
-    obj.insert(k, when.clone().into());
-    let k = key(&obj, "PlayCount");
-    obj.insert(k, count.into());
-    let k = key(&obj, SCHEMA_FIELD);
+    Ok(obj)
+}
+
+fn write_atomic(path: &Path, mut obj: Obj) -> Result<(), String> {
+    let k = key_for(&obj, SCHEMA_FIELD);
     obj.insert(k, LIBRARY_SCHEMA.into());
     let bytes =
         serde_json::to_vec_pretty(&serde_json::Value::Object(obj)).map_err(|e| e.to_string())?;
     let tmp = path.with_extension("json.tmp");
     fs::write(&tmp, bytes).map_err(|e| format!("could not write: {e}"))?;
-    fs::rename(&tmp, &path).map_err(|e| format!("could not write: {e}"))?;
+    fs::rename(&tmp, path).map_err(|e| format!("could not write: {e}"))
+}
+
+/// WPF's minutes are numbers with a fraction (`0.5`).
+fn minutes(obj: &Obj, name: &str) -> f64 {
+    match field(obj, name) {
+        Some(serde_json::Value::Number(n)) => n.as_f64().unwrap_or(0.0).max(0.0),
+        Some(serde_json::Value::String(s)) => s.trim().parse().unwrap_or(0.0),
+        _ => 0.0,
+    }
+}
+
+/// B-11 (rev. ab), in WPF's own fields: a start sets `LastPlayed` (now), `PlayCount` + 1 and
+/// `FirstPlayed` if it is missing. Every other field (and the names' spelling) is kept; a newer
+/// AIONE 4's `game.json` is never rewritten (B-6). Written atomically.
+pub fn record_start(
+    data: &Path,
+    id: &str,
+    now: chrono::DateTime<chrono::Local>,
+) -> Result<(String, u64), String> {
+    let path = games_dir(data).join(id).join(GAME_FILE);
+    let mut obj = read_for_change(&path)?;
+    let when = wpf_date(now);
+    let count = number(&obj, "PlayCount") + 1;
+    let k = key_for(&obj, "LastPlayed");
+    obj.insert(k, when.clone().into());
+    let k = key_for(&obj, "PlayCount");
+    obj.insert(k, count.into());
+    if text(&obj, "FirstPlayed").is_none() {
+        let k = key_for(&obj, "FirstPlayed");
+        obj.insert(k, when.clone().into());
+    }
+    write_atomic(&path, obj)?;
     Ok((when, count))
+}
+
+/// B-11 (rev. ab): a session's end: `LastSessionMinutes` = its length, `PlayTimeMinutes` += it
+/// (minutes with a fraction, rounded to 0.1, as WPF stores them). Returns the new total.
+pub fn record_end(data: &Path, id: &str, session_minutes: f64) -> Result<f64, String> {
+    let path = games_dir(data).join(id).join(GAME_FILE);
+    let mut obj = read_for_change(&path)?;
+    let session = (session_minutes.max(0.0) * 10.0).round() / 10.0;
+    let total = ((minutes(&obj, "PlayTimeMinutes") + session) * 10.0).round() / 10.0;
+    let k = key_for(&obj, "LastSessionMinutes");
+    obj.insert(k, serde_json::json!(session));
+    let k = key_for(&obj, "PlayTimeMinutes");
+    obj.insert(k, serde_json::json!(total));
+    write_atomic(&path, obj)?;
+    Ok(total)
 }
 
 /// A media file name from `game.json`, resolved inside the game's folder only (no absolute
@@ -1026,8 +1071,8 @@ mod tests {
         assert_eq!(mime_of(Path::new("a.JPG")), "image/jpeg");
     }
 
-    /// B-11 (T1.3): a start is recorded in the game's own game.json, every other field kept; the
-    /// row puts played games first (most recent first), then the rest A-Z.
+    /// B-11 (rev. ab): starts and sessions in WPF's own fields and date style; the row puts played
+    /// games first (most recent first), then the rest A-Z. Invented titles and values.
     #[test]
     fn starts_are_recorded_and_order_the_row() {
         let dir = tempfile::tempdir().unwrap();
@@ -1037,24 +1082,46 @@ mod tests {
             fs::create_dir_all(&f).unwrap();
             fs::write(f.join(GAME_FILE), format!(r#"{{"Name":"{name}","Shortcut":"game.lnk","SteamAppId":"1234","Extra":{{"kept":true}},"playcount":2}}"#)).unwrap();
         }
-        let t1 = chrono::DateTime::parse_from_rfc3339("2026-10-16T10:00:00Z")
-            .unwrap()
-            .with_timezone(&chrono::Utc);
-        let t2 = chrono::DateTime::parse_from_rfc3339("2026-10-16T11:00:00Z")
-            .unwrap()
-            .with_timezone(&chrono::Utc);
-        assert_eq!(
-            record_start(data, "c", t1).unwrap(),
-            ("2026-10-16T10:00:00Z".to_string(), 3)
+        let at = |s: &str| {
+            chrono::DateTime::parse_from_rfc3339(s)
+                .unwrap()
+                .with_timezone(&chrono::Local)
+        };
+        let (when, n) = record_start(data, "c", at("2026-10-16T10:00:00.000001+07:00")).unwrap();
+        assert_eq!(n, 3);
+        // WPF's style: local time with the offset and microseconds (never UTC "Z").
+        assert!(
+            chrono::DateTime::parse_from_rfc3339(&when).is_ok()
+                && !when.ends_with('Z')
+                && when.contains('.'),
+            "{when}"
         );
-        record_start(data, "a", t2).unwrap();
+        record_start(data, "a", at("2026-10-16T11:00:00.000001+07:00")).unwrap();
         let obj = read_object(&games_dir(data).join("a").join(GAME_FILE)).unwrap();
         assert_eq!(obj.get("Extra"), Some(&serde_json::json!({"kept": true})));
         assert_eq!(obj.get("playcount"), Some(&serde_json::json!(3))); // the original spelling kept
-        assert_eq!(
-            obj.get("LastPlayed"),
-            Some(&serde_json::json!("2026-10-16T11:00:00Z"))
-        );
+        assert_eq!(obj.get("LastPlayed"), obj.get("FirstPlayed")); // FirstPlayed set when missing
+                                                                   // A second start keeps FirstPlayed.
+        record_start(data, "a", at("2026-10-16T12:00:00.000001+07:00")).unwrap();
+        let obj2 = read_object(&games_dir(data).join("a").join(GAME_FILE)).unwrap();
+        assert_eq!(obj2.get("FirstPlayed"), obj.get("FirstPlayed"));
+        assert_ne!(obj2.get("LastPlayed"), obj.get("LastPlayed"));
+        // A session's end: LastSessionMinutes = its length, PlayTimeMinutes += it.
+        fs::write(
+            games_dir(data).join("b").join(GAME_FILE),
+            r#"{"Name":"Amber","PlayTimeMinutes":0.5,"LastSessionMinutes":0.5}"#,
+        )
+        .unwrap();
+        assert_eq!(record_end(data, "b", 12.34).unwrap(), 12.8);
+        let o = read_object(&games_dir(data).join("b").join(GAME_FILE)).unwrap();
+        assert_eq!(o.get("LastSessionMinutes"), Some(&serde_json::json!(12.3)));
+        assert_eq!(o.get("PlayTimeMinutes"), Some(&serde_json::json!(12.8)));
+        // An alpha.15 UTC "Z" date is still read for the order.
+        fs::write(
+            games_dir(data).join("b").join(GAME_FILE),
+            r#"{"Name":"Amber","LastPlayed":"2026-10-16T03:30:00Z"}"#,
+        )
+        .unwrap();
         let mut games: Vec<GameView> = ["a", "b", "c"]
             .iter()
             .map(|id| {
@@ -1064,11 +1131,12 @@ mod tests {
             .collect();
         sort_for_home(&mut games);
         let order: Vec<_> = games.iter().map(|g| g.name.as_str()).collect();
-        assert_eq!(order, ["Zelda", "Moss", "Amber"]); // played, most recent first; then A-Z
-        let lf = launch_fields(data, "b").unwrap();
+        // Zelda 12:00+07 (05:00Z), Moss 10:00+07 (03:00Z), Amber 03:30Z: most recent first.
+        assert_eq!(order, ["Zelda", "Amber", "Moss"]);
+        let lf = launch_fields(data, "c").unwrap();
         assert_eq!(
             lf.shortcut,
-            Some(games_dir(data).join("b").join("game.lnk"))
+            Some(games_dir(data).join("c").join("game.lnk"))
         );
         assert_eq!(lf.steam_app_id.as_deref(), Some("1234"));
         // A newer AIONE 4's game.json is never rewritten.
@@ -1077,7 +1145,10 @@ mod tests {
             r#"{"Name":"Amber","AioneSchema":9}"#,
         )
         .unwrap();
-        assert!(record_start(data, "b", t2)
+        assert!(record_start(data, "b", at("2026-10-16T12:00:00+07:00"))
+            .unwrap_err()
+            .contains("newer AIONE 4"));
+        assert!(record_end(data, "b", 1.0)
             .unwrap_err()
             .contains("newer AIONE 4"));
     }

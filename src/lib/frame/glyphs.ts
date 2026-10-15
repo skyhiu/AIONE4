@@ -11,9 +11,12 @@ import keyEscape from '../../../assets/glyphs/kenney-input-prompts/keyboard-mous
 // B-14: Switch's "+ Options" is the pad's Menu button (≡); on the keyboard, Tab (B-3 rev. r).
 import keyTab from '../../../assets/glyphs/kenney-input-prompts/keyboard-mouse/keyboard_tab.svg?url';
 import xboxMenu from '../../../assets/glyphs/kenney-input-prompts/xbox-series/xbox_button_menu.svg?url';
+// B-18: "X Close Software" (on the keyboard, Delete).
+import xboxX from '../../../assets/glyphs/kenney-input-prompts/xbox-series/xbox_button_x.svg?url';
+import keyDelete from '../../../assets/glyphs/kenney-input-prompts/keyboard-mouse/keyboard_delete.svg?url';
 
 export type GlyphDevice = 'xbox' | 'keyboard';
-export type PromptButton = 'confirm' | 'back' | 'options';
+export type PromptButton = 'confirm' | 'back' | 'options' | 'close';
 
 type Glyph = { url: string; file: string };
 export const GLYPHS: Record<GlyphDevice, Record<'confirm' | 'back', Glyph> & Partial<Record<PromptButton, Glyph>>> = {
@@ -21,11 +24,13 @@ export const GLYPHS: Record<GlyphDevice, Record<'confirm' | 'back', Glyph> & Par
     confirm: { url: xboxA, file: 'xbox_button_a.svg' },
     back: { url: xboxB, file: 'xbox_button_b.svg' },
     options: { url: xboxMenu, file: 'xbox_button_menu.svg' },
+    close: { url: xboxX, file: 'xbox_button_x.svg' },
   },
   keyboard: {
     confirm: { url: keyEnter, file: 'keyboard_enter.svg' },
     back: { url: keyEscape, file: 'keyboard_escape.svg' },
     options: { url: keyTab, file: 'keyboard_tab.svg' },
+    close: { url: keyDelete, file: 'keyboard_delete.svg' },
   },
 };
 

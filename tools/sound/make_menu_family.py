@@ -341,12 +341,19 @@ RECIPES = {
             L(M6, "tin pop 2", 50, 12, "F", hold=2, hp=150, lp=3500),
             L(M6, "tin pop 2", 60, 16, "E", hold=2, hp=150, lp=3300, at=95)]},
     ],
+    # rev. ab: a bright pop of about 150-190 ms (Switch's measured about 190 ms), at once on A.
+    # rev. ab: a bright pop of about 150-190 ms (Switch's measured about 190 ms), at once on A.
+    # The glass ring carries the length (ring=True keeps its natural tail).
     "launch": [
-        # T1.3 (rev. aa): a bright pop of about 100 ms, at once on A.
-        {"id": "A", "label": "Bright pop: snap + short glass (about 100 ms)", "layers": [
-            L(M3, "mechanism snap together 6", 70, 18, "A", hold=3, hp=300),
-            L(R2, "glass ding 4", 90, 28, "A|C#|E", pick="first", hold=4, hp=800, gain=-9, at=4)]},
-        {"id": "B", "label": "Gumball machine pop", "layers": [L(M3, "gumball machine 3", 100, 28, "A", hold=4, hp=150)]},
+        {"id": "A", "label": "Snap + glass ring (about 170 ms)", "layers": [
+            L(M3, "mechanism snap together 6", 60, 14, "A", hold=2, hp=300, gain=-2),
+            L(R2, "glass ding 4", 200, 85, "A|C#|E", pick="first", hold=10, hp=700, gain=-2, at=3, ring=True)]},
+        {"id": "B", "label": "Switch press + glass (about 160 ms)", "layers": [
+            L(R2, "switch press 3", 50, 12, "A", hold=2, hp=500, gain=-2),
+            L(R2, "glass ding 4", 190, 75, "A|C#|E", pick="first", hold=8, hp=700, gain=-1, at=3, ring=True)]},
+        {"id": "C", "label": "Snap + soft bell tail (about 190 ms)", "layers": [
+            L(M3, "mechanism snap together 6", 60, 14, "A", hold=2, hp=300, gain=-3),
+            L(R2, "glass ding 4", 230, 110, "A|C#|E", pick="first", hold=12, hp=500, lp=6000, gain=-3, at=5, ring=True)]},
     ],
     "toggle_on": [
         {"id": "A", "label": "Plastic toy snap (on)", "layers": [L(M4, "plastic toy snapping shut 2", 45, 10, "E", hold=2, hp=200)]},

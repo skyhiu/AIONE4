@@ -8,7 +8,8 @@
     prompts,
     device,
     branding = false,
-  }: { prompts: Prompt[]; device: GlyphDevice; branding?: boolean } = $props();
+    onPrompt,
+  }: { prompts: Prompt[]; device: GlyphDevice; branding?: boolean; onPrompt?: ((button: Prompt['button']) => void) | undefined } = $props();
 </script>
 
 <footer class="footer" data-testid="footer" data-owner="footer">
@@ -30,7 +31,17 @@
     {#each prompts as p (p.button + p.label)}
       {@const glyph = GLYPHS[device][p.button]}
       {#if glyph}
-        <span class="prompt" class:dimmed={p.dimmed} data-testid="prompt-{p.button}" data-dimmed={p.dimmed === true}>
+        <!-- B-16: the prompts are clickable (a click acts like the button). -->
+        <span
+          class="prompt"
+          class:dimmed={p.dimmed}
+          data-testid="prompt-{p.button}"
+          data-dimmed={p.dimmed === true}
+          role="button"
+          tabindex="-1"
+          onclick={() => onPrompt?.(p.button)}
+          onkeydown={() => {}}
+        >
           <span class="glyph" data-glyph={glyph.file} style:--glyph={`url(${JSON.stringify(glyph.url)})`} aria-hidden="true"></span>
           <span class="label">{p.label}</span>
         </span>
@@ -92,6 +103,7 @@
     color: var(--color-text-muted);
   }
   .prompt {
+    cursor: pointer;
     display: inline-flex;
     align-items: center;
     gap: calc(7 * var(--ui)); /* rev. y: about 16 px ink to ink (measured: the art adds about 9) */

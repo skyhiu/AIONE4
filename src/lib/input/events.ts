@@ -69,13 +69,15 @@ export function fromWheel(deltaY: number): InputEvent | null {
 }
 
 /** The actions Home and the dialogs use (T1.1). More come with the Quick Menu (T2). */
-export type UiAction = 'confirm' | 'back' | 'left' | 'right' | 'up' | 'down' | 'options' | 'guide';
+export type UiAction = 'confirm' | 'back' | 'left' | 'right' | 'up' | 'down' | 'options' | 'guide' | 'close';
 
 const ACTIONS: Record<InputSource, Record<string, UiAction>> = {
   controller: {
     A: 'confirm',
     // B-14: Switch's "+ Options" is the pad's Menu button (≡).
     Menu: 'options',
+    // B-18: X closes the running game ("X Close Software").
+    X: 'close',
     // B-7 (T1.3): Guide in front returns to the running game, if one is running.
     Guide: 'guide',
     B: 'back',
@@ -96,6 +98,8 @@ const ACTIONS: Record<InputSource, Record<string, UiAction>> = {
     // B-3 (rev. r): Tab is the keyboard's Options key (like the pad's ≡ / +); the Menu key too.
     Tab: 'options',
     ContextMenu: 'options',
+    // B-18: on the keyboard, Delete closes the running game.
+    Delete: 'close',
     Left: 'left',
     Right: 'right',
     Up: 'up',
@@ -110,7 +114,7 @@ export function toAction(ev: InputEvent): UiAction | null {
   const action = ACTIONS[ev.source][ev.control];
   if (!action) return null;
   // Confirm and back never repeat while held (one press, one action).
-  if (ev.kind === 'repeat' && (action === 'confirm' || action === 'back' || action === 'options' || action === 'guide')) return null;
+  if (ev.kind === 'repeat' && (action === 'confirm' || action === 'back' || action === 'options' || action === 'guide' || action === 'close')) return null;
   return action;
 }
 

@@ -33,6 +33,8 @@ pub const EVENT_TILE: &str = "aione://tile";
 /// A9: Close AIONE (Alt+F4 / the window's close): the UI plays the Boot Down, then calls
 /// `close_now`. If it doesn't within `CLOSE_SAFETY`, the core exits anyway.
 pub const EVENT_CLOSE_REQUESTED: &str = "aione://close-requested";
+/// D-026: the running game's window appeared: `{ id, name, ms }`.
+pub const EVENT_GAME_WINDOW: &str = "aione://game-window";
 /// T1.3: the running game ended (AIONE comes back to the front): `{ id, name, minutes }`.
 pub const EVENT_GAME_EXITED: &str = "aione://game-exited";
 const CLOSE_SAFETY: std::time::Duration = std::time::Duration::from_secs(8);
@@ -115,32 +117,54 @@ async fn boot_media(app: AppHandle) -> Result<boot::BootMedia, String> {
 }
 
 /// T1.3: starts a game (or brings it to the front if it is already running), records the start
-/// (B-11) and, when the game ends, brings AIONE back to the front.
+/// (B-11), ends the start-up foreground guard (D-024), reports the game's window (D-026) and, when
+/// the game ends, records its session and brings AIONE back to the front.
 #[tauri::command]
 async fn launch_game(app: AppHandle, id: String) -> Result<launch::Started, String> {
+    // D-024: a launch ends the start-up guard at once (it must never take the front from the game).
+    let _ = app.run_on_main_thread(|| foreground::stop_guard("a game was started"));
     let data = app.state::<AppState>().data_dir.clone();
-    let exit_app = app.clone();
+    let ev_app = app.clone();
     let id2 = id.clone();
+    let data2 = data.clone();
     let res = tauri::async_runtime::spawn_blocking(move || {
-        launch::launch(&data, &id2, move |gid, name, minutes| {
-            logging::lifecycle(
-                Level::Info,
-                &format!("\"{name}\" ended: bringing AIONE back to the front"),
-            );
-            show_and_focus(&exit_app, "the game ended");
-            let _ = exit_app.emit(
-                EVENT_GAME_EXITED,
-                serde_json::json!({ "id": gid, "name": name, "minutes": minutes }),
-            );
+        launch::launch(&data2, &id2, move |e| match e {
+            launch::Event::Window { id, name, ms } => {
+                let _ = ev_app.emit(
+                    EVENT_GAME_WINDOW,
+                    serde_json::json!({ "id": id, "name": name, "ms": ms }),
+                );
+            }
+            launch::Event::Ended { id, name, minutes } => {
+                let data = ev_app.state::<AppState>().data_dir.clone();
+                match games::record_end(&data, &id, minutes) {
+                    Ok(total) => logging::lifecycle(
+                        Level::Info,
+                        &format!("\"{name}\": played {minutes:.1} min (total {total:.1} min)"),
+                    ),
+                    Err(e) => logging::lifecycle(
+                        Level::Warn,
+                        &format!("\"{name}\": could not record the session: {e}"),
+                    ),
+                }
+                logging::lifecycle(
+                    Level::Info,
+                    &format!("\"{name}\" ended: bringing AIONE back to the front"),
+                );
+                show_and_focus(&ev_app, "the game ended");
+                let _ = ev_app.emit(
+                    EVENT_GAME_EXITED,
+                    serde_json::json!({ "id": id, "name": name, "minutes": minutes }),
+                );
+            }
         })
-        .map(|s| (s, data))
     })
     .await
     .map_err(|e| e.to_string())?;
     match res {
-        Ok((s, data)) => {
+        Ok(s) => {
             if !s.already_running {
-                match games::record_start(&data, &id, chrono::Utc::now()) {
+                match games::record_start(&data, &id, chrono::Local::now()) {
                     Ok((when, count)) => logging::lifecycle(
                         Level::Info,
                         &format!(
@@ -161,6 +185,16 @@ async fn launch_game(app: AppHandle, id: String) -> Result<launch::Started, Stri
             Err(e)
         }
     }
+}
+
+/// B-18: closes the running game politely (never forced); waits up to 10 s for it to end.
+#[tauri::command]
+async fn close_game(id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        launch::close_game(&id, std::time::Duration::from_secs(10))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// T1.3 (B-7): A or Guide on the running game brings it back to the front.
@@ -641,6 +675,7 @@ pub fn run() {
             boot_media,
             close_now,
             launch_game,
+            close_game,
             return_to_game,
             running_game
         ])

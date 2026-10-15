@@ -64,6 +64,8 @@ export interface MockControl {
   launches: string[];
   /** T1.3: the running game ends (the core would bring AIONE back to the front). */
   gameExit(id: string): void;
+  /** D-026: the running game's window appears (?window=never: only when this is called). */
+  gameWindow(id: string): void;
   /** Reasons passed to `closeNow` (the app would exit). */
   closed: string[];
 }
@@ -291,6 +293,7 @@ export function createMock(search: string): { core: Core; control: MockControl }
 
   let running: string | null = null;
   const exitHandlers: ((e: { id: string; name: string; minutes: number }) => void)[] = [];
+  const windowHandlers: ((e: { id: string; name: string; ms: number }) => void)[] = [];
   const control: MockControl = {
     pad(name, kind = 'down', pad = 0) {
       if (!connected.has(pad)) emit('connected', '', pad);
@@ -303,6 +306,10 @@ export function createMock(search: string): { core: Core; control: MockControl }
       if (connected.has(pad)) emit('disconnected', '', pad);
     },
     launches: [],
+    gameWindow(id) {
+      const g = SAMPLE_GAMES.find((x) => x.id === id);
+      windowHandlers.forEach((h) => h({ id, name: g?.name ?? id, ms: 1200 }));
+    },
     gameExit(id) {
       const g = SAMPLE_GAMES.find((x) => x.id === id);
       running = null;
@@ -451,6 +458,9 @@ export function createMock(search: string): { core: Core; control: MockControl }
       if (params.get('launch') === 'fail') return Promise.reject(new Error('its shortcut game.lnk is missing'));
       if (running === id) return Promise.resolve({ id, name: g?.name ?? id, how: 'already running', pid: 4242, alreadyRunning: true, foreground: 'OK via direct' });
       running = id;
+      // D-026: the game's window appears shortly after (?window=<ms>), or never (?window=never).
+      const w = params.get('window');
+      if (w !== 'never') setTimeout(() => control.gameWindow(id), Number(w ?? 300));
       return Promise.resolve({ id, name: g?.name ?? id, how: 'shortcut game.lnk', pid: 4242, alreadyRunning: false, foreground: null });
     },
     returnToGame(id) {
@@ -458,6 +468,19 @@ export function createMock(search: string): { core: Core; control: MockControl }
     },
     runningGame() {
       return Promise.resolve(running);
+    },
+    // B-18: ?closewait=stuck: the game doesn't close (it may be asking to save).
+    closeGame(id) {
+      if (running !== id) return Promise.reject(new Error("that game isn't running"));
+      if (params.get('closewait') === 'stuck') return new Promise((_, rej) => setTimeout(() => rej(new Error(`${id} is still running after 10 seconds (it may be asking to save); it was left as it is`)), 400));
+      return new Promise((res) => setTimeout(() => {
+        control.gameExit(id);
+        res();
+      }, 200));
+    },
+    onGameWindow(h) {
+      windowHandlers.push(h);
+      return Promise.resolve(() => {});
     },
     onGameExited(h) {
       exitHandlers.push(h);

@@ -30,11 +30,15 @@
     fixedTime = null,
     hour12,
     onHover,
+    onDragTick,
+    onDragEnd,
+    onPrompt,
     onDrawerHover = () => {},
     onDrawerClick = () => {},
     drawerPressed = null,
     bump = null,
     wrapping = false,
+    runningId = null,
     scale = 1,
     extras = [],
 
@@ -56,6 +60,12 @@
     hour12?: boolean;
     onHover: (index: number | null) => void;
     onClick: (index: number) => void;
+    /** B-16: a tile passed while dragging (the drag tick). */
+    onDragTick?: () => void;
+    /** B-16: the drag ended: the first tile in view after the glide. */
+    onDragEnd?: (first: number) => void;
+    /** B-16: a footer prompt was clicked. */
+    onPrompt?: (button: Prompt['button']) => void;
     /** T1.2: the drawer (mouse). */
     onDrawerHover?: (index: number | null) => void;
     onDrawerClick?: (index: number) => void;
@@ -65,6 +75,8 @@
     bump?: { dir: 'left' | 'right' | 'up' | 'down'; n: number; zone: 'row' | 'drawer' } | null;
     /** B-14 (rev. s): the row is whipping to its other end (a 200 ms slide). */
     wrapping?: boolean;
+    /** B-18: the running game (its tile shows "Playing"; its footer: Close Software, Continue). */
+    runningId?: string | null;
     /** Interface Scale as a factor (1 = 100 %), for the drawer's bump distance. */
     scale?: number;
     /** B-15 (rev. t): the extras on this run (all three by default; none with `--extras=none`). */
@@ -102,11 +114,83 @@
         ? [{ button: 'confirm', label: 'OK' }]
         : onEmpty && mode === 'pad'
           ? [{ button: 'confirm', label: 'OK', dimmed: true }]
-          : [
-              { button: 'options', label: 'Options' } as Prompt,
-              { button: 'confirm', label: 'Start' },
-            ],
+          : runningId !== null && games[home.focus]?.id === runningId
+            ? // B-18: the running game: Options, X Close Software, A Continue.
+              [
+                { button: 'options', label: 'Options' } as Prompt,
+                { button: 'close', label: 'Close Software' } as Prompt,
+                { button: 'confirm', label: 'Continue' },
+              ]
+            : [
+                { button: 'options', label: 'Options' } as Prompt,
+                { button: 'confirm', label: 'Start' },
+              ],
   );
+
+  // ---------- B-16: dragging the row with the mouse or a finger ----------
+  /** The drag in progress: the pointer's start, the row's pitch, the offset so far. */
+  let drag: { id: number; x0: number; pitch: number; max: number; moved: boolean; cell: number; samples: [number, number][] } | null = null;
+  /** The row's offset while dragging (px), on top of its scroll position. */
+  let dragPx = $state(0);
+  let dragging = $state(false);
+  /** After release: the glide to the snapped tile (about 150 ms, slowing). */
+  let gliding = $state(false);
+  /** The tile under a press (a pale accent tint) until it drags or lifts. */
+  let pressedTile = $state<number | null>(null);
+  /** A drag never counts as a click. */
+  let suppressClick = false;
+
+  function onRowDown(e: PointerEvent) {
+    if (e.button !== 0 || suspended || home.zone !== 'row') return;
+    const tiles = document.querySelectorAll<HTMLElement>('.track > .tile');
+    const a = tiles[0]?.getBoundingClientRect();
+    const b = tiles[1]?.getBoundingClientRect();
+    const pitch = a && b ? b.left - a.left : 404;
+    drag = { id: e.pointerId, x0: e.clientX, pitch, max: Math.max(0, home.slots - home.visible), moved: false, cell: home.first, samples: [[performance.now(), e.clientX]] };
+    const t = (e.target as HTMLElement).closest<HTMLElement>('.tile');
+    pressedTile = t ? Number(t.dataset['index']) : null;
+  }
+  function onRowMove(e: PointerEvent) {
+    if (!drag || e.pointerId !== drag.id) return;
+    const dx = e.clientX - drag.x0;
+    if (!drag.moved && Math.abs(dx) < 8) return;
+    if (!drag.moved) {
+      drag.moved = true;
+      dragging = true;
+      pressedTile = null;
+      (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    }
+    // 1:1, stopping at the ends.
+    const pos = Math.min(Math.max(home.first * drag.pitch - dx, 0), drag.max * drag.pitch);
+    dragPx = home.first * drag.pitch - pos;
+    const cell = Math.round(pos / drag.pitch);
+    if (cell !== drag.cell) {
+      drag.cell = cell;
+      onDragTick?.();
+    }
+    drag.samples.push([performance.now(), e.clientX]);
+    if (drag.samples.length > 6) drag.samples.shift();
+  }
+  function onRowUp(e: PointerEvent) {
+    if (!drag || e.pointerId !== drag.id) return;
+    const d = drag;
+    drag = null;
+    pressedTile = null;
+    if (!d.moved) return;
+    suppressClick = true;
+    setTimeout(() => (suppressClick = false), 0);
+    // The release speed carries the row on, slowing over about 150 ms; then the nearest tile.
+    const [t0, x0] = d.samples[0] ?? [0, 0];
+    const [t1, x1] = d.samples[d.samples.length - 1] ?? [0, 0];
+    const v = t1 > t0 ? (x1 - x0) / (t1 - t0) : 0; // px per ms (pointer)
+    const pos = home.first * d.pitch - dragPx - v * 75; // 150 ms, slowing evenly: half of v × t
+    const first = Math.min(Math.max(Math.round(pos / d.pitch), 0), d.max);
+    gliding = true;
+    dragging = false;
+    dragPx = 0;
+    onDragEnd?.(first);
+    setTimeout(() => (gliding = false), 160);
+  }
 
   // The title's natural width, measured with the canvas text API (no layout read at all, so a
   // move never forces a layout: L-16, D-007); recomputed when the title, size or scale changes.
@@ -212,7 +296,21 @@
       </div>
     {/if}
     {#if loadState === 'loaded'}
-      <div class="track" class:wrapping style:--first={home.first} data-owner="home-row">
+      <div
+        class="track"
+        class:wrapping
+        class:dragging
+        class:gliding
+        style:--first={home.first}
+        style:--drag={`${dragPx}px`}
+        data-owner="home-row"
+        data-testid="track"
+        onpointerdown={onRowDown}
+        onpointermove={onRowMove}
+        onpointerup={onRowUp}
+        onpointercancel={onRowUp}
+        role="presentation"
+      >
         {#each games as g, i (g.id)}
           {@const copy = g.tile && !broken.has(g.id)}
           {@const url = copy ? mediaUrl(g, 'tile') : g.tileArt && !broken.has(`${g.id}#o`) ? mediaUrl(g, g.tileArt) : ''}
@@ -226,9 +324,10 @@
             class:focused={!suspended && mode === 'pad' && home.zone === 'row' && home.focus === i}
             class:hovered={!suspended && mode === 'mouse' && (home.hover === i || home.armed === i)}
             class:pressed={pressed === i}
+            class:touched={pressedTile === i}
             onmouseenter={() => onHover(i)}
             onmouseleave={() => onHover(null)}
-            onclick={() => onClick(i)}
+            onclick={() => !suppressClick && onClick(i)}
             onkeydown={() => {}}
           >
             <div class="art">
@@ -248,6 +347,10 @@
                 />
               {:else}
                 <span class="plain" data-testid="tile-plain">{g.name}</span>
+              {/if}
+              {#if g.id === runningId}
+                <!-- B-18: the running game's "Playing" badge (Switch adds the user's icon; AIONE has none). -->
+                <span class="playing" data-testid="playing-badge">Playing</span>
               {/if}
             </div>
             <span class="hover-line" aria-hidden="true"></span>
@@ -325,7 +428,7 @@
       {/each}
     </nav>
   {/if}
-  <Footer {prompts} {device} branding />
+  <Footer {prompts} {device} branding {onPrompt} />
 </section>
 
 <style>
@@ -352,9 +455,32 @@
     top: calc(291 * var(--px));
     display: flex;
     gap: calc(18 * var(--px)); /* rev. x: about 18 px between pictures (pitch 404) */
-    transform: translateX(calc(var(--first) * -404 * var(--px)));
+    transform: translateX(calc(var(--first) * -404 * var(--px) + var(--drag, 0px)));
+    /* B-16: horizontal drags are AIONE's (a finger doesn't pan the page). */
+    touch-action: pan-y;
     /* B-14: the row slides one tile in about 170 ms with a strong ease-out. */
     transition: transform 170ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  /* B-16: dragging follows the pointer 1:1 (no transition, no ring); the release glides to the
+     nearest tile, slowing over about 150 ms. */
+  .track.dragging {
+    transition: none;
+  }
+  .track.dragging :global(.ring) {
+    visibility: hidden;
+  }
+  .track.gliding {
+    transition-duration: 150ms;
+    transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  /* B-16: a pale accent tint on a pressed tile (mouse or finger). */
+  .tile.touched .art::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--color-ring-peak);
+    opacity: 0.22;
+    pointer-events: none;
   }
   /* B-14 (rev. s): the wrap whips the row to its other end in about 200 ms (strong ease-out). */
   .track.wrapping {
@@ -436,6 +562,27 @@
     border-radius: inherit;
     box-shadow: 0 0 calc(4 * var(--px)) 0 var(--color-ring-peak);
     opacity: 0;
+  }
+  /* B-18 (measured on the user's Switch screenshot): a dark translucent rounded pill across the
+     bottom of the picture: about 18 % of the tile's height, about 63 % of its width, centred,
+     about 4.5 % from the bottom; "Playing" in white. */
+  .playing {
+    position: absolute;
+    left: 50%;
+    bottom: 4.5%;
+    translate: -50% 0;
+    width: 63%;
+    height: 18%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: rgb(0 0 0 / 0.62);
+    border: calc(2 * var(--px)) solid rgb(255 255 255 / 0.85);
+    color: #fff;
+    font: 400 calc(30 * var(--px)) / 1 var(--font-ui);
+    letter-spacing: 0.01em;
+    pointer-events: none;
   }
   .tile.focused .ring {
     opacity: 1;

@@ -1,5 +1,25 @@
 # Changelog
 
+## 4.0.0-alpha.16 — T1.3 part 1 continued (rev. ab)
+
+- **D-024:** a launch ends the start-up foreground guard at once (`foreground guard off (a game was
+  started)`), so it never takes the front from the game.
+- **B-18 / D-025, one game at a time (like Switch):** another game while one runs asks "Close X
+  and start Y? Unsaved progress in X will be lost." (Cancel focused); Yes closes X politely
+  (WM_CLOSE to its windows, never killed), waits for it to end (10 s at most, else says so and
+  leaves it), then starts Y. The running game: first in the row, a "Playing" badge, the footer
+  "≡ Options · X Close Software · A Continue"; X asks "Close X? Unsaved progress will be lost.".
+  One watcher per launch (a generation); each end reported once.
+- **D-026:** after the fade, black with input locked until the game's window appears (an early
+  window waits for the fade), the start fails, or 45 s pass ("Still starting X…").
+- **B-11 rev. ab:** playtime in WPF's fields: each start `LastPlayed`, `PlayCount` + 1,
+  `FirstPlayed` if missing; each end `LastSessionMinutes` and `PlayTimeMinutes` += it; dates in
+  WPF's style (local time with the offset, microseconds); UTC dates still read.
+- **The launch:** the fade 0.3 s, eased; three launch sounds of 152–175 ms (A wired).
+- **B-16, mouse and touch:** the row drags 1:1, glides to a tile (about 150 ms), stops at the
+  ends; no ring while dragging; the drag tick as tiles pass; a pale tint on a pressed tile; the
+  footer prompts clickable.
+
 ## 4.0.0-alpha.15 — T1.3 part 1: launching games
 
 - **Launching (T1.3):** A, or a click on the selected game, starts it from its `game.json`: the

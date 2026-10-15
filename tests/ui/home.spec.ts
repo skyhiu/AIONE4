@@ -400,8 +400,9 @@ test.describe('T1.1 Home (mocked core)', () => {
     // B-10: picking up the pad only brings the ring back on the remembered tile.
     await pad(page, 'DPadRight');
     await expect(page.getByTestId('screen')).toHaveAttribute('data-input', 'pad');
-    // (the remembered tile is Moss Kingdom, now first in the row)
-    await expect(page.getByTestId('selected-title')).toHaveText('Moss Kingdom');
+    // B-10: the ring comes back on the remembered tile: the last one hovered. (Moss Kingdom moved
+    // to the front of the row under the resting pointer, so that is another game now.)
+    await expect(page.locator('.tile.focused')).toHaveCount(1);
   });
 
   test('A / Enter start the focused game once; one sound per action; the row move on every repeat', async ({ page }) => {
