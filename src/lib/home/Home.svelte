@@ -601,12 +601,12 @@
        button, its line 1.75 rem × 1.15) runs into the footer (5.5 rem) at large Interface Scales:
        then it moves up just enough, keeping 12 px clear. */
     top: min(
-      calc((291 + 386 + 86) * var(--px)), /* rev. v, measured side by side: the disc centre at about 818 px */
-      calc(100vh - 5.5rem - 110 * var(--hdr) - 12 * var(--ui) - 2.461rem - 8 * var(--px))
+      calc((291 + 386 + 87) * var(--px)), /* the disc centre at about 818 px (rev. v, measured) */
+      calc(100vh - 5.5rem - 108 * var(--hdr) - 24.5 * var(--hdr) - 2.93rem - 8 * var(--px))
     );
     display: flex;
     justify-content: center;
-    gap: calc(23 * var(--hdr)); /* B-14: 133 centre to centre */
+    gap: calc(27 * var(--hdr)); /* rev. z: the pitch about 135 px (108 + 27) */
   }
   .ditem {
     position: relative;
@@ -619,8 +619,8 @@
     position: relative;
     /* The discs and icons grow at half rate with Interface Scale (like the header), so the
        drawer and its label fit between the row and the footer at 150 %; the label grows fully. */
-    width: calc(110 * var(--hdr));
-    height: calc(110 * var(--hdr));
+    width: calc(108 * var(--hdr));
+    height: calc(108 * var(--hdr));
     border-radius: 50%;
     border: none;
     padding: 0;
@@ -631,6 +631,7 @@
     justify-content: center;
     cursor: default;
     outline: none;
+    box-shadow: var(--disc-shadow); /* rev. z: a soft drop shadow, like Switch's */
   }
   .dicon {
     font-size: calc(58 * var(--hdr)); /* rev. v: filling more of the disc */
@@ -664,7 +665,9 @@
      opacity pulsing; 6 px with a 5 px gap, so 11 px outside the button. */
   .dring {
     position: absolute;
-    inset: calc(-13 * var(--hdr)); /* the ring outside the 4 px band and 2 px edge (rev. w) */
+    /* rev. z (measured at rest): an 8 px ring DIRECTLY on the white button (117 px when focused,
+       so 7.4 px before the 108 % scale); outer size about 133 px; no band, no edge. */
+    inset: calc(-7.4 * var(--hdr));
     border-radius: 50%;
     opacity: 0;
     pointer-events: none;
@@ -673,7 +676,7 @@
     position: absolute;
     inset: 0;
     border-radius: 50%;
-    border: calc(7 * var(--hdr)) solid var(--color-ring);
+    border: calc(7.4 * var(--hdr)) solid var(--color-ring);
   }
   .dring-alt {
     border-color: var(--color-ring-alt);
@@ -688,9 +691,7 @@
   /* B-9 (rev. w / x): the drawer's focused button has the row's ring: the white band, the bright
      edge, the thin glow and the same flash. */
   .dring-line {
-    box-shadow:
-      inset 0 0 0 calc(2 * var(--hdr)) var(--color-ring-edge),
-      inset 0 0 0 calc(6 * var(--hdr)) #ffffff;
+    box-shadow: none;
   }
   .dring-halo {
     position: absolute;
@@ -711,13 +712,15 @@
   /* The label under the focused button, in the accent text colour, centred, never clipped. */
   .dlabel {
     position: absolute;
-    top: calc(100% + 12 * var(--ui));
+    /* rev. z: about 12 px below the ring (the ring's outer edge is 12.5 px below the disc's
+       108 px box); the capitals start about 0.2 em into the line box. */
+    top: calc(100% + 24.5 * var(--hdr) - 0.2em);
     left: 50%;
     transform: translateX(-50%);
     white-space: nowrap;
     color: var(--color-title);
-    /* B-14: the label's capitals about 25 px (2.14 rem; caps 0.73 em). */
-    font-size: 2.14rem;
+    /* rev. z: the label's capitals about 31 px of ink (2.55 rem, measured), regular. */
+    font-size: 2.55rem;
     font-weight: 400;
     line-height: 1.15;
     pointer-events: none;

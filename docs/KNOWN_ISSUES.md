@@ -34,6 +34,15 @@ an item Fixed and Verified.
 | QA-4 (T0 test): an autostart start is not marked | **Implemented, Unverified**: the entry runs `"<exe>" --from-autostart`; logged "started by Windows at sign-in". Unit test on the command. |
 | QA-5 (T0 retest): closing logged as "the user switched away" | **Implemented, Unverified**: exit stops the guard first ("AIONE is closing"); later foreground changes are ignored. Unit test on the guard's decision. Windows code compiles first in CI. |
 
+## Rev. y / z (4.0.0-alpha.14)
+
+| Item | Status |
+|---|---|
+| B-9 rev. y (B3) | Implemented, Unverified |
+| B-14 rev. z (the drawer at rest) | Implemented, Unverified (measured: outer 132, ring 8, 15 px to the neighbour, label 11 px below, capitals 31) |
+| B-14 rev. y (the footer) | Implemented, Unverified (measured: circle 37, 16 / 63 px, capitals 27-28) |
+| D-023 | Implemented, Unverified (the size tests measure the ink) |
+
 ## Rev. w / x (4.0.0-alpha.13)
 
 | Item | Status |

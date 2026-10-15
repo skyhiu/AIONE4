@@ -271,3 +271,13 @@ scales text; tiles follow the window only).
 - **Header:** clock 42.5 px (digits about 31 px of ink), "AM" 0.65 em, icons 48 px (about 31 px of
   ink). **Footer:** text 2.4 rem (about 28 px), glyphs 38 px.
 
+## Rev. y / z (alpha.14) — current values
+- **Ring (B3):** #D9006C at the base, #FF58AB at the peak, row and drawer, both presets; the thin
+  4 px glow at the peak only.
+- **Drawer:** discs 108 px (soft shadow `--disc-shadow`), 27 px apart (pitch 135); focused 108 %
+  (117 px); its ring 7.4 px before the scale (8 px after), directly on the disc, no band or edge;
+  the label 2.55 rem (capitals about 31 px), regular, about 12 px below the ring.
+- **Footer:** glyph box 3.2 rem (a 37 px visible circle; Kenney's art fills about 72 % of its box);
+  gaps 7 / 53 px (16 / 63 px ink to ink, measured); text 2.23 rem (capitals about 27 px), regular;
+  divider 2 px, `--color-footer-divider`.
+

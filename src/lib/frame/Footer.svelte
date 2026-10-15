@@ -46,7 +46,8 @@
     right: 2.4vw;
     bottom: 0;
     height: calc(5.5rem);
-    border-top: max(1px, calc(1.5 * var(--px))) solid var(--color-divider);
+    /* rev. y: a 2 px divider, a darker grey than alpha.13's faint line, as on Switch. */
+    border-top: max(2px, calc(2 * var(--px))) solid var(--color-footer-divider);
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -79,7 +80,9 @@
   .prompts {
     display: flex;
     align-items: center;
-    gap: var(--space-6);
+    /* rev. y: about 63 px of background between prompts, measured ink to ink (the glyph's art has
+       about 7 px of padding in its box, D-023). */
+    gap: calc(53 * var(--ui));
   }
   /* B-14: a dimmed prompt in the muted text colour (still ≥ 4.5:1, A8). */
   .prompt.dimmed {
@@ -88,19 +91,20 @@
   .prompt {
     display: inline-flex;
     align-items: center;
-    gap: var(--space-2);
+    gap: calc(7 * var(--ui)); /* rev. y: about 16 px ink to ink (measured: the art adds about 9) */
   }
   .glyph {
-    /* rev. w: the round filled glyphs about 38 px across (Switch's "A" and "+"). */
-    width: 2.375rem;
-    height: 2.375rem;
+    /* rev. y / D-023: the VISIBLE circle about 37 px. Kenney's circle fills about 72 % of its
+       box (measured: a 38 px box drew 27-28 px of ink), so the box is 51 px. */
+    width: 3.2rem;
+    height: 3.2rem;
     background: currentColor;
     -webkit-mask: var(--glyph) center / contain no-repeat;
     mask: var(--glyph) center / contain no-repeat;
   }
   .label {
     font-size: var(--text-label);
-    font-weight: 500;
+    font-weight: 400; /* rev. y: regular */
     line-height: 1;
   }
 </style>

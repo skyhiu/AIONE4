@@ -53,9 +53,11 @@
   /* (rev. m's #FD007E replaced by rev. v's brand pink below) */
   --color-ring-alt: #d9006c; /* (rev. m; kept for the B-9 contrast table) */
   /* B-9 (rev. s): the flash's peak (may drop below 3:1, the user's exception) and the halo. */
-  /* B-9 (rev. x, option B): deep #FD007E at the base, brand #FF46A2 at the peak; crisp. */
-  --color-ring: #fd007e;
-  --color-ring-peak: #ff46a2;
+  /* B-9 (rev. y, the blink B3): #D9006C at the base, #FF58AB at the peak; crisp. */
+  --color-footer-divider: #9a9a9a; /* rev. y: 2 px, darker, as on Switch */
+  --disc-shadow: 0 calc(3 * var(--hdr)) calc(8 * var(--hdr)) rgba(0, 0, 0, 0.16); /* rev. y */
+  --color-ring: #d9006c;
+  --color-ring-peak: #ff58ab;
   --color-ring-edge: #ff8cc6;
   --color-ring-halo: rgba(253, 0, 126, 0.18);
   /* B-9 rev. p: the pulse restarts at the bright end on every move: in light the base ring
@@ -91,7 +93,7 @@
   --text-xs: 1.25rem; /* 20: captions, small print */
   --text-sm: 1.5rem; /* 24 */
   --text-md: 1.625rem; /* 26: body */
-  --text-label: 2.4rem; /* rev. w: footer text about 28 px tall (capitals) */
+  --text-label: 2.23rem; /* rev. y: footer text capitals about 27 px of ink, regular (measured) */
   --text-title: 3.17rem; /* B-14: the selected game's title, capitals about 37 px at 1080 p */
   --text-lg: 2.5rem; /* 40: headings, dialog titles */
   --text-display: 4rem; /* 64 */
@@ -137,8 +139,10 @@
   --color-accent: #ff46a2; /* brand pink: 4.4:1 */
   --color-ring: #ff46a2;
   --color-ring-alt: #ff69b4; /* 5.2:1 */
-  --color-ring: #fd007e;
-  --color-ring-peak: #ff46a2;
+  --color-ring: #d9006c;
+  --color-footer-divider: #6e6e6e;
+  --disc-shadow: 0 calc(3 * var(--hdr)) calc(8 * var(--hdr)) rgba(0, 0, 0, 0.35);
+  --color-ring-peak: #ff58ab;
   --color-ring-edge: #ff8cc6;
   --color-ring-halo: rgba(255, 70, 162, 0.22);
   /* In dark the pulse partner (#FF69B4) is the brighter one: it starts shown. */

@@ -1,5 +1,18 @@
 # Changelog
 
+## 4.0.0-alpha.14 — rev. y / z: the blink B3, the drawer and footer measured 1:1
+
+- **B-9 (rev. y, B3):** the ring #D9006C at the base, #FF58AB at the peak (row and drawer, both
+  presets), the same flash, crisp, the thin glow at the peak only.
+- **B-14 (rev. z), the drawer (measured at rest):** discs 108 px with a soft drop shadow, pitch
+  135; the focused button 117 px (108 %) with an 8 px ring directly on it (no band or edge), outer
+  132 px, 15 px to each neighbour; the label's capitals 31 px, regular, 11 px below the ring.
+- **B-14 (rev. y), the footer:** the glyphs' visible circle 37 px (D-023: sized from the ink); 16 px
+  glyph to text, 63 px between prompts (measured ink to ink); text capitals 27 px, regular; a 2 px
+  darker divider (#9A9A9A light, #6E6E6E dark).
+- **D-023:** the size tests measure the footer glyph's ink.
+- **Tests:** Rust 85; Vitest 58; Playwright 87 with 114 screenshots.
+
 ## 4.0.0-alpha.13 — rev. w / x
 
 - **B-9 (rev. x, option B):** the ring #FD007E at the base, #FF46A2 at the peak, crisp; only a

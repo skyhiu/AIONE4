@@ -123,7 +123,7 @@ test.describe('T1.1 Home (mocked core)', () => {
           // (digits about 34 px tall) at half rate.
           // rev. w (visible ink): footer text 2.4 rem (capitals about 28 px); clock 42.5 px (digits
           // about 31 px of ink), at half rate.
-          expect(label).toBeCloseTo(2.4 * 16 * px * (scale / 100), 0);
+          expect(label).toBeCloseTo(2.23 * 16 * px * (scale / 100), 0); // rev. y: capitals about 27 px
           expect(m.clockSize).toBeCloseTo(42.5 * px * (1 + (scale / 100 - 1) / 2), 0);
           // B-14 (rev. v): tiles 398 square, the first 155 from the left, their top at 291 (the
           // ring's top at about 278, 13 px outside the art).
@@ -136,6 +136,24 @@ test.describe('T1.1 Home (mocked core)', () => {
           await expect(page.getByTestId('title-arrow')).toHaveCount(0);
           expect(await page.locator('[data-testid="selected-title-row"] .icon').count()).toBe(0);
 
+          // D-023 (rev. y): the footer glyph's VISIBLE circle about 37 px (ink, not its box).
+          {
+            const gb = await page.locator('[data-testid="prompt-confirm"] .glyph').boundingBox();
+            const shot0 = decodePng(await page.screenshot());
+            const inkRows: number[] = [];
+            for (let y = Math.floor(gb?.y ?? 0); y < Math.ceil((gb?.y ?? 0) + (gb?.height ?? 0)); y++) {
+              for (let x = Math.floor(gb?.x ?? 0); x < Math.ceil((gb?.x ?? 0) + (gb?.width ?? 0)); x++) {
+                const p = pixel(shot0, x, y);
+                const dark = preset === 'dark' ? p[0] > 180 && p[1] > 180 : p[0] < 110 && p[1] < 110;
+                if (dark) {
+                  inkRows.push(y);
+                  break;
+                }
+              }
+            }
+            const ink = inkRows.length ? (inkRows[inkRows.length - 1] ?? 0) - (inkRows[0] ?? 0) + 1 : 0;
+            expect(Math.abs(ink - 37 * px * (scale / 100))).toBeLessThanOrEqual(2);
+          }
           // B-5 (rev. o): the footer mark about 64 px at 1080 p / 100 % (twice the prompt text),
           // scaled with Interface Scale; two-tone: halves in the footer's text colour, the
           // diamond in the accent; each part ≥ 3:1 on the background.
@@ -222,7 +240,8 @@ test.describe('T1.1 Home (mocked core)', () => {
           expect(geo.b?.top ?? 0).toBeGreaterThan(geo.row?.bottom ?? 1e9);
           // B-14: 110 px at 100 %; the discs grow at half rate with Interface Scale (to fit).
           // ... and the focused button at about 108 % (B-14 rev. r).
-          expect(geo.b?.width ?? 0).toBeCloseTo(110 * 1.08 * px * (1 + (scale / 100 - 1) / 2), 0);
+          // rev. z: discs 108 px; the focused one about 117 px (108 %)
+          expect(geo.b?.width ?? 0).toBeCloseTo(108 * 1.08 * px * (1 + (scale / 100 - 1) / 2), 0);
           await shot(page, `t1-home-${vp.w}x${vp.h}-${scale}-${preset}-drawer`);
         });
       }
@@ -626,16 +645,16 @@ test.describe('T1.1 Home (mocked core)', () => {
       expect(ratios.hover).toBeGreaterThanOrEqual(3);
       expect(ratios.accentOnSurface).toBeGreaterThanOrEqual(3);
       const v = (n: string) => page.evaluate((x) => getComputedStyle(document.documentElement).getPropertyValue(x).trim(), n);
-      expect(await v('--color-ring')).toBe('#fd007e'); // rev. x, option B (the base)
+      expect(await v('--color-ring')).toBe('#d9006c'); // rev. y, B3 (the base)
       expect(await v('--color-title')).toBe('#ff46a2');
       expect(ratios.soft).toBeGreaterThanOrEqual(4.5);
       expect(ratios.pressed).toBeGreaterThanOrEqual(4.5);
     }
     const ring = await page.locator('.tile.focused .ring-line:not(.ring-alt)').evaluate((el) => getComputedStyle(el).borderTopColor);
-    expect(ring).toBe('rgb(253, 0, 126)'); // rev. x, option B (the base)
+    expect(ring).toBe('rgb(217, 0, 108)'); // rev. y, B3 (the base)
   });
 
-  test('B-9 (rev. x, option B): #FD007E → #FF46A2, crisp; a thin glow at the peak only; edge then 4 px white', async ({ page }) => {
+  test('B-9 (rev. y, B3): #D9006C → #FF58AB, crisp; a thin glow at the peak only; edge then 4 px white', async ({ page }) => {
     await page.setViewportSize({ width: 1920, height: 1080 });
     const lumOf = (c: number[]) => {
       const f = (v: number) => ((v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
@@ -674,8 +693,8 @@ test.describe('T1.1 Home (mocked core)', () => {
       const { ring: base, near: nearBase, far: farBase } = sample['base'] ?? { ring: [], near: [], far: [] };
       const { ring: peak, near: nearPeak, far: farPeak } = sample['peak'] ?? { ring: [], near: [], far: [] };
       console.warn(`B-9 rev. x ${preset}: ring ${JSON.stringify(base)} → ${JSON.stringify(peak)}; glow 2 px out ${JSON.stringify(nearBase)} → ${JSON.stringify(nearPeak)}, 7 px out ${JSON.stringify(farBase)} → ${JSON.stringify(farPeak)}`);
-      expect(dist(base, [253, 0, 126])).toBeLessThanOrEqual(4); // deep at the base
-      expect(dist(peak, [255, 70, 162])).toBeLessThanOrEqual(4); // brand pink at the peak
+      expect(dist(base, [217, 0, 108])).toBeLessThanOrEqual(4); // B3: #D9006C at the base
+      expect(dist(peak, [255, 88, 171])).toBeLessThanOrEqual(4); // B3: #FF58AB at the peak
       expect(lumOf(peak) / lumOf(base)).toBeGreaterThan(1.2);
       expect(dist(nearBase, bg)).toBeLessThanOrEqual(6); // no glow at the base
       expect(dist(nearPeak, bg)).toBeGreaterThan(25); // a glow at the peak, right outside the ring

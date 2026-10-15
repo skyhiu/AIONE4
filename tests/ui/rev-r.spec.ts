@@ -103,7 +103,7 @@ test.describe('rev. r (alpha.10)', () => {
         expect(band).toEqual([255, 255, 255]); // the band is pure white in both presets (rev. t)
         // Rev. v: the ring is the brand pink #FF46A2 and relies on its saturation and the white
         // band, not on 3:1 against the background (logged); the band separates it from any picture.
-        expect(Math.abs(ringC[0] - 253) + Math.abs(ringC[1] - 0) + Math.abs(ringC[2] - 126)).toBeLessThanOrEqual(6); // rev. x base #FD007E
+        expect(Math.abs(ringC[0] - 217) + Math.abs(ringC[1] - 0) + Math.abs(ringC[2] - 108)).toBeLessThanOrEqual(6); // rev. y B3 base #D9006C
         expect(contrast(band, [32, 58, 96])).toBeGreaterThanOrEqual(3);
         await shot(page, `t17-band-${preset}-on-${art}`);
       }
