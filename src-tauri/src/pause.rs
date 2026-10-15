@@ -431,6 +431,7 @@ mod tests {
         assert!(child.try_wait().unwrap().is_none());
         assert_eq!(resume_process(child.id()), n);
         let _ = child.kill();
+        let _ = child.wait(); // never left as a zombie (clippy::zombie_processes)
     }
 
     /// Windows only (D-035, rev. aj): a real suspended process (a mock game) is resumed by a
@@ -455,5 +456,6 @@ mod tests {
         assert_eq!(suspend_process(child.id()), n);
         let _ = resume_process(child.id());
         let _ = child.kill();
+        let _ = child.wait(); // never left as a zombie (clippy::zombie_processes)
     }
 }
