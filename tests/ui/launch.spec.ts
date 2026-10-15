@@ -23,13 +23,13 @@ test.describe('T1.3 launching (mocked core)', () => {
     expect(await page.evaluate(() => window.__aioneMock?.launches)).toEqual(['Glass Orchard']);
     // Still at 0.4 s (the press dip plays), black after about 0.75 s.
     await page.waitForTimeout(Math.max(0, 400 - (Date.now() - t0)));
-    expect(await veil(page)).toBe(0);
+    await expect.poll(() => veil(page), { timeout: 3000 }).toBe(0); // the 0.3 s fade back out
     await page.screenshot({ path: 'ui-screenshots/t19-launch-still.png' });
     await pad(page, 'DPadLeft'); // discarded
     await page.waitForTimeout(Math.max(0, 640 - (Date.now() - t0)));
     await page.screenshot({ path: 'ui-screenshots/t19-launch-fading.png' });
     await page.waitForTimeout(Math.max(0, 1000 - (Date.now() - t0)));
-    expect(await veil(page)).toBe(1); // 0.55 s still + 0.3 s eased fade (rev. ab)
+    await expect.poll(() => veil(page), { timeout: 3000 }).toBe(1); // 0.55 s still + 0.3 s eased fade (rev. ab)
     await page.screenshot({ path: 'ui-screenshots/t19-launch-black.png' });
     l = await logs(page);
     expect(l.some((x) => x.includes('discarded (launching a game: input lock)'))).toBe(true);
@@ -37,7 +37,7 @@ test.describe('T1.3 launching (mocked core)', () => {
     // The game ends: Home again, the focus on it, and it is first in the row now (B-11).
     await page.evaluate(() => window.__aioneMock?.gameExit('Glass Orchard'));
     await page.waitForTimeout(300);
-    expect(await veil(page)).toBe(0);
+    await expect.poll(() => veil(page), { timeout: 3000 }).toBe(0); // the 0.3 s fade back out
     await expect(page.getByTestId('selected-title')).toHaveText(name ?? '');
     await expect(page.getByTestId('tile').first()).toHaveAttribute('aria-label', /Glass Orchard/);
     l = await logs(page);
@@ -51,7 +51,7 @@ test.describe('T1.3 launching (mocked core)', () => {
     // AIONE comes back to the front (Guide from the background): Home, the focus on the game.
     await page.evaluate(() => window.dispatchEvent(new Event('focus')));
     await page.waitForTimeout(300);
-    expect(await veil(page)).toBe(0);
+    await expect.poll(() => veil(page), { timeout: 3000 }).toBe(0); // the 0.3 s fade back out
     await pad(page, 'A');
     await page.waitForTimeout(300);
     let l = await logs(page);
@@ -91,7 +91,7 @@ test.describe('T1.3 launching (mocked core)', () => {
     expect(l.some((x) => x.includes('Home again'))).toBe(false);
     // The timeout: Home with "Still starting".
     await page.waitForTimeout(1600);
-    expect(await veil(page)).toBe(0);
+    await expect.poll(() => veil(page), { timeout: 3000 }).toBe(0); // the 0.3 s fade back out
     await expect(page.getByTestId('toast')).toHaveText('Still starting Amber Lighthouse…');
     l = await logs(page);
     expect(l.some((x) => /launch "Amber Lighthouse": no window after 3 s: Home again \("Still starting"\)/.test(x))).toBe(true);

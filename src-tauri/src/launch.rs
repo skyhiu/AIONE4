@@ -509,10 +509,11 @@ mod win {
         let c = unsafe { &mut *(l.0 as *mut Closer) };
         let mut pid = 0u32;
         unsafe { GetWindowThreadProcessId(h, Some(&mut pid)) };
-        if pid == c.pid && unsafe { IsWindowVisible(h) }.as_bool() {
-            if unsafe { PostMessageW(Some(h), WM_CLOSE, WPARAM(0), LPARAM(0)) }.is_ok() {
-                c.sent += 1;
-            }
+        if pid == c.pid
+            && unsafe { IsWindowVisible(h) }.as_bool()
+            && unsafe { PostMessageW(Some(h), WM_CLOSE, WPARAM(0), LPARAM(0)) }.is_ok()
+        {
+            c.sent += 1;
         }
         BOOL(1)
     }
