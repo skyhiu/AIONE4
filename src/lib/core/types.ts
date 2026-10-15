@@ -179,6 +179,8 @@ export interface Core {
   returnToGame(id: string): Promise<string>;
   /** B-18: closes the running game politely (as its window's ✕ would); waits up to 10 s. */
   closeGame(id: string): Promise<void>;
+  /** B-18 (rev. ae): the close's hint, decided by the core. */
+  onCloseHint(handler: (e: { id: string; text: string }) => void): Promise<Unlisten>;
   /** D-026: the running game's window appeared. */
   onGameWindow(handler: (e: { id: string; name: string; ms: number }) => void): Promise<Unlisten>;
   /** T1.3: the running game's id, if any. */

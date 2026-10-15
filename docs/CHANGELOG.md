@@ -1,5 +1,18 @@
 # Changelog
 
+## 4.0.0-alpha.18 — Close and start, the hints, emulator profiles part 1
+
+- **D-031:** "Close and start" starts the new game when the close is done, whichever event comes
+  first; a late end event for an already-closed game is only logged.
+- **B-17 (rev. ae):** the hint checks the program holding the keys (GameBar.exe) too.
+- **B-18 (rev. ae):** no window during a close: "AIONE can't see <game>'s window; it may still be
+  closing" (the core decides the hint and sends it to the UI).
+- **B-19 part 1:** emulator profiles (data: `src-tauri/emulators.json`; sources in
+  `docs/EMULATORS.md`): Dolphin, Cemu, DuckStation, PCSX2 verified from source; Azahar read, nothing
+  added yet; Eden and 8 others recognized, nothing added (not verified yet). At launch, a game's
+  `game.lnk` is read (never changed) and only the missing options are added, logged. A read-only
+  Dolphin settings check and the one-time check report (`emulator-check.md`).
+
 ## 4.0.0-alpha.17 — getting back into games (rev. ac / ad)
 
 - **D-028:** a Guide press that brings AIONE to the front is consumed (logged, never passed to

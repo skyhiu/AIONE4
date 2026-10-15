@@ -296,6 +296,7 @@ export function createMock(search: string): { core: Core; control: MockControl }
   let running: string | null = null;
   const exitHandlers: ((e: { id: string; name: string; minutes: number }) => void)[] = [];
   const windowHandlers: ((e: { id: string; name: string; ms: number }) => void)[] = [];
+  const hintHandlers: ((e: { id: string; text: string }) => void)[] = [];
   const control: MockControl = {
     pad(name, kind = 'down', pad = 0) {
       if (!connected.has(pad)) emit('connected', '', pad);
@@ -476,11 +477,28 @@ export function createMock(search: string): { core: Core; control: MockControl }
     closeGame(id) {
       control.closes.push(id);
       if (running !== id) return Promise.reject(new Error("that game isn't running"));
-      if (params.get('closewait') === 'stuck') return new Promise((_, rej) => setTimeout(() => rej(new Error(`${id} is still running after 10 seconds (it may be asking to save); it was left as it is`)), 1500));
+      const g = SAMPLE_GAMES.find((x) => x.id === id)?.name ?? id;
+      if (params.get('closewait') === 'stuck') {
+        // The core's hint after 0.6 s (rev. ae: "can't see its window" when none is found).
+        setTimeout(() => hintHandlers.forEach((h) => h({ id, text: params.has('nowindow') ? `AIONE can't see ${g}'s window; it may still be closing` : `${g} may be asking something: answer it there` })), 600);
+        return new Promise((_, rej) => setTimeout(() => rej(new Error(`${id} is still running after 10 seconds (it may be asking to save); it was left as it is`)), 1500));
+      }
+      // D-031: ?exitlate: "done" first, the game's end event 150 ms later (alpha.17 QA-1's order).
+      if (params.has('exitlate')) {
+        return new Promise((res) => setTimeout(() => {
+          running = null;
+          res();
+          setTimeout(() => exitHandlers.forEach((h) => h({ id, name: g, minutes: 0.5 })), 150);
+        }, 200));
+      }
       return new Promise((res) => setTimeout(() => {
         control.gameExit(id);
         res();
       }, 200));
+    },
+    onCloseHint(h) {
+      hintHandlers.push(h);
+      return Promise.resolve(() => {});
     },
     onGameWindow(h) {
       windowHandlers.push(h);

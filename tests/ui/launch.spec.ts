@@ -13,7 +13,9 @@ const veil = (page: Page) => page.getByTestId('launch-veil').evaluate((e) => Num
 
 test.describe('T1.3 launching (mocked core)', () => {
   test('A starts the game: the launch sound at once; still 0.55 s, then 0.2 s to black; input discarded; the game first in the row', async ({ page }) => {
-    await open(page);
+    // The game's window at 2 s, so the press below always lands inside the transition, however
+    // slow the machine (alpha.18: on a busy sandbox the page was already past the fade at "0.4 s").
+    await open(page, 'window=2000');
     await pad(page, 'DPadRight'); // Glass Orchard
     const name = await page.getByTestId('selected-title').textContent();
     const t0 = Date.now();
@@ -207,5 +209,45 @@ test.describe('T1.3 launching (mocked core)', () => {
     await page.getByTestId('prompt-confirm').click();
     await page.waitForTimeout(200);
     expect((await page.evaluate(() => window.__aioneMock?.launches))?.length).toBe(1);
+  });
+
+  test('D-031: "Close and start" starts the new game even when the old game\'s end arrives after "done"', async ({ page }) => {
+    await open(page, 'exitlate');
+    for (let round = 0; round < 3; round++) {
+      // Start the first tile's game, come back, then ask for the second tile's game.
+      await pad(page, 'A');
+      await page.waitForTimeout(1100);
+      await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+      await page.waitForTimeout(400);
+      const running = await page.getByTestId('selected-title').textContent();
+      await pad(page, 'DPadRight');
+      const next = await page.getByTestId('selected-title').textContent();
+      await pad(page, 'A');
+      await pad(page, 'DPadLeft');
+      await pad(page, 'A'); // Close and start
+      await page.waitForTimeout(1200);
+      const l = await logs(page);
+      expect(l.filter((x) => x.includes(`asked: close "${running}" and start "${next}"?`)).length).toBe(round === 0 ? 1 : l.filter((x) => x.includes(`asked: close "${running}" and start "${next}"?`)).length);
+      expect(l.some((x) => x.includes(`"${running}" ended (already closed by AIONE)`))).toBe(true);
+      expect((await page.evaluate(() => window.__aioneMock?.launches))?.at(-1)).toBe(next);
+      await expect(page.getByTestId('confirm-dialog')).toHaveCount(0); // never the question again
+      // back to Home for the next round
+      await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+      await page.waitForTimeout(400);
+    }
+    const l = await logs(page);
+    expect(l.some((x) => x.includes("that game isn't running"))).toBe(false);
+  });
+
+  test('B-18 (rev. ae): no window found during a close: "can\'t see its window", never "answer it there"', async ({ page }) => {
+    await open(page, 'closewait=stuck&nowindow');
+    await pad(page, 'A');
+    await page.waitForTimeout(1100);
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await page.waitForTimeout(400);
+    await pad(page, 'X');
+    await pad(page, 'DPadLeft');
+    await pad(page, 'A');
+    await expect(page.getByTestId('toast')).toHaveText("AIONE can't see Amber Lighthouse's window; it may still be closing", { timeout: 2000 });
   });
 });

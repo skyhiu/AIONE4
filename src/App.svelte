@@ -562,11 +562,7 @@
     const name = running?.name ?? q.id;
     closingId = q.id;
     showMessage(`Closing ${name}…`, 11000);
-    const hint = setTimeout(() => {
-      if (closingId === q.id) showMessage(`${name} may be asking something: answer it there`, 10000);
-    }, 1000);
     const done = () => {
-      clearTimeout(hint);
       if (closingId === q.id) closingId = null;
     };
     core
@@ -575,6 +571,12 @@
         done();
         toast = null;
         core?.log('info', `close "${running?.name ?? q.id}": done`);
+        // D-031: "done" means the old game's process has ended: it no longer runs, whether or
+        // not its end event has arrived yet; the new game starts now (never the question again).
+        if (runningId === q.id) {
+          runningId = null;
+          games = sortForHome(games);
+        }
         if (q.kind === 'switch' && q.nextId) {
           const next = games.findIndex((x) => x.id === q.nextId);
           if (next >= 0) core?.log('info', start(next, 'after closing the running game'));
@@ -925,11 +927,23 @@
         await c.onGameExited((e) => {
           const id = e.id;
           if (pendingId === id) pendingId = null;
-          runningId = id;
+          // D-031: an end that arrives after a "Close and start" already cleared the game (and
+          // maybe started the next one) is only logged: no return Home, no change to the launch.
+          if (runningId !== id) {
+            core?.log('info', `"${e.name}" ended (already closed by AIONE)`);
+            games = sortForHome(games);
+            return;
+          }
           returnHome(`"${e.name}" ended`);
           runningId = null;
           games = sortForHome(games);
           focusGame(id);
+        }),
+      );
+      // B-18 (rev. ae): the close's hint, as the core decided it (a window to answer in, or none).
+      unlisteners.push(
+        await c.onCloseHint((e) => {
+          if (closingId === e.id) showMessage(e.text, 10000);
         }),
       );
       // D-026: the game's window appeared: only now is AIONE behind the game ('ingame').

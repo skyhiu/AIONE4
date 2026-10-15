@@ -72,15 +72,20 @@ pub fn running_id() -> Option<String> {
 /// B-17 (rev. aa): right after a Guide press, if Steam or the Xbox Game Bar took the front, a
 /// plain hint naming the setting to turn off.
 pub fn guide_hint() -> Option<String> {
-    let (_, _, exe) = foreground_program()?;
-    match exe.to_ascii_lowercase().as_str() {
-        "steamwebhelper.exe" | "steam.exe" => Some(
-            "hint: Guide also opened Steam: turn off \"Guide button focuses Steam\" in Steam → Settings → Controller".into(),
-        ),
-        "gamebar.exe" | "gamebarftserver.exe" => Some(
-            "hint: Guide also opened the Xbox Game Bar: turn off \"Open Xbox Game Bar using this button on a controller\" in Windows Settings → Gaming → Xbox Game Bar".into(),
-        ),
-        _ => None,
+    // Rev. ae: the program holding the KEYS first (the Game Bar's window belongs to a host
+    // process; its keys belong to GameBar.exe), then the program in front.
+    let keys = keys_program().unwrap_or_default().to_ascii_lowercase();
+    let front = foreground_program()
+        .map(|(_, _, e)| e.to_ascii_lowercase())
+        .unwrap_or_default();
+    let game_bar = |e: &str| e == "gamebar.exe" || e == "gamebarftserver.exe";
+    let steam = |e: &str| e == "steamwebhelper.exe" || e == "steam.exe";
+    if game_bar(&keys) || game_bar(&front) {
+        Some("hint: Guide also opened the Xbox Game Bar: turn off its controller button in Windows Settings → Gaming → Xbox Game Bar (\"Open Xbox Game Bar using this button on a controller\")".into())
+    } else if steam(&keys) || steam(&front) {
+        Some("hint: Guide also opened Steam: turn off \"Guide button focuses Steam\" in Steam → Settings → Controller".into())
+    } else {
+        None
     }
 }
 
@@ -158,7 +163,11 @@ pub fn launch(
     }
     let (target, how) = target_of(&f)?;
     logging::lifecycle(Level::Info, &format!("start \"{}\": opening {how}", f.name));
-    let pid = shell_open(&target, &f.folder)?;
+    // B-19 (rev. ad): an emulator's missing options are added at launch; the shortcut is only read.
+    let pid = match emulator_launch(&f) {
+        Some((exe, params, dir)) => shell_open(&exe, Some(&params), &dir)?,
+        None => shell_open(&target, None, &f.folder)?,
+    };
     logging::lifecycle(
         Level::Info,
         &format!(
@@ -200,6 +209,85 @@ pub fn launch(
         already_running: false,
         foreground: None,
     })
+}
+
+/// B-19: for a `.lnk` shortcut to a known emulator, the program, the arguments with only the
+/// missing options added in front, and the working folder. None: open the shortcut as before.
+fn emulator_launch(f: &crate::games::LaunchFields) -> Option<(String, String, std::path::PathBuf)> {
+    let lnk = f
+        .shortcut
+        .as_ref()
+        .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("lnk")))?;
+    let bytes = std::fs::read(lnk).ok()?;
+    let sc = match crate::emulators::read_lnk(&bytes, &f.folder) {
+        Ok(sc) => sc,
+        Err(e) => {
+            logging::lifecycle(
+                Level::Info,
+                &format!(
+                    "start \"{}\": its shortcut couldn't be read ({e}); opened as it is",
+                    f.name
+                ),
+            );
+            return None;
+        }
+    };
+    let exe = sc.target.clone()?;
+    let profiles = crate::emulators::profiles();
+    let Some(p) = crate::emulators::recognize(&profiles, &exe) else {
+        return None; // not an emulator: unchanged
+    };
+    let (add, skip) = crate::emulators::missing(p, &sc.arguments);
+    let skipped: Vec<String> = skip
+        .iter()
+        .map(|(o, why)| format!("{} ({why})", o.add.join(" ")))
+        .collect();
+    if add.is_empty() {
+        logging::lifecycle(
+            Level::Info,
+            &format!(
+                "start \"{}\": {}: nothing to add{}",
+                f.name,
+                p.name,
+                if skipped.is_empty() {
+                    String::new()
+                } else {
+                    format!("; not added: {}", skipped.join(", "))
+                }
+            ),
+        );
+        return None;
+    }
+    let added = crate::emulators::joined(&add);
+    logging::lifecycle(
+        Level::Info,
+        &format!(
+            "start \"{}\": {}: added {}{}",
+            f.name,
+            p.name,
+            add.iter()
+                .map(|o| format!("{} ({})", o.add.join(" "), o.why))
+                .collect::<Vec<_>>()
+                .join(", "),
+            if skipped.is_empty() {
+                String::new()
+            } else {
+                format!("; not added: {}", skipped.join(", "))
+            }
+        ),
+    );
+    let params = if sc.arguments.trim().is_empty() {
+        added
+    } else {
+        format!("{added} {}", sc.arguments)
+    };
+    let dir = sc
+        .working_dir
+        .clone()
+        .filter(|d| !d.as_os_str().is_empty())
+        .or_else(|| exe.parent().map(|p| p.to_path_buf()))
+        .unwrap_or_else(|| f.folder.clone());
+    Some((exe.to_string_lossy().into_owned(), params, dir))
 }
 
 /// Brings the running game's window to the front (A or Guide on the running game, B-7).
@@ -415,7 +503,7 @@ fn take_if(gen: u64) -> bool {
 
 /// B-18: closes the running game politely (WM_CLOSE to its windows, as its ✕ would; never
 /// killed) and waits up to `wait` for its process to end. The watcher reports the end.
-pub fn close_game(id: &str, wait: Duration) -> Result<(), String> {
+pub fn close_game(id: &str, wait: Duration, hint: impl Fn(String)) -> Result<(), String> {
     let r = RUNNING
         .lock()
         .ok()
@@ -448,14 +536,17 @@ pub fn close_game(id: &str, wait: Duration) -> Result<(), String> {
         // D-029: still running after a moment: it may be asking something: bring it to the front.
         if !shown && t0.elapsed() > Duration::from_millis(600) && process_alive(pid) {
             shown = true;
-            let _ = hand_over(&r, "close: it may be asking something:");
-            logging::lifecycle(
-                Level::Info,
-                &format!(
-                    "hint: \"{}\" may be asking something: answer it there",
+            // Rev. ae: only "answer it there" when there is a window to answer in.
+            let text = if hand_over(&r, "close: it may be asking something:").is_ok() {
+                format!("{} may be asking something: answer it there", r.name)
+            } else {
+                format!(
+                    "AIONE can't see {}'s window; it may still be closing",
                     r.name
-                ),
-            );
+                )
+            };
+            logging::lifecycle(Level::Info, &format!("hint: {text}"));
+            hint(text);
         }
         if !process_alive(pid) {
             logging::lifecycle(
@@ -498,20 +589,30 @@ mod win {
         ShellExecuteExW, SEE_MASK_FLAG_NO_UI, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
-        EnumWindows, GetAncestor, GetClassNameW, GetForegroundWindow, GetLastActivePopup,
-        GetSystemMetrics, GetWindow, GetWindowRect, GetWindowTextLengthW, GetWindowThreadProcessId,
-        IsIconic, IsWindow, IsWindowVisible, PostMessageW, SetWindowPos, ShowWindow, GA_ROOT,
-        GW_OWNER, HWND_TOP, SM_CXSCREEN, SM_CYSCREEN, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-        SW_MINIMIZE, SW_SHOWNORMAL, WM_CLOSE,
+        EnumWindows, GetAncestor, GetClassNameW, GetForegroundWindow, GetGUIThreadInfo,
+        GetLastActivePopup, GetSystemMetrics, GetWindow, GetWindowRect, GetWindowTextLengthW,
+        GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, PostMessageW, SetWindowPos,
+        ShowWindow, GA_ROOT, GUITHREADINFO, GW_OWNER, HWND_TOP, SM_CXSCREEN, SM_CYSCREEN,
+        SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SW_MINIMIZE, SW_SHOWNORMAL, WM_CLOSE,
     };
 
-    pub fn shell_open(target: &str, folder: &std::path::Path) -> Result<Option<u32>, String> {
+    pub fn shell_open(
+        target: &str,
+        params: Option<&str>,
+        folder: &std::path::Path,
+    ) -> Result<Option<u32>, String> {
         let file = HSTRING::from(target);
         let dir = HSTRING::from(folder.as_os_str());
+        let args = HSTRING::from(params.unwrap_or(""));
         let mut info = SHELLEXECUTEINFOW {
             cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
             fMask: SEE_MASK_NOCLOSEPROCESS | SEE_MASK_FLAG_NO_UI,
             lpFile: PCWSTR(file.as_ptr()),
+            lpParameters: if params.is_some() {
+                PCWSTR(args.as_ptr())
+            } else {
+                PCWSTR::null()
+            },
             lpDirectory: PCWSTR(dir.as_ptr()),
             nShow: SW_SHOWNORMAL.0,
             ..Default::default()
@@ -723,6 +824,26 @@ mod win {
         c.sent
     }
 
+    /// B-17 (rev. ae): the program holding the keyboard focus (e.g. GameBar.exe).
+    pub fn keys_program() -> Option<String> {
+        let mut info = GUITHREADINFO {
+            cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
+            ..Default::default()
+        };
+        unsafe { GetGUIThreadInfo(0, &mut info) }.ok()?;
+        let h = if info.hwndFocus.is_invalid() {
+            info.hwndActive
+        } else {
+            info.hwndFocus
+        };
+        if h.is_invalid() {
+            return None;
+        }
+        let mut pid = 0u32;
+        unsafe { GetWindowThreadProcessId(h, Some(&mut pid)) };
+        exe_of(pid)
+    }
+
     pub fn foreground_program() -> Option<(isize, u32, String)> {
         let h = unsafe { GetForegroundWindow() };
         if h.is_invalid() {
@@ -737,12 +858,12 @@ mod win {
 
 #[cfg(windows)]
 use win::{
-    active_popup, close_windows_of, exe_of, foreground_program, main_window_of, process_alive,
-    shell_open, step_aside, top_window_of, window_alive, window_state,
+    active_popup, close_windows_of, exe_of, foreground_program, keys_program, main_window_of,
+    process_alive, shell_open, step_aside, top_window_of, window_alive, window_state,
 };
 
 #[cfg(not(windows))]
-fn shell_open(_target: &str, _folder: &Path) -> Result<Option<u32>, String> {
+fn shell_open(_target: &str, _params: Option<&str>, _folder: &Path) -> Result<Option<u32>, String> {
     Err("starting games needs Windows".into())
 }
 #[cfg(not(windows))]
@@ -768,6 +889,10 @@ fn foreground_program() -> Option<(isize, u32, String)> {
 #[cfg(not(windows))]
 fn close_windows_of(_pid: u32) -> usize {
     0
+}
+#[cfg(not(windows))]
+fn keys_program() -> Option<String> {
+    None
 }
 #[cfg(not(windows))]
 fn main_window_of(_pid: u32) -> Option<isize> {

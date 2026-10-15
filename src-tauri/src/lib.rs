@@ -4,6 +4,7 @@
 //! See docs/ARCHITECTURE.md.
 
 pub mod boot;
+pub mod emulators;
 pub mod foreground;
 pub mod games;
 pub mod input;
@@ -34,6 +35,8 @@ pub const EVENT_TILE: &str = "aione://tile";
 /// `close_now`. If it doesn't within `CLOSE_SAFETY`, the core exits anyway.
 pub const EVENT_CLOSE_REQUESTED: &str = "aione://close-requested";
 /// D-026: the running game's window appeared: `{ id, name, ms }`.
+/// B-18 (rev. ae): the close's hint for the UI: `{ id, text }`.
+pub const EVENT_CLOSE_HINT: &str = "aione://close-hint";
 pub const EVENT_GAME_WINDOW: &str = "aione://game-window";
 /// T1.3: the running game ended (AIONE comes back to the front): `{ id, name, minutes }`.
 pub const EVENT_GAME_EXITED: &str = "aione://game-exited";
@@ -187,11 +190,18 @@ async fn launch_game(app: AppHandle, id: String) -> Result<launch::Started, Stri
     }
 }
 
-/// B-18: closes the running game politely (never forced); waits up to 10 s for it to end.
+/// B-18: closes the running game politely (never forced); waits up to 10 s for it to end. The
+/// hint (rev. ae: "answer it there", or "can't see its window") goes to the UI as an event.
 #[tauri::command]
-async fn close_game(id: String) -> Result<(), String> {
+async fn close_game(app: AppHandle, id: String) -> Result<(), String> {
+    let id2 = id.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        launch::close_game(&id, std::time::Duration::from_secs(10))
+        launch::close_game(&id, std::time::Duration::from_secs(10), move |text| {
+            let _ = app.emit(
+                EVENT_CLOSE_HINT,
+                serde_json::json!({ "id": id2, "text": text }),
+            );
+        })
     })
     .await
     .map_err(|e| e.to_string())?
@@ -618,6 +628,25 @@ pub fn run() {
             return;
         }
         lifecycle::PreStart::Continue { .. } => {}
+    }
+
+    // B-19 part 1: the one-time emulator check report (read only), in the background; written
+    // again with `--check-emulators`.
+    {
+        let data = data_dir.clone();
+        let again = std::env::args().any(|a| a.eq_ignore_ascii_case("--check-emulators"));
+        if again || !data.join("emulator-check.md").exists() {
+            std::thread::spawn(move || match emulators::write_report(&data) {
+                Ok(p) => logging::lifecycle(
+                    Level::Info,
+                    &format!("emulator check report written: {}", p.display()),
+                ),
+                Err(e) => logging::lifecycle(
+                    Level::Warn,
+                    &format!("emulator check report not written: {e}"),
+                ),
+            });
+        }
     }
 
     let state = AppState {
