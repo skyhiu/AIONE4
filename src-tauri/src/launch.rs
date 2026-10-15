@@ -55,6 +55,8 @@ struct Running {
     /// B-11 (rev. ag): when the real game appeared (the start counts from then; launcher-only
     /// sessions and the 30 s wait never count).
     counted_at: Option<Instant>,
+    /// D-036: AIONE is closing this game (its end is the game's end, never a launcher wait).
+    closing: bool,
 }
 
 static RUNNING: Mutex<Option<Running>> = Mutex::new(None);
@@ -146,23 +148,55 @@ pub const FOLLOW_WAIT: Duration = Duration::from_secs(5);
 
 /// B-18 (rev. ah): B on "Starting <game>…" cancels the wait: the game counts as ended, nothing is
 /// counted (the watcher stops: the game is no longer tracked).
-pub fn cancel_start(id: &str) -> Result<String, String> {
+pub fn cancel_start(id: &str) -> Result<(String, Option<ClosedSession>), String> {
     let r = RUNNING
         .lock()
         .ok()
         .and_then(|g| g.clone())
         .filter(|r| r.id == id)
         .ok_or("that game isn't starting")?;
-    if r.counted_at.is_some() {
-        return Err("the game has already appeared".into());
-    }
-    take_if(r.gen);
-    let m = format!(
-        "start \"{}\": the wait was cancelled (B): ended, nothing counted",
-        r.name
-    );
+    // The watch ends for real (rev. ai): the game is no longer tracked, so the watcher stops and
+    // reports nothing more; anything counted is recorded once by the caller.
+    let taken = take_if(r.gen);
+    let session = (taken && r.counted_at.is_some()).then(|| ClosedSession {
+        id: r.id.clone(),
+        name: r.name.clone(),
+        minutes: r
+            .counted_at
+            .map(|t| t.elapsed().as_secs_f64() / 60.0)
+            .unwrap_or(0.0),
+    });
+    let m = match &session {
+        Some(c) => format!("start \"{}\": the wait was cancelled (B): ended; {:.1} min counted (the game had appeared)", r.name, c.minutes),
+        None => format!("start \"{}\": the wait was cancelled (B): ended, nothing counted", r.name),
+    };
     logging::lifecycle(Level::Info, &m);
-    Ok(m)
+    Ok((m, session))
+}
+
+/// D-036: the game is being closed by AIONE (Close Software, Close and start, force close).
+fn mark_closing(id: &str) {
+    if let Ok(mut g) = RUNNING.lock() {
+        if let Some(r) = g.as_mut().filter(|r| r.id == id) {
+            r.closing = true;
+        }
+    }
+}
+
+/// D-036 (rev. ai): does this process's end start the launcher wait? Never once it IS the game
+/// (counted: its window appeared, or it was followed after a launcher) or AIONE is closing it;
+/// only a launcher by name, or a process that ended before any game appeared (soon after the
+/// launch).
+pub fn end_is_launcher(
+    counted: bool,
+    closing: bool,
+    since_launch: Duration,
+    exe: Option<&str>,
+) -> bool {
+    if counted || closing {
+        return false;
+    }
+    exe.is_some_and(is_launcher) || since_launch < Duration::from_secs(30)
 }
 
 /// D-032: programs known to be launchers (they start the real game and exit).
@@ -368,6 +402,7 @@ pub fn launch(
         install_dir,
         no_pause: f.no_pause,
         counted_at: None,
+        closing: false,
     };
     if let Ok(mut g) = RUNNING.lock() {
         if let Some(old) = g.replace(run) {
@@ -473,6 +508,7 @@ fn emulator_launch(f: &crate::games::LaunchFields) -> Option<(String, String, st
 /// B-18 (rev. ag): force close (only on the user's confirmation): resumes the game if paused, ends
 /// its process and those it started (TerminateProcess), and returns its counted session.
 pub fn force_close(id: &str) -> Result<Option<ClosedSession>, String> {
+    mark_closing(id);
     crate::pause::resume_running("before force closing");
     let r = RUNNING
         .lock()
@@ -777,7 +813,7 @@ fn watch(gen: u64, report: impl Fn(Event)) {
             }
         } else if r.window.is_some() && !alive(&r) {
             let launcherish =
-                since < Duration::from_secs(30) || r.exe.as_deref().is_some_and(is_launcher);
+                end_is_launcher(r.counted_at.is_some(), r.closing, since, r.exe.as_deref());
             if launcherish {
                 let launcher = r.pid.unwrap_or(0);
                 logging::lifecycle(
@@ -856,6 +892,7 @@ pub fn close_game(
     wait: Duration,
     hint: impl Fn(String),
 ) -> Result<Option<ClosedSession>, String> {
+    mark_closing(id);
     // B-20: resumed first, so the game can answer the close itself.
     crate::pause::resume_running("before closing");
     let r = RUNNING
@@ -1478,5 +1515,34 @@ mod tests {
             no_pause: false,
         };
         assert_eq!(steam_app_id_of(&f).as_deref(), Some("123450"));
+    }
+
+    /// D-036 (rev. ai): the game's end is the game's end; the wait only for launchers.
+    #[test]
+    fn the_game_is_the_game() {
+        let at10 = Duration::from_secs(10);
+        // A counted game ending at 10 s (its window appeared): no wait.
+        assert!(!end_is_launcher(true, false, at10, Some("Balatro.exe")));
+        // A followed game ending at 10 s (followed after a launcher = counted): no wait.
+        assert!(!end_is_launcher(true, false, at10, Some("DR2_us.exe")));
+        // Close Software at 10 s, even before the game was counted: no wait.
+        assert!(!end_is_launcher(false, true, at10, Some("ze1.exe")));
+        // A launcher closing (nothing counted yet): the wait.
+        assert!(end_is_launcher(false, false, at10, Some("Launcher.exe")));
+        assert!(end_is_launcher(
+            false,
+            false,
+            Duration::from_secs(60),
+            Some("GameLauncher.exe")
+        ));
+        // A process ending before any game appeared, soon after the launch: the wait.
+        assert!(end_is_launcher(false, false, at10, Some("start.exe")));
+        // An uncounted process ending late, not a launcher: no wait.
+        assert!(!end_is_launcher(
+            false,
+            false,
+            Duration::from_secs(60),
+            Some("game.exe")
+        ));
     }
 }

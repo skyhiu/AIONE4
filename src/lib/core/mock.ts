@@ -516,7 +516,7 @@ export function createMock(search: string): { core: Core; control: MockControl }
       if (running !== id) return Promise.reject(new Error("that game isn't starting"));
       running = null;
       cancelled = true;
-      return Promise.resolve(`start "${id}": the wait was cancelled (B): ended, nothing counted`);
+      return Promise.resolve(`start "${id}": the wait was cancelled (B): ended, nothing counted`); // as the core says
     },
     forceCloseGame(id) {
       control.closes.push(`force:${id}`);

@@ -275,8 +275,22 @@ async fn force_close_game(app: AppHandle, id: String) -> Result<(), String> {
 
 /// B-18 (rev. ah): B on "Starting <game>…" cancels the launcher wait (nothing counted).
 #[tauri::command]
-fn cancel_start(id: String) -> Result<String, String> {
-    launch::cancel_start(&id)
+async fn cancel_start(app: AppHandle, id: String) -> Result<String, String> {
+    let (message, session) = launch::cancel_start(&id)?;
+    // Rev. ai: anything counted (the game had appeared) is recorded once.
+    if let Some(c) = session {
+        let data = app.state::<AppState>().data_dir.clone();
+        if let Ok(total) = games::record_end(&data, &c.id, c.minutes) {
+            logging::lifecycle(
+                Level::Info,
+                &format!(
+                    "\"{}\": played {:.1} min (total {total:.1} min)",
+                    c.name, c.minutes
+                ),
+            );
+        }
+    }
+    Ok(message)
 }
 
 /// T1.3 (B-7): A or Guide on the running game brings it back to the front.
@@ -713,7 +727,7 @@ pub fn run() {
     // again with `--check-emulators`.
     {
         let data = data_dir.clone();
-        let again = std::env::args().any(|a| a.eq_ignore_ascii_case("--check-emulators"));
+        let again = args.check_emulators;
         if again || !data.join("emulator-check.md").exists() {
             std::thread::spawn(move || match emulators::write_report(&data) {
                 Ok(p) => logging::lifecycle(

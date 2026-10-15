@@ -1,5 +1,16 @@
 # Changelog
 
+## 4.0.0-alpha.22 — completing T1.3 part 1 (rev. ai)
+
+- **D-036:** once a process is the game (counted when its window appeared, or followed after a
+  launcher) or AIONE is closing it, its end is the game's end: Home at once, playtime recorded,
+  never the launcher wait. The wait only for a launcher by name, or a process ending before any
+  game appeared (`end_is_launcher`).
+- **The cancelled wait (QA-2):** B ends the watch in the core (one end, logged once); the message
+  says what was counted (and records it).
+- **QA-3:** `--check-emulators` is a known start-up argument.
+- Eden: unverified (eden_cli.txt not attached). B-21 (capture, overlay) is for T7.
+
 ## 4.0.0-alpha.21 — the last build of T1.3 part 1 (rev. ah)
 
 - **B-18 rev. ah:** the launcher wait is 5 s (was 30 s; the real game came within 0.60–0.84 s on

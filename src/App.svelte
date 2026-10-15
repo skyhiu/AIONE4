@@ -211,8 +211,12 @@
       const id = followingId;
       const name = games.find((x) => x.id === id)?.name ?? id;
       followingId = null;
-      core?.cancelStart(id).catch(() => {});
-      core?.log('info', `${describeInput(ev, 'back', `the wait for "${name}" cancelled (B): Home, nothing counted`)}`);
+      core?.log('info', `${describeInput(ev, 'back', `the wait for "${name}" cancelled (B): Home`)}`);
+      // Rev. ai: the core ends the watch and says what was counted.
+      core
+        ?.cancelStart(id)
+        .then((m) => core?.log('info', m))
+        .catch(() => {});
       runningId = null;
       pendingId = null;
       returnHome(`the wait for "${name}" was cancelled`);

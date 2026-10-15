@@ -292,7 +292,9 @@ test.describe('T1.3 launching (mocked core)', () => {
     await pad(page, 'B');
     await expect.poll(() => veil(page), { timeout: 1500 }).toBe(0);
     const l = await logs(page);
-    expect(l.some((x) => /the wait for "Amber Lighthouse" cancelled \(B\): Home, nothing counted/.test(x))).toBe(true);
+    expect(l.some((x) => /the wait for "Amber Lighthouse" cancelled \(B\): Home/.test(x))).toBe(true);
+    // Rev. ai: the core's own line says what was counted (here: nothing; the game never appeared).
+    expect(l.some((x) => x.includes('the wait was cancelled (B): ended, nothing counted'))).toBe(true);
     await expect(page.getByTestId('playing-badge')).toHaveCount(0);
   });
 

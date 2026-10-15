@@ -43,13 +43,17 @@ pub struct Args {
     pub extras: Vec<String>,
 
     pub unknown: Vec<String>,
+    /// B-19 (alpha.21 QA-3): `--check-emulators` rewrites the emulator check report.
+    pub check_emulators: bool,
 }
 
 pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Args {
     let mut out = Args::default();
     let mut it = args.into_iter().peekable();
     while let Some(a) = it.next() {
-        if a == "--wait-for-pid" {
+        if a.eq_ignore_ascii_case("--check-emulators") {
+            out.check_emulators = true;
+        } else if a == "--wait-for-pid" {
             match it.next().and_then(|v| v.parse().ok()) {
                 Some(pid) => out.wait_for_pid = Some(pid),
                 None => out.unknown.push(a),
@@ -362,6 +366,9 @@ mod tests {
         assert_eq!(p(&[]), Args::default());
         assert!(p(&["--from-autostart"]).from_autostart);
         assert!(p(&["--boot=default"]).boot_default);
+        // alpha.21 QA-3: --check-emulators is known (never "unknown").
+        let c = p(&["--check-emulators"]);
+        assert!(c.check_emulators && c.unknown.is_empty());
         // rev. t: the extras are on by default; only "none" is a switch.
         assert_eq!(p(&["--extras=None"]).extras, vec!["none"]);
         assert!(p(&["--extras=press,labelfade"]).extras.is_empty());
