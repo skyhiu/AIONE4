@@ -259,6 +259,22 @@ mod win {
         String::from_utf16_lossy(&buf[..n])
     }
 
+    /// Tests only: a real shortcut written with Windows' own interface (so the reader is tested on
+    /// what Windows itself makes).
+    #[cfg(test)]
+    pub fn write(path: &Path, target: &str, args: &str, dir: &str) {
+        unsafe {
+            let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+            let link: IShellLinkW =
+                CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER).unwrap();
+            link.SetPath(&HSTRING::from(target)).unwrap();
+            link.SetArguments(&HSTRING::from(args)).unwrap();
+            link.SetWorkingDirectory(&HSTRING::from(dir)).unwrap();
+            let file: IPersistFile = link.cast().unwrap();
+            file.Save(&HSTRING::from(path.as_os_str()), true).unwrap();
+        }
+    }
+
     pub fn read(path: &Path) -> Result<Shortcut, String> {
         // SAFETY: COM calls on this thread with checked results; the shortcut is only loaded.
         unsafe {
@@ -562,6 +578,16 @@ mod tests {
             std::fs::create_dir_all(g.join(id)).unwrap();
             std::fs::write(g.join(id).join("game.json"), json).unwrap();
         }
+        // Windows: a real shortcut made by Windows itself (its reader refuses a hand-built one);
+        // elsewhere the byte-built one for the fallback reader.
+        #[cfg(windows)]
+        win::write(
+            &g.join("a").join("game.lnk"),
+            "C:\\Emu\\Dolphin.exe",
+            "-e \"C:\\G\\x.rvz\"",
+            "C:\\Emu",
+        );
+        #[cfg(not(windows))]
         std::fs::write(
             g.join("a").join("game.lnk"),
             lnk("C:\\Emu\\Dolphin.exe", "C:\\Emu", "-e \"C:\\G\\x.rvz\""),
