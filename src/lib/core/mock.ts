@@ -64,6 +64,8 @@ export interface MockControl {
   launches: string[];
   /** T1.3: the running game ends (the core would bring AIONE back to the front). */
   gameExit(id: string): void;
+  /** B-18: the close requests (ids), in order. */
+  closes: string[];
   /** D-026: the running game's window appears (?window=never: only when this is called). */
   gameWindow(id: string): void;
   /** Reasons passed to `closeNow` (the app would exit). */
@@ -306,6 +308,7 @@ export function createMock(search: string): { core: Core; control: MockControl }
       if (connected.has(pad)) emit('disconnected', '', pad);
     },
     launches: [],
+    closes: [],
     gameWindow(id) {
       const g = SAMPLE_GAMES.find((x) => x.id === id);
       windowHandlers.forEach((h) => h({ id, name: g?.name ?? id, ms: 1200 }));
@@ -471,8 +474,9 @@ export function createMock(search: string): { core: Core; control: MockControl }
     },
     // B-18: ?closewait=stuck: the game doesn't close (it may be asking to save).
     closeGame(id) {
+      control.closes.push(id);
       if (running !== id) return Promise.reject(new Error("that game isn't running"));
-      if (params.get('closewait') === 'stuck') return new Promise((_, rej) => setTimeout(() => rej(new Error(`${id} is still running after 10 seconds (it may be asking to save); it was left as it is`)), 400));
+      if (params.get('closewait') === 'stuck') return new Promise((_, rej) => setTimeout(() => rej(new Error(`${id} is still running after 10 seconds (it may be asking to save); it was left as it is`)), 1500));
       return new Promise((res) => setTimeout(() => {
         control.gameExit(id);
         res();

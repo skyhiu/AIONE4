@@ -34,6 +34,16 @@ an item Fixed and Verified.
 | QA-4 (T0 test): an autostart start is not marked | **Implemented, Unverified**: the entry runs `"<exe>" --from-autostart`; logged "started by Windows at sign-in". Unit test on the command. |
 | QA-5 (T0 retest): closing logged as "the user switched away" | **Implemented, Unverified**: exit stops the guard first ("AIONE is closing"); later foreground changes are ignored. Unit test on the guard's decision. Windows code compiles first in CI. |
 
+## 4.0.0-alpha.17
+
+| Item | Status |
+|---|---|
+| D-027 (returning to the game) | Implemented, Unverified: Windows only (your PC); the handover logs the window's state and the method each time |
+| D-028 (one Guide press acting twice) | Implemented, Unverified (core gate test) |
+| D-029 (games that ask before quitting) | Implemented, Unverified |
+| D-030 (close requests piling up) | Implemented, Unverified (UI test) |
+| B-19 (emulator profiles) | Moved to alpha.18 |
+
 ## T1.3 part 1, continued (4.0.0-alpha.16)
 
 | Item | Status |

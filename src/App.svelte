@@ -328,6 +328,7 @@
         // B-18: X (Delete) on the running game asks to close it.
         const g = home.zone === 'row' ? games[home.focus] : undefined;
         if (!g || g.id !== runningId) return 'no action (not the running game)';
+        if (closingId === g.id) return `ignored ("${g.name}" is closing)`;
         confirm = { kind: 'close', id: g.id, title: `Close ${g.name}?`, text: 'Unsaved progress will be lost.', yes: 'Close', focus: 'no' };
         return `asked: close "${g.name}"?, ${play('optionsOpen')}`;
       }
@@ -436,6 +437,8 @@
   let pendingId: string | null = null;
   /** performance.now() when the launch's fade ends (a window that appears earlier waits for it). */
   let fadeEndAt = 0;
+  /** D-030: the game being closed (X and A on it locked until it ends or 10 s pass). */
+  let closingId = $state<string | null>(null);
   /** B-18: the close question (switching games, or X Close Software). */
   let confirm = $state<{ kind: 'switch' | 'close'; id: string; nextId?: string; title: string; text: string; yes: string; focus: 'yes' | 'no' } | null>(null);
 
@@ -465,6 +468,8 @@
     const g = games[index];
     if (!g) return 'nothing to start';
     if (launching !== 'none') return 'ignored (a launch is in progress)';
+    // D-030: while a game is closing, A on it (or on another game) waits.
+    if (closingId) return `ignored ("${games.find((x) => x.id === closingId)?.name ?? closingId}" is closing)`;
     pressFeedback(index);
     // An already-running game is brought to the front, never started twice (Part B).
     if (runningId === g.id) return returnToGame(g.id, how);
@@ -553,9 +558,22 @@
     const running = games.find((x) => x.id === q.id);
     if (!yes) return `question: Cancel (${how}), ${play('back')}`;
     core?.log('info', `close "${running?.name ?? q.id}": asked by the user (${q.kind === 'switch' ? 'to start another game' : 'Close Software'})`);
+    // D-030: "Closing <game>…" while it closes; D-029: then the hint (the core brings it forward).
+    const name = running?.name ?? q.id;
+    closingId = q.id;
+    showMessage(`Closing ${name}…`, 11000);
+    const hint = setTimeout(() => {
+      if (closingId === q.id) showMessage(`${name} may be asking something: answer it there`, 10000);
+    }, 1000);
+    const done = () => {
+      clearTimeout(hint);
+      if (closingId === q.id) closingId = null;
+    };
     core
       ?.closeGame(q.id)
       .then(() => {
+        done();
+        toast = null;
         core?.log('info', `close "${running?.name ?? q.id}": done`);
         if (q.kind === 'switch' && q.nextId) {
           const next = games.findIndex((x) => x.id === q.nextId);
@@ -563,6 +581,7 @@
         }
       })
       .catch((e: unknown) => {
+        done();
         const reason = e instanceof Error ? e.message : String(e);
         core?.log('warn', `close "${running?.name ?? q.id}" failed: ${reason}`);
         showMessage(reason);
@@ -583,13 +602,13 @@
   }
 
   /** A plain message (a failed start): longer than a toast, the same place. */
-  function showMessage(text: string) {
+  function showMessage(text: string, ms = 5000) {
     toast = text;
     if (toastTimer) clearTimeout(toastTimer);
     toastTimer = setTimeout(() => {
       toast = null;
       toastTimer = null;
-    }, 5000);
+    }, ms);
   }
 
   function pressFeedback(index: number) {
@@ -904,7 +923,6 @@
       // T1.3: the running game ended: the core brought AIONE to the front; Home, focus on it.
       unlisteners.push(
         await c.onGameExited((e) => {
-          core?.log('info', `"${e.name}" ended after ${e.minutes} min`);
           const id = e.id;
           if (pendingId === id) pendingId = null;
           runningId = id;

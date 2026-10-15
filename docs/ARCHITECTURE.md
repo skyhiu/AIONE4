@@ -336,3 +336,12 @@ changed, it publishes nothing.
 - **Logs:** `aione.log` rotates at 5 MB; one old file (`aione.1.log`) is kept; the new file's first
   line says so.
 
+## Handing the front to a game (alpha.17, D-027)
+`launch::hand_over` (every return, and once when a launched game's window appears): the game's main
+window is found again by process (largest visible top-level window, else a minimized one); its state
+is logged; its active pop-up is targeted; `foreground::bring_to_front` tries alpha.15's methods
+(direct, attach-thread-input, an input event, a topmost pulse; a minimized window is restored). If
+Windows refuses, AIONE steps aside: the game's window is put on top (not activated) and AIONE's
+window minimized, so Windows activates the game. The next Guide restores AIONE (`show_and_focus`
+unminimizes it). A background Guide press is consumed in the input gate (D-028).
+

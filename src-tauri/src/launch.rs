@@ -212,16 +212,69 @@ pub fn return_to_game(id: &str) -> Result<String, String> {
     if r.id != id || !alive(&r) {
         return Err("that game isn't running".into());
     }
-    let w = r.window.ok_or("its window isn't known yet")?;
-    let report = crate::foreground::bring_to_front(w);
+    hand_over(&r, "back to")
+}
+
+/// D-027: hands the front to the running game. The game's main window is found again by its
+/// process every time (never a stale handle) and its state logged; a minimized window is
+/// restored and an active pop-up targeted (by `bring_to_front`, alpha.15's methods). If Windows
+/// still refuses, AIONE steps aside: the game's window goes to the top (not activated) and AIONE
+/// minimizes itself, so Windows activates the game; the next Guide restores AIONE.
+fn hand_over(r: &Running, what: &str) -> Result<String, String> {
+    let target = r
+        .pid
+        .and_then(main_window_of)
+        .or(r.window.filter(|w| window_alive(*w)));
+    let Some(main) = target else {
+        let m = format!(
+            "{what} \"{}\": no window of {} found",
+            r.name,
+            r.exe.clone().unwrap_or_default()
+        );
+        logging::lifecycle(Level::Warn, &m);
+        return Err(m);
+    };
+    let popup = active_popup(main);
+    let target = popup.unwrap_or(main);
     logging::lifecycle(
         Level::Info,
-        &format!("back to \"{}\": {}", r.name, report.summary()),
+        &format!(
+            "{what} \"{}\": its window {}{}",
+            r.name,
+            window_state(main),
+            popup
+                .map(|p| format!("; its active pop-up {}", window_state(p)))
+                .unwrap_or_default()
+        ),
     );
+    if let Ok(mut g) = RUNNING.lock() {
+        if let Some(x) = g.as_mut().filter(|x| x.gen == r.gen) {
+            x.window = Some(main);
+        }
+    }
+    let report = crate::foreground::bring_to_front(target);
     if report.ok {
-        Ok(report.summary())
+        let m = format!("{what} \"{}\": {}", r.name, report.summary());
+        logging::lifecycle(Level::Info, &m);
+        return Ok(m);
+    }
+    // Windows refused: AIONE steps aside.
+    let aside = step_aside(crate::foreground::main_window(), target, r.pid.unwrap_or(0));
+    let m = format!(
+        "{what} \"{}\": {}; then {}",
+        r.name,
+        report.summary(),
+        if aside {
+            "OK via step-aside (AIONE minimized itself; the game is in front)"
+        } else {
+            "step-aside also failed (the game isn't in front)"
+        }
+    );
+    logging::lifecycle(if aside { Level::Info } else { Level::Warn }, &m);
+    if aside {
+        Ok(m)
     } else {
-        Err(report.summary())
+        Err(m)
     }
 }
 
@@ -285,6 +338,13 @@ fn watch(gen: u64, report: impl Fn(Event)) {
                     name: r.name.clone(),
                     ms: since.as_millis(),
                 });
+                // D-027: the game's window appeared: AIONE hands it the front (Steam included).
+                if let Ok(mut g) = RUNNING.lock() {
+                    if g.as_ref().is_some_and(|x| x.gen == gen) {
+                        *g = Some(r.clone());
+                    }
+                }
+                let _ = hand_over(&r, "its window appeared:");
             }
             // A launcher that closed without starting a game counts as ended (B-18); so does a
             // start that never shows a window within 2 minutes.
@@ -374,9 +434,29 @@ pub fn close_game(id: &str, wait: Duration) -> Result<(), String> {
             r.exe.clone().unwrap_or_default()
         ),
     );
+    // D-029: no window found: say so at once (no 10 s wait).
+    if n == 0 {
+        return Err(format!(
+            "AIONE found no window of {} to close; it was left as it is",
+            r.name
+        ));
+    }
     let t0 = Instant::now();
+    let mut shown = false;
     while t0.elapsed() < wait {
         std::thread::sleep(Duration::from_millis(200));
+        // D-029: still running after a moment: it may be asking something: bring it to the front.
+        if !shown && t0.elapsed() > Duration::from_millis(600) && process_alive(pid) {
+            shown = true;
+            let _ = hand_over(&r, "close: it may be asking something:");
+            logging::lifecycle(
+                Level::Info,
+                &format!(
+                    "hint: \"{}\" may be asking something: answer it there",
+                    r.name
+                ),
+            );
+        }
         if !process_alive(pid) {
             logging::lifecycle(
                 Level::Info,
@@ -409,7 +489,7 @@ pub fn close_game(id: &str, wait: Duration) -> Result<(), String> {
 #[cfg(windows)]
 mod win {
     use windows::core::{BOOL, HSTRING, PCWSTR};
-    use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, WPARAM};
+    use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, RECT, WPARAM};
     use windows::Win32::System::Threading::{
         GetExitCodeProcess, GetProcessId, OpenProcess, QueryFullProcessImageNameW,
         PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
@@ -418,9 +498,11 @@ mod win {
         ShellExecuteExW, SEE_MASK_FLAG_NO_UI, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
-        EnumWindows, GetForegroundWindow, GetWindow, GetWindowTextLengthW,
-        GetWindowThreadProcessId, IsWindow, IsWindowVisible, PostMessageW, GW_OWNER, SW_SHOWNORMAL,
-        WM_CLOSE,
+        EnumWindows, GetAncestor, GetClassNameW, GetForegroundWindow, GetLastActivePopup,
+        GetSystemMetrics, GetWindow, GetWindowRect, GetWindowTextLengthW, GetWindowThreadProcessId,
+        IsIconic, IsWindow, IsWindowVisible, PostMessageW, SetWindowPos, ShowWindow, GA_ROOT,
+        GW_OWNER, HWND_TOP, SM_CXSCREEN, SM_CYSCREEN, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+        SW_MINIMIZE, SW_SHOWNORMAL, WM_CLOSE,
     };
 
     pub fn shell_open(target: &str, folder: &std::path::Path) -> Result<Option<u32>, String> {
@@ -500,6 +582,122 @@ mod win {
         (s.found != 0).then_some(s.found)
     }
 
+    struct Mains {
+        pid: u32,
+        best: isize,
+        area: i64,
+        iconic: isize,
+    }
+
+    unsafe extern "system" fn main_each(h: HWND, l: LPARAM) -> BOOL {
+        let m = unsafe { &mut *(l.0 as *mut Mains) };
+        let mut pid = 0u32;
+        unsafe { GetWindowThreadProcessId(h, Some(&mut pid)) };
+        let owned = unsafe { GetWindow(h, GW_OWNER) }.is_ok_and(|o| !o.is_invalid());
+        if pid != m.pid || owned || !unsafe { IsWindowVisible(h) }.as_bool() {
+            return BOOL(1);
+        }
+        if unsafe { IsIconic(h) }.as_bool() {
+            if m.iconic == 0 {
+                m.iconic = h.0 as isize;
+            }
+            return BOOL(1);
+        }
+        let mut rc = RECT::default();
+        if unsafe { GetWindowRect(h, &mut rc) }.is_ok() {
+            let area = i64::from(rc.right - rc.left) * i64::from(rc.bottom - rc.top);
+            if area > m.area {
+                m.area = area;
+                m.best = h.0 as isize;
+            }
+        }
+        BOOL(1)
+    }
+
+    /// D-027: the process's main window, found again each time: its largest visible top-level
+    /// window, else a minimized one.
+    pub fn main_window_of(pid: u32) -> Option<isize> {
+        let mut m = Mains {
+            pid,
+            best: 0,
+            area: 0,
+            iconic: 0,
+        };
+        let _ = unsafe { EnumWindows(Some(main_each), LPARAM(&mut m as *mut Mains as isize)) };
+        if m.best != 0 {
+            Some(m.best)
+        } else if m.iconic != 0 {
+            Some(m.iconic)
+        } else {
+            None
+        }
+    }
+
+    /// The window's active pop-up (e.g. a "Quit?" question), if it has a visible one.
+    pub fn active_popup(w: isize) -> Option<isize> {
+        let h = HWND(w as *mut _);
+        let p = unsafe { GetLastActivePopup(h) };
+        (!p.is_invalid() && p != h && unsafe { IsWindowVisible(p) }.as_bool())
+            .then_some(p.0 as isize)
+    }
+
+    /// D-027: the window's state for the log.
+    pub fn window_state(w: isize) -> String {
+        let h = HWND(w as *mut _);
+        let mut buf = [0u16; 128];
+        let n = unsafe { GetClassNameW(h, &mut buf) }.max(0) as usize;
+        let class = String::from_utf16_lossy(&buf[..n]);
+        let visible = unsafe { IsWindowVisible(h) }.as_bool();
+        let minimized = unsafe { IsIconic(h) }.as_bool();
+        let top_level = unsafe { GetAncestor(h, GA_ROOT) } == h;
+        let owner = unsafe { GetWindow(h, GW_OWNER) }
+            .ok()
+            .filter(|o| !o.is_invalid())
+            .map(|o| format!("{:#x}", o.0 as usize))
+            .unwrap_or_else(|| "none".into());
+        let mut rc = RECT::default();
+        let _ = unsafe { GetWindowRect(h, &mut rc) };
+        let (sw, sh) = unsafe { (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)) };
+        let fullscreen = rc.left <= 0 && rc.top <= 0 && rc.right >= sw && rc.bottom >= sh;
+        format!(
+            "{:#x}: visible {visible}, minimized {minimized}, top-level {top_level}, class {class}, owner {owner}, fullscreen {fullscreen} ({}x{})",
+            w as usize,
+            rc.right - rc.left,
+            rc.bottom - rc.top
+        )
+    }
+
+    /// D-027: AIONE steps aside: the game's window to the top (not activated), AIONE minimized,
+    /// so Windows activates the game. True when the game's process holds the front afterwards.
+    pub fn step_aside(aione: isize, game: isize, pid: u32) -> bool {
+        if aione == 0 {
+            return false;
+        }
+        let g = HWND(game as *mut _);
+        let _ = unsafe {
+            SetWindowPos(
+                g,
+                Some(HWND_TOP),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+            )
+        };
+        let _ = unsafe { ShowWindow(HWND(aione as *mut _), SW_MINIMIZE) };
+        for _ in 0..10 {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            let fg = unsafe { GetForegroundWindow() };
+            let mut fpid = 0u32;
+            unsafe { GetWindowThreadProcessId(fg, Some(&mut fpid)) };
+            if fpid == pid && pid != 0 {
+                return true;
+            }
+        }
+        false
+    }
+
     struct Closer {
         pid: u32,
         sent: usize,
@@ -570,6 +768,22 @@ fn foreground_program() -> Option<(isize, u32, String)> {
 #[cfg(not(windows))]
 fn close_windows_of(_pid: u32) -> usize {
     0
+}
+#[cfg(not(windows))]
+fn main_window_of(_pid: u32) -> Option<isize> {
+    None
+}
+#[cfg(not(windows))]
+fn active_popup(_w: isize) -> Option<isize> {
+    None
+}
+#[cfg(not(windows))]
+fn window_state(_w: isize) -> String {
+    String::new()
+}
+#[cfg(not(windows))]
+fn step_aside(_aione: isize, _game: isize, _pid: u32) -> bool {
+    false
 }
 
 #[cfg(test)]

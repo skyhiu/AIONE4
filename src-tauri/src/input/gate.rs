@@ -49,7 +49,10 @@ impl BackgroundGate {
                     self.began_in_background[s] &= !bit;
                     Route::Act
                 } else if control == GUIDE {
-                    // Guide is never marked: it acts in the background too.
+                    // Guide acts in the background (it brings AIONE to the front). D-028: the
+                    // press is consumed there: marked, so its repeats and release are only logged
+                    // and never reach the UI as an action (only a NEW press in front does).
+                    self.began_in_background[s] |= bit;
                     Route::ActGuide
                 } else {
                     self.began_in_background[s] |= bit;
@@ -67,8 +70,6 @@ impl BackgroundGate {
                 if began_bg {
                     self.began_in_background[s] &= !bit;
                     Route::LogOnly
-                } else if control == GUIDE && !foreground {
-                    Route::ActGuide
                 } else {
                     Route::Act
                 }
@@ -122,7 +123,16 @@ mod tests {
             g.route(0, GUIDE_I, GUIDE, Kind::Down, false),
             Route::ActGuide
         );
-        assert_eq!(g.route(0, GUIDE_I, GUIDE, Kind::Up, false), Route::ActGuide);
+        // D-028: that press is consumed: its repeats and release are only logged, even once AIONE
+        // is in front (it brought AIONE there).
+        assert_eq!(
+            g.route(0, GUIDE_I, GUIDE, Kind::Repeat, true),
+            Route::LogOnly
+        );
+        assert_eq!(g.route(0, GUIDE_I, GUIDE, Kind::Up, true), Route::LogOnly);
+        // A NEW Guide press with AIONE in front acts (it returns to the running game).
+        assert_eq!(g.route(0, GUIDE_I, GUIDE, Kind::Down, true), Route::Act);
+        assert_eq!(g.route(0, GUIDE_I, GUIDE, Kind::Up, true), Route::Act);
     }
 
     #[test]

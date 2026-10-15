@@ -1,5 +1,21 @@
 # Changelog
 
+## 4.0.0-alpha.17 — getting back into games (rev. ac / ad)
+
+- **D-028:** a Guide press that brings AIONE to the front is consumed (logged, never passed to
+  the UI); only a new Guide press in front returns to the running game.
+- **D-027:** the handover to the game: its main window found again by process each time (the
+  largest visible top-level window, else a minimized one), its state logged (visible, minimized,
+  top-level, class, owner, fullscreen), its active pop-up targeted; alpha.15's methods; if Windows
+  refuses, AIONE steps aside (the game's window to the top, AIONE minimized). Also done once when
+  the game's window first appears after a launch (Steam included).
+- **D-029:** after asking a game to close: if it is still running 0.6 s later, it is brought to
+  the front so its question can be answered (the hint shown); no window found: said at once.
+- **D-030:** "Closing <game>…" while a close is pending; X and A on that game wait.
+- **Log slips (QA-5):** each end logged once (the UI's raw-minutes line removed); B-17's hint
+  once per Guide press (a consumed background press no longer reaches the UI's hint path).
+- **B-19 (emulator profiles) moved to alpha.18.**
+
 ## 4.0.0-alpha.16 — T1.3 part 1 continued (rev. ab)
 
 - **D-024:** a launch ends the start-up foreground guard at once (`foreground guard off (a game was

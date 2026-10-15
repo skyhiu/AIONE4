@@ -146,11 +146,18 @@ fn run(get_state: GetStateFn, emit: impl Fn(PadEvent), guide: impl Fn()) {
         match route {
             Route::Act => send(e.kind.as_str(), control, slot, &detail),
             Route::ActGuide => {
-                detail.push_str(" (AIONE in the background: Guide acts)");
-                send(e.kind.as_str(), control, slot, &detail);
-                if e.kind == Kind::Down {
-                    guide();
-                }
+                // D-028: the press that brings AIONE to the front is consumed: logged, never
+                // passed on to the UI as an action.
+                logging::info(
+                    "input",
+                    &format!(
+                        "pad {} {} {control} (seq {}){detail} (AIONE in the background: Guide brings AIONE to the front; consumed)",
+                        slot + 1,
+                        e.kind.as_str(),
+                        next_seq()
+                    ),
+                );
+                guide();
             }
             Route::LogOnly => {
                 // Logged with the same wording as acted-on presses, never sent to the UI.

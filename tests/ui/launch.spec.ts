@@ -133,7 +133,9 @@ test.describe('T1.3 launching (mocked core)', () => {
     l = await logs(page);
     expect(l.some((x) => x.includes('close "Amber Lighthouse": asked by the user (to start another game)'))).toBe(true);
     expect(l.some((x) => x.includes('close "Amber Lighthouse": done'))).toBe(true);
-    expect(l.filter((x) => x.includes('"Amber Lighthouse" ended after')).length).toBe(1); // logged once
+    // Each end handled once (the core logs it, rounded; QA-5: the UI no longer adds a raw line).
+    expect(l.filter((x) => x.includes('Home again: "Amber Lighthouse" ended')).length).toBeLessThanOrEqual(1);
+    expect(l.some((x) => /ended after \d+\.\d{3,} min/.test(x))).toBe(false);
     // X Close Software on the running game (now Glass Orchard).
     await page.waitForTimeout(1200);
     await page.evaluate(() => window.dispatchEvent(new Event('focus')));
@@ -150,7 +152,7 @@ test.describe('T1.3 launching (mocked core)', () => {
     await expect(page.getByTestId('footer-prompts')).toContainText('Start');
   });
 
-  test('B-18: a game that does not close within 10 s is left running, said plainly', async ({ page }) => {
+  test('B-18 / D-029 / D-030: "Closing…", X and A locked meanwhile (one request), the hint, then left running, said plainly', async ({ page }) => {
     await open(page, 'closewait=stuck');
     await pad(page, 'A');
     await page.waitForTimeout(1100);
@@ -159,8 +161,16 @@ test.describe('T1.3 launching (mocked core)', () => {
     await pad(page, 'X');
     await pad(page, 'DPadLeft');
     await pad(page, 'A');
-    await page.waitForTimeout(800);
-    await expect(page.getByTestId('toast')).toContainText('is still running after 10 seconds');
+    await expect(page.getByTestId('toast')).toHaveText('Closing Amber Lighthouse…');
+    // D-030: X (and A) on the closing game wait: no second request.
+    await pad(page, 'X');
+    await pad(page, 'A');
+    expect(await page.evaluate(() => window.__aioneMock?.closes)).toEqual(['Amber Lighthouse']);
+    const l = await logs(page);
+    expect(l.filter((x) => x.includes('ignored ("Amber Lighthouse" is closing)')).length).toBe(2);
+    // D-029: after a moment, the hint (the core brings the game forward so it can be answered).
+    await expect(page.getByTestId('toast')).toHaveText('Amber Lighthouse may be asking something: answer it there', { timeout: 2000 });
+    await expect(page.getByTestId('toast')).toContainText('is still running after 10 seconds', { timeout: 3000 });
     await expect(page.getByTestId('playing-badge')).toHaveCount(1);
   });
 
