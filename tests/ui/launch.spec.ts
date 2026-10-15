@@ -68,8 +68,8 @@ test.describe('T1.3 launching (mocked core)', () => {
   test('a failed start: a plain message, Home again, logged with the reason', async ({ page }) => {
     await open(page, 'launch=fail');
     await pad(page, 'A');
-    await page.waitForTimeout(1100);
-    expect(await veil(page)).toBe(0);
+    // 0.55 s still + 0.3 s fade in, then the 0.3 s fade back out (rev. ab), with room for a slow runner.
+    await expect.poll(() => veil(page), { timeout: 3000 }).toBe(0);
     await expect(page.getByTestId('toast')).toHaveText("Couldn't start Amber Lighthouse: its shortcut game.lnk is missing");
     await page.screenshot({ path: 'ui-screenshots/t19-launch-failed.png' });
     const l = await logs(page);

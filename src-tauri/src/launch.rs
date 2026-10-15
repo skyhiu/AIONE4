@@ -419,7 +419,8 @@ mod win {
     };
     use windows::Win32::UI::WindowsAndMessaging::{
         EnumWindows, GetForegroundWindow, GetWindow, GetWindowTextLengthW,
-        GetWindowThreadProcessId, IsWindow, IsWindowVisible, GW_OWNER, SW_SHOWNORMAL,
+        GetWindowThreadProcessId, IsWindow, IsWindowVisible, PostMessageW, GW_OWNER, SW_SHOWNORMAL,
+        WM_CLOSE,
     };
 
     pub fn shell_open(target: &str, folder: &std::path::Path) -> Result<Option<u32>, String> {
