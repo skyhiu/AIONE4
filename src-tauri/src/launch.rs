@@ -737,8 +737,8 @@ mod win {
 
 #[cfg(windows)]
 use win::{
-    close_windows_of, exe_of, foreground_program, process_alive, shell_open, top_window_of,
-    window_alive,
+    active_popup, close_windows_of, exe_of, foreground_program, main_window_of, process_alive,
+    shell_open, step_aside, top_window_of, window_alive, window_state,
 };
 
 #[cfg(not(windows))]

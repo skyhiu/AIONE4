@@ -138,7 +138,7 @@ fn run(get_state: GetStateFn, emit: impl Fn(PadEvent), guide: impl Fn()) {
         let route = gate
             .borrow_mut()
             .route(slot, e.index, control, e.kind, foreground);
-        let mut detail = if e.kind == Kind::Up {
+        let detail = if e.kind == Kind::Up {
             format!(", held {} ms, {} repeats", e.held.as_millis(), e.repeats)
         } else {
             String::new()
