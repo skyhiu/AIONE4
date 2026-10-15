@@ -442,7 +442,7 @@
   /** D-030: the game being closed (X and A on it locked until it ends or 10 s pass). */
   let closingId = $state<string | null>(null);
   /** B-18: the close question (switching games, or X Close Software). */
-  let confirm = $state<{ kind: 'switch' | 'close'; id: string; nextId?: string; title: string; text: string; yes: string; focus: 'yes' | 'no' } | null>(null);
+  let confirm = $state<{ kind: 'switch' | 'close' | 'force'; id: string; nextId?: string; title: string; text: string; yes: string; focus: 'yes' | 'no' } | null>(null);
 
   /** B-11: the row's order: the running game first (B-18), then played games most recent first,
    *  then the never-played ones A-Z. */
@@ -560,6 +560,27 @@
     confirm = null;
     const running = games.find((x) => x.id === q.id);
     if (!yes) return `question: Cancel (${how}), ${play('back')}`;
+    // B-18 (rev. ag): force close, only on this confirmation.
+    if (q.kind === 'force') {
+      core?.log('info', `force close "${running?.name ?? q.id}": confirmed by the user`);
+      closingId = q.id;
+      core
+        ?.forceCloseGame(q.id)
+        .then(() => {
+          if (closingId === q.id) closingId = null;
+          if (runningId === q.id) {
+            runningId = null;
+            games = sortForHome(games);
+          }
+          toast = null;
+        })
+        .catch((e: unknown) => {
+          if (closingId === q.id) closingId = null;
+          showMessage(e instanceof Error ? e.message : String(e));
+          play('error');
+        });
+      return `question: Force close (${how}), ${play('confirm')}`;
+    }
     core?.log('info', `close "${running?.name ?? q.id}": asked by the user (${q.kind === 'switch' ? 'to start another game' : 'Close Software'})`);
     // D-030: "Closing <game>…" while it closes; D-029: then the hint (the core brings it forward).
     const name = running?.name ?? q.id;
@@ -589,6 +610,12 @@
         done();
         const reason = e instanceof Error ? e.message : String(e);
         core?.log('warn', `close "${running?.name ?? q.id}" failed: ${reason}`);
+        // B-18 (rev. ag): still running after 10 s: offer the force close (Cancel focused).
+        if (reason.includes('still running after')) {
+          confirm = { kind: 'force', id: q.id, title: `Force close ${name}?`, text: 'Unsaved progress will be lost.', yes: 'Force close', focus: 'no' };
+          core?.log('info', `asked: force close "${name}"?`);
+          return;
+        }
         showMessage(reason);
         play('error');
       });

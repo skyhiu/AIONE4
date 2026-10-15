@@ -363,6 +363,14 @@ pub fn check_dolphin(ini: &str) -> Vec<String> {
     if confirm {
         out.push("Confirm on Stop is on: Dolphin → Options → Configuration → Interface → turn off \"Confirm on Stop\" (AIONE also adds -C Dolphin.Interface.ConfirmStop=False at launch).".into());
     }
+    // B-20 backup (rev. ag): MAIN_INPUT_BACKGROUND_INPUT = {Main, "Input", "BackgroundInput"},
+    // default false (MainSettings.cpp); its checkbox is "Background Input" in Controllers.
+    let bg = ini_value(ini, "Input", "BackgroundInput")
+        .map(|v| v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    if bg {
+        out.push("Background Input is on: Dolphin reacts to your controller while AIONE is open. Dolphin → Controllers → turn off \"Background Input\".".into());
+    }
     let full = ini_value(ini, "Display", "Fullscreen")
         .map(|v| v.eq_ignore_ascii_case("true"))
         .unwrap_or(false);

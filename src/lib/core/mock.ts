@@ -509,6 +509,13 @@ export function createMock(search: string): { core: Core; control: MockControl }
       followHandlers.push(h);
       return Promise.resolve(() => {});
     },
+    forceCloseGame(id) {
+      control.closes.push(`force:${id}`);
+      return new Promise((res) => setTimeout(() => {
+        control.gameExit(id);
+        res();
+      }, 200));
+    },
     onCloseHint(h) {
       hintHandlers.push(h);
       return Promise.resolve(() => {});

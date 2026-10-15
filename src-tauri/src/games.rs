@@ -220,6 +220,8 @@ pub struct LaunchFields {
     pub folder: PathBuf,
     pub shortcut: Option<PathBuf>,
     pub steam_app_id: Option<String>,
+    /// B-20: `"NoPause": true` in game.json: never paused while AIONE is in front.
+    pub no_pause: bool,
 }
 
 pub fn launch_fields(data: &Path, id: &str) -> Result<LaunchFields, String> {
@@ -230,6 +232,9 @@ pub fn launch_fields(data: &Path, id: &str) -> Result<LaunchFields, String> {
         name: text(&obj, "Name").unwrap_or_else(|| id.to_string()),
         shortcut,
         steam_app_id: text(&obj, "SteamAppId").filter(|v| v.chars().all(|c| c.is_ascii_digit())),
+        no_pause: field(&obj, "NoPause")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
         folder,
     })
 }

@@ -345,3 +345,16 @@ Windows refuses, AIONE steps aside: the game's window is put on top (not activat
 window minimized, so Windows activates the game. The next Guide restores AIONE (`show_and_focus`
 unminimizes it). A background Guide press is consumed in the input gate (D-028).
 
+## Pausing the game while AIONE is in front (alpha.20, B-20; `src-tauri/src/pause.rs`)
+- **Mechanism:** every thread of the game's process and of the processes it started is suspended
+  with `SuspendThread` (found with `CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD)`) and resumed with
+  `ResumeThread`. The undocumented `NtSuspendProcess` isn't used.
+- **When:** after Guide brings AIONE to the front over a running game. Resumed on A Continue, Guide
+  back, before any close (Close Software, Close and start, force close), and when AIONE closes.
+- **Never:** Steam's client / helper, Explorer, the Game Bar, AIONE; games with an anti-cheat in
+  their folder or running (Easy Anti-Cheat, BattlEye, Vanguard); `"NoPause": true` in game.json.
+- **Safety:** the paused processes are recorded in `paused.json` in the data folder; the next start
+  resumes any left paused.
+- **Known risks:** a brief audio repeat or click at the pause or resume; a game measuring real time
+  may jump forward on resume; online games may time out (mark them `"NoPause": true`).
+

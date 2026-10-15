@@ -172,7 +172,10 @@ test.describe('T1.3 launching (mocked core)', () => {
     expect(l.filter((x) => x.includes('ignored ("Amber Lighthouse" is closing)')).length).toBe(2);
     // D-029: after a moment, the hint (the core brings the game forward so it can be answered).
     await expect(page.getByTestId('toast')).toHaveText('Amber Lighthouse may be asking something: answer it there', { timeout: 2000 });
-    await expect(page.getByTestId('toast')).toContainText('is still running after 10 seconds', { timeout: 3000 });
+    // Rev. ag: still running after 10 s: the force-close question (Cancel focused); the game keeps
+    // running until the user confirms.
+    await expect(page.getByTestId('confirm-dialog')).toContainText('Force close Amber Lighthouse?', { timeout: 3000 });
+    await expect(page.getByTestId('confirm-no')).toHaveClass(/focused/);
     await expect(page.getByTestId('playing-badge')).toHaveCount(1);
   });
 
@@ -279,6 +282,33 @@ test.describe('T1.3 launching (mocked core)', () => {
     await expect(page.getByTestId('veil-text')).toHaveText('Starting Amber Lighthouse…');
     await page.waitForTimeout(1600); // the core gives up (no game): ended
     await expect.poll(() => veil(page), { timeout: 3000 }).toBe(0);
+    await expect(page.getByTestId('playing-badge')).toHaveCount(0);
+  });
+
+  test('B-18 (rev. ag): a game that won\'t close: "Force close?" (Cancel focused); only on Force close it ends', async ({ page }) => {
+    await open(page, 'closewait=stuck');
+    await pad(page, 'A');
+    await page.waitForTimeout(1100);
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await page.waitForTimeout(400);
+    await pad(page, 'X');
+    await pad(page, 'DPadLeft');
+    await pad(page, 'A'); // Close
+    await expect(page.getByTestId('confirm-dialog')).toContainText('Force close Amber Lighthouse?', { timeout: 3000 });
+    await expect(page.getByTestId('confirm-text')).toHaveText('Unsaved progress will be lost.');
+    await expect(page.getByTestId('confirm-no')).toHaveClass(/focused/);
+    await page.screenshot({ path: 'ui-screenshots/t21-force-close-question.png' });
+    await pad(page, 'B'); // Cancel: nothing forced
+    expect(await page.evaluate(() => window.__aioneMock?.closes)).toEqual(['Amber Lighthouse']);
+    // Again, and confirm this time.
+    await pad(page, 'X');
+    await pad(page, 'DPadLeft');
+    await pad(page, 'A');
+    await expect(page.getByTestId('confirm-dialog')).toContainText('Force close Amber Lighthouse?', { timeout: 3000 });
+    await pad(page, 'DPadLeft');
+    await pad(page, 'A'); // Force close
+    await page.waitForTimeout(600);
+    expect(await page.evaluate(() => window.__aioneMock?.closes)).toEqual(['Amber Lighthouse', 'Amber Lighthouse', 'force:Amber Lighthouse']);
     await expect(page.getByTestId('playing-badge')).toHaveCount(0);
   });
 });

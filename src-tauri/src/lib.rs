@@ -14,6 +14,7 @@ pub mod lifecycle;
 pub mod logging;
 pub mod migration;
 pub mod paths;
+pub mod pause;
 pub mod status;
 pub mod tiles;
 pub mod version;
@@ -140,15 +141,23 @@ async fn launch_game(app: AppHandle, id: String) -> Result<launch::Started, Stri
                     serde_json::json!({ "id": id, "name": name, "ms": ms }),
                 );
             }
+            launch::Event::Counted { id, name } => {
+                let data = ev_app.state::<AppState>().data_dir.clone();
+                match games::record_start(&data, &id, chrono::Local::now()) {
+                    Ok((when, count)) => logging::lifecycle(Level::Info, &format!("start \"{name}\": the game appeared: recorded (last played {when}, {count} starts)")),
+                    Err(e) => logging::lifecycle(Level::Warn, &format!("start \"{name}\": could not record the start: {e}")),
+                }
+            }
             launch::Event::Following { id, name } => {
                 let _ = ev_app.emit(
                     EVENT_GAME_FOLLOWING,
                     serde_json::json!({ "id": id, "name": name }),
                 );
             }
-            launch::Event::Ended { id, name, minutes } => {
+            launch::Event::Ended { id, name, minutes, counted } => {
                 let data = ev_app.state::<AppState>().data_dir.clone();
-                match games::record_end(&data, &id, minutes) {
+                // B-11 (rev. ag): a launcher-only session (the game never appeared) isn't recorded.
+                match if counted { games::record_end(&data, &id, minutes) } else { Err("not counted: the game never appeared (launcher only)".into()) } {
                     Ok(total) => logging::lifecycle(
                         Level::Info,
                         &format!("\"{name}\": played {minutes:.1} min (total {total:.1} min)"),
@@ -174,21 +183,7 @@ async fn launch_game(app: AppHandle, id: String) -> Result<launch::Started, Stri
     .map_err(|e| e.to_string())?;
     match res {
         Ok(s) => {
-            if !s.already_running {
-                match games::record_start(&data, &id, chrono::Local::now()) {
-                    Ok((when, count)) => logging::lifecycle(
-                        Level::Info,
-                        &format!(
-                            "start \"{}\": recorded (last played {when}, {count} starts)",
-                            s.name
-                        ),
-                    ),
-                    Err(e) => logging::lifecycle(
-                        Level::Warn,
-                        &format!("start \"{}\": could not record the start: {e}", s.name),
-                    ),
-                }
-            }
+            // B-11 (rev. ag): the start is recorded when the real game appears (Counted).
             Ok(s)
         }
         Err(e) => {
@@ -245,6 +240,39 @@ async fn close_game(app: AppHandle, id: String) -> Result<(), String> {
     Ok(())
 }
 
+/// B-18 (rev. ag): force close, only on the user's confirmation: the game's process and those it
+/// started are ended; the session recorded.
+#[tauri::command]
+async fn force_close_game(app: AppHandle, id: String) -> Result<(), String> {
+    let session = tauri::async_runtime::spawn_blocking(move || launch::force_close(&id))
+        .await
+        .map_err(|e| e.to_string())??;
+    if let Some(c) = session {
+        logging::lifecycle(
+            Level::Info,
+            &format!(
+                "\"{}\" ended (force closed by AIONE) after {:.1} min",
+                c.name, c.minutes
+            ),
+        );
+        let data = app.state::<AppState>().data_dir.clone();
+        if let Ok(total) = games::record_end(&data, &c.id, c.minutes) {
+            logging::lifecycle(
+                Level::Info,
+                &format!(
+                    "\"{}\": played {:.1} min (total {total:.1} min)",
+                    c.name, c.minutes
+                ),
+            );
+        }
+        let _ = app.emit(
+            EVENT_GAME_EXITED,
+            serde_json::json!({ "id": c.id, "name": c.name, "minutes": c.minutes }),
+        );
+    }
+    Ok(())
+}
+
 /// T1.3 (B-7): A or Guide on the running game brings it back to the front.
 #[tauri::command]
 fn return_to_game(id: String) -> Result<String, String> {
@@ -260,6 +288,7 @@ fn running_game() -> Option<String> {
 /// The Boot Down has finished (or there is none): exit now.
 #[tauri::command]
 fn close_now(app: AppHandle, reason: String) {
+    pause::resume_running("AIONE closing");
     logging::lifecycle(
         Level::Info,
         &format!("closing after the Boot Down ({reason})"),
@@ -668,6 +697,10 @@ pub fn run() {
         lifecycle::PreStart::Continue { .. } => {}
     }
 
+    // B-20: the pause's record; resume anything a previous AIONE left paused.
+    pause::init(&data_dir);
+    pause::resume_left_over();
+
     // B-19 part 1: the one-time emulator check report (read only), in the background; written
     // again with `--check-emulators`.
     {
@@ -743,6 +776,7 @@ pub fn run() {
             close_now,
             launch_game,
             close_game,
+            force_close_game,
             return_to_game,
             running_game
         ])
@@ -776,6 +810,11 @@ pub fn run() {
                         "Guide pressed while AIONE is in the background: bringing AIONE to the front",
                     );
                     show_and_focus(&guide_handle, "Guide");
+                    // B-20: the running game is paused while AIONE is in front.
+                    std::thread::spawn(|| {
+                        std::thread::sleep(std::time::Duration::from_millis(300));
+                        pause::pause_running("Guide: AIONE in front");
+                    });
                     std::thread::spawn(|| {
                         std::thread::sleep(std::time::Duration::from_millis(1000));
                         if let Some(h) = launch::guide_hint() {

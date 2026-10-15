@@ -1,5 +1,17 @@
 # Changelog
 
+## 4.0.0-alpha.20 — the game paused while in AIONE; force close; launcher-only sessions
+
+- **B-20:** the running game is paused (SuspendThread on its threads and its children's) while
+  AIONE is in front after Guide; resumed on Continue, Guide back, before any close, and when AIONE
+  closes; never for anti-cheat games or `"NoPause": true`; a left-over pause is resumed at start.
+- **B-18 rev. ag:** a game still running 10 s after a polite close: "Force close <game>?" (Cancel
+  focused); only on confirmation its processes are ended (TerminateProcess); the session recorded.
+- **B-11 rev. ag:** a start and playtime count only once the real game appears; launcher-only
+  sessions and the 30 s wait never count (earlier entries untouched).
+- **B-19:** Dolphin's Background Input checked (read only) and guided. Eden: unverified
+  (eden_cli.txt not attached).
+
 ## 4.0.0-alpha.19 — launcher games, playtime on close, Windows' shortcut reader
 
 - **D-032:** a process that ends within 30 s of the launch (or a launcher) isn't the game's end:

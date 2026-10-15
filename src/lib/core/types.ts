@@ -183,6 +183,8 @@ export interface Core {
   onGameFollowing(handler: (e: { id: string; name: string }) => void): Promise<Unlisten>;
   /** B-18 (rev. ae): the close's hint, decided by the core. */
   onCloseHint(handler: (e: { id: string; text: string }) => void): Promise<Unlisten>;
+  /** B-18 (rev. ag): force close (only after the user confirms): ends the game's processes. */
+  forceCloseGame(id: string): Promise<void>;
   /** D-026: the running game's window appeared. */
   onGameWindow(handler: (e: { id: string; name: string; ms: number }) => void): Promise<Unlisten>;
   /** T1.3: the running game's id, if any. */

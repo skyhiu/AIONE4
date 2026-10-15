@@ -50,6 +50,11 @@ struct Running {
     /// D-032: where the real game runs from (Steam: appmanifest → installdir; a .lnk: its
     /// target's folder), to recognize it after a launcher.
     install_dir: Option<std::path::PathBuf>,
+    /// B-20: `"NoPause": true` in game.json.
+    no_pause: bool,
+    /// B-11 (rev. ag): when the real game appeared (the start counts from then; launcher-only
+    /// sessions and the 30 s wait never count).
+    counted_at: Option<Instant>,
 }
 
 static RUNNING: Mutex<Option<Running>> = Mutex::new(None);
@@ -59,6 +64,8 @@ static GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 pub enum Event {
     /// The game's window appeared (D-026: the UI lifts the black screen only now).
     Window { id: String, name: String, ms: u128 },
+    /// B-11 (rev. ag): the real game appeared: its start is counted now.
+    Counted { id: String, name: String },
     /// D-032: the launcher closed soon after the launch: AIONE waits for the real game.
     Following { id: String, name: String },
     /// The game ended (once): its session's length in minutes (B-11).
@@ -66,7 +73,32 @@ pub enum Event {
         id: String,
         name: String,
         minutes: f64,
+        /// B-11 (rev. ag): false when the real game never appeared (nothing recorded).
+        counted: bool,
     },
+}
+
+/// B-20: what the pause needs about the running game.
+pub struct GameInfo {
+    pub name: String,
+    pub pid: Option<u32>,
+    pub install_dir: Option<std::path::PathBuf>,
+    pub no_pause: bool,
+}
+
+pub fn running_game_info() -> Option<GameInfo> {
+    let r = RUNNING.lock().ok()?.clone()?;
+    Some(GameInfo {
+        name: r.name,
+        pid: r.pid,
+        install_dir: r.install_dir,
+        no_pause: r.no_pause,
+    })
+}
+
+/// Every running process (pid, parent, path).
+pub fn processes() -> Vec<(u32, u32, Option<std::path::PathBuf>)> {
+    process_list()
 }
 
 /// The id of the game that is running, if any.
@@ -309,6 +341,8 @@ pub fn launch(
         window: None,
         started: Instant::now(),
         install_dir,
+        no_pause: f.no_pause,
+        counted_at: None,
     };
     if let Ok(mut g) = RUNNING.lock() {
         if let Some(old) = g.replace(run) {
@@ -411,8 +445,59 @@ fn emulator_launch(f: &crate::games::LaunchFields) -> Option<(String, String, st
     Some((exe.to_string_lossy().into_owned(), params, dir))
 }
 
+/// B-18 (rev. ag): force close (only on the user's confirmation): resumes the game if paused, ends
+/// its process and those it started (TerminateProcess), and returns its counted session.
+pub fn force_close(id: &str) -> Result<Option<ClosedSession>, String> {
+    crate::pause::resume_running("before force closing");
+    let r = RUNNING
+        .lock()
+        .ok()
+        .and_then(|g| g.clone())
+        .filter(|r| r.id == id)
+        .ok_or("that game isn't running")?;
+    let pid = r.pid.ok_or("its process isn't known")?;
+    let pids = crate::pause::tree(&process_list(), pid);
+    let ended: usize = pids.iter().map(|p| usize::from(terminate(*p))).sum();
+    logging::lifecycle(
+        Level::Warn,
+        &format!(
+            "force close \"{}\": ended {ended} of {} process(es) {:?} (asked by the user)",
+            r.name,
+            pids.len(),
+            pids
+        ),
+    );
+    let counted = r.counted_at;
+    let session = (take_if(r.gen) && counted.is_some()).then(|| ClosedSession {
+        id: r.id.clone(),
+        name: r.name.clone(),
+        minutes: counted
+            .map(|t| t.elapsed().as_secs_f64() / 60.0)
+            .unwrap_or(0.0),
+    });
+    Ok(session)
+}
+
+#[cfg(windows)]
+fn terminate(pid: u32) -> bool {
+    use windows::Win32::System::Threading::{TerminateProcess, PROCESS_TERMINATE};
+    let Ok(h) =
+        (unsafe { windows::Win32::System::Threading::OpenProcess(PROCESS_TERMINATE, false, pid) })
+    else {
+        return false;
+    };
+    let ok = unsafe { TerminateProcess(h, 1) }.is_ok();
+    let _ = unsafe { windows::Win32::Foundation::CloseHandle(h) };
+    ok
+}
+#[cfg(not(windows))]
+fn terminate(_pid: u32) -> bool {
+    false
+}
+
 /// Brings the running game's window to the front (A or Guide on the running game, B-7).
 pub fn return_to_game(id: &str) -> Result<String, String> {
+    crate::pause::resume_running("back to the game");
     let r = RUNNING
         .lock()
         .ok()
@@ -555,6 +640,19 @@ fn watch(gen: u64, report: impl Fn(Event)) {
                     name: r.name.clone(),
                     ms: since.as_millis(),
                 });
+                // B-11 (rev. ag): the start counts once the real game appears (not a launcher).
+                if r.counted_at.is_none() && !r.exe.as_deref().is_some_and(is_launcher) {
+                    r.counted_at = Some(Instant::now());
+                    if let Ok(mut g) = RUNNING.lock() {
+                        if let Some(x) = g.as_mut().filter(|x| x.gen == gen) {
+                            x.counted_at = r.counted_at;
+                        }
+                    }
+                    report(Event::Counted {
+                        id: r.id.clone(),
+                        name: r.name.clone(),
+                    });
+                }
                 // D-027: the game's window appeared: AIONE hands it the front (Steam included).
                 if let Ok(mut g) = RUNNING.lock() {
                     if g.as_ref().is_some_and(|x| x.gen == gen) {
@@ -584,7 +682,11 @@ fn watch(gen: u64, report: impl Fn(Event)) {
                     report(Event::Ended {
                         id: r.id.clone(),
                         name: r.name.clone(),
-                        minutes: since.as_secs_f64() / 60.0,
+                        minutes: r
+                            .counted_at
+                            .map(|t| t.elapsed().as_secs_f64() / 60.0)
+                            .unwrap_or(0.0),
+                        counted: r.counted_at.is_some(),
                     });
                 }
                 return;
@@ -618,6 +720,19 @@ fn watch(gen: u64, report: impl Fn(Event)) {
                     name: r.name.clone(),
                     ms: r.started.elapsed().as_millis(),
                 });
+                // B-11 (rev. ag): the start counts once the real game appears (not a launcher).
+                if r.counted_at.is_none() && !r.exe.as_deref().is_some_and(is_launcher) {
+                    r.counted_at = Some(Instant::now());
+                    if let Ok(mut g) = RUNNING.lock() {
+                        if let Some(x) = g.as_mut().filter(|x| x.gen == gen) {
+                            x.counted_at = r.counted_at;
+                        }
+                    }
+                    report(Event::Counted {
+                        id: r.id.clone(),
+                        name: r.name.clone(),
+                    });
+                }
                 let _ = hand_over(&r, "the game after its launcher:");
             } else if since_follow.elapsed() > Duration::from_secs(30) {
                 logging::lifecycle(Level::Info, &format!("start \"{}\": no game after the launcher in 30 s (closed without Play): ended", r.name));
@@ -625,7 +740,11 @@ fn watch(gen: u64, report: impl Fn(Event)) {
                     report(Event::Ended {
                         id: r.id.clone(),
                         name: r.name.clone(),
-                        minutes: since.as_secs_f64() / 60.0,
+                        minutes: r
+                            .counted_at
+                            .map(|t| t.elapsed().as_secs_f64() / 60.0)
+                            .unwrap_or(0.0),
+                        counted: r.counted_at.is_some(),
                     });
                 }
                 return;
@@ -662,7 +781,11 @@ fn watch(gen: u64, report: impl Fn(Event)) {
                     report(Event::Ended {
                         id: r.id.clone(),
                         name: r.name.clone(),
-                        minutes,
+                        minutes: r
+                            .counted_at
+                            .map(|t| t.elapsed().as_secs_f64() / 60.0)
+                            .unwrap_or(0.0),
+                        counted: r.counted_at.is_some(),
                     });
                 }
                 return;
@@ -706,6 +829,8 @@ pub fn close_game(
     wait: Duration,
     hint: impl Fn(String),
 ) -> Result<Option<ClosedSession>, String> {
+    // B-20: resumed first, so the game can answer the close itself.
+    crate::pause::resume_running("before closing");
     let r = RUNNING
         .lock()
         .ok()
@@ -762,10 +887,17 @@ pub fn close_game(
                 ),
             );
             // D-033: the close is done: the session is recorded now (the watcher then stops quietly).
-            let session = take_if(r.gen).then(|| ClosedSession {
+            let counted = RUNNING.lock().ok().and_then(|g| {
+                g.as_ref()
+                    .filter(|x| x.gen == r.gen)
+                    .and_then(|x| x.counted_at)
+            });
+            let session = (take_if(r.gen) && counted.is_some()).then(|| ClosedSession {
                 id: r.id.clone(),
                 name: r.name.clone(),
-                minutes: r.started.elapsed().as_secs_f64() / 60.0,
+                minutes: counted
+                    .map(|t| t.elapsed().as_secs_f64() / 60.0)
+                    .unwrap_or(0.0),
             });
             return Ok(session);
         }
@@ -1217,6 +1349,7 @@ mod tests {
             folder: dir.path().into(),
             shortcut,
             steam_app_id: steam.map(str::to_string),
+            no_pause: false,
         };
         assert_eq!(
             target_of(&f(Some(lnk.clone()), Some("1"))).unwrap().1,
@@ -1315,6 +1448,7 @@ mod tests {
             folder: g.path().into(),
             shortcut: Some(url),
             steam_app_id: None,
+            no_pause: false,
         };
         assert_eq!(steam_app_id_of(&f).as_deref(), Some("123450"));
     }

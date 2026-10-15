@@ -25,6 +25,8 @@ Source: `dolphin-emu/dolphin`, master **8d2ad1a66247**.
 | 5 | Guide: the update check is a setting (`AutoUpdate` / `UpdateTrack`); not added | `MainSettings.cpp` |
 | 6 | Guide: set the pad in Dolphin's Controllers | — |
 
+**B-20 backup, "Background Input":** `MAIN_INPUT_BACKGROUND_INPUT = {Main, "Input", "BackgroundInput"}`, default **false** (`MainSettings.cpp`, master `8d2ad1a66247`); its checkbox is "Background Input" in Controllers (`DolphinQt/Config/CommonControllersWidget.cpp`). When it's on, Dolphin reacts to the pad while AIONE is open: the check report says so, with where to turn it off.
+
 **Settings check (read only):** Dolphin's user folder, found as
 [`Source/Core/UICommon/UICommon.cpp`](https://github.com/dolphin-emu/dolphin/blob/master/Source/Core/UICommon/UICommon.cpp)
 does:
@@ -32,7 +34,7 @@ does:
 2. else `Documents\Dolphin Emulator` if it exists;
 3. else `%APPDATA%\Dolphin Emulator`.
 
-The registry overrides aren't read. The file is `Config\Dolphin.ini`; AIONE reports `[Interface] ConfirmStop` and `[Display] Fullscreen`.
+The registry overrides aren't read. The file is `Config\Dolphin.ini`; AIONE reports `[Interface] ConfirmStop`, `[Display] Fullscreen` and `[Input] BackgroundInput`.
 
 ### Cemu (Wii U)
 Source: `cemu-project/Cemu`, main **a53cf0ece7**, [`src/config/LaunchSettings.cpp`](https://github.com/cemu-project/Cemu/blob/main/src/config/LaunchSettings.cpp).
