@@ -47,6 +47,9 @@ struct Running {
     exe: Option<String>,
     window: Option<isize>,
     started: Instant,
+    /// D-032: where the real game runs from (Steam: appmanifest → installdir; a .lnk: its
+    /// target's folder), to recognize it after a launcher.
+    install_dir: Option<std::path::PathBuf>,
 }
 
 static RUNNING: Mutex<Option<Running>> = Mutex::new(None);
@@ -56,6 +59,8 @@ static GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 pub enum Event {
     /// The game's window appeared (D-026: the UI lifts the black screen only now).
     Window { id: String, name: String, ms: u128 },
+    /// D-032: the launcher closed soon after the launch: AIONE waits for the real game.
+    Following { id: String, name: String },
     /// The game ended (once): its session's length in minutes (B-11).
     Ended {
         id: String,
@@ -101,6 +106,99 @@ const NOT_THE_GAME: [&str; 6] = [
 
 pub fn is_not_the_game(exe: &str) -> bool {
     NOT_THE_GAME.contains(&exe.to_ascii_lowercase().as_str())
+}
+
+/// D-032: programs known to be launchers (they start the real game and exit).
+pub fn is_launcher(exe: &str) -> bool {
+    let e = exe.to_ascii_lowercase();
+    e.contains("launcher") || e == "start.exe" || e == "setup_launcher.exe"
+}
+
+/// D-032: the real game after a launcher: among running processes `(pid, parent, full path)`,
+/// one with a window that is a child of the launcher, or runs from the game's install folder.
+pub fn pick_game(
+    procs: &[(u32, u32, Option<std::path::PathBuf>)],
+    launcher: u32,
+    install_dir: Option<&std::path::Path>,
+    has_window: &dyn Fn(u32) -> bool,
+) -> Option<(u32, &'static str)> {
+    let under = |p: &std::path::Path| {
+        install_dir.is_some_and(|d| {
+            let d = d.to_string_lossy().to_ascii_lowercase().replace('/', "\\");
+            let p = p.to_string_lossy().to_ascii_lowercase().replace('/', "\\");
+            !d.is_empty()
+                && p.starts_with(d.trim_end_matches('\\'))
+                && p.len() > d.trim_end_matches('\\').len()
+        })
+    };
+    let ok = |pid: u32, path: &Option<std::path::PathBuf>| {
+        // The program's name after the last \ or / (the same on every system).
+        let name = path.as_ref().map(|p| {
+            p.to_string_lossy()
+                .rsplit(['\\', '/'])
+                .next()
+                .unwrap_or_default()
+                .to_string()
+        });
+        pid != launcher && has_window(pid) && !name.is_some_and(|n| is_not_the_game(&n))
+    };
+    if let Some((pid, _, _)) = procs
+        .iter()
+        .find(|(pid, parent, path)| *parent == launcher && ok(*pid, path))
+    {
+        return Some((*pid, "started by the launcher"));
+    }
+    procs
+        .iter()
+        .find(|(pid, _, path)| path.as_deref().is_some_and(under) && ok(*pid, path))
+        .map(|(pid, _, _)| (*pid, "runs from the game's install folder"))
+}
+
+/// D-032: a Steam game's install folder: `appmanifest_<id>.acf` → `installdir`, in every library
+/// listed in `steamapps\libraryfolders.vdf` (and Steam's own folder).
+pub fn steam_install_dir(steam_root: &std::path::Path, app_id: &str) -> Option<std::path::PathBuf> {
+    let vdf_value = |text: &str, key: &str| -> Vec<String> {
+        text.lines()
+            .filter_map(|l| {
+                let parts: Vec<&str> = l.split('"').collect();
+                (parts.len() >= 4 && parts[1].eq_ignore_ascii_case(key))
+                    .then(|| parts[3].replace("\\\\", "\\"))
+            })
+            .collect()
+    };
+    let mut libraries = vec![steam_root.to_path_buf()];
+    if let Ok(text) =
+        std::fs::read_to_string(steam_root.join("steamapps").join("libraryfolders.vdf"))
+    {
+        libraries.extend(
+            vdf_value(&text, "path")
+                .into_iter()
+                .map(std::path::PathBuf::from),
+        );
+    }
+    for lib in libraries {
+        let apps = lib.join("steamapps");
+        if let Ok(text) = std::fs::read_to_string(apps.join(format!("appmanifest_{app_id}.acf"))) {
+            if let Some(dir) = vdf_value(&text, "installdir").into_iter().next() {
+                return Some(apps.join("common").join(dir));
+            }
+        }
+    }
+    None
+}
+
+/// The Steam app id behind a game: `SteamAppId`, or the `.url`'s `steam://rungameid/<id>`.
+pub fn steam_app_id_of(f: &crate::games::LaunchFields) -> Option<String> {
+    if let Some(id) = &f.steam_app_id {
+        return Some(id.clone());
+    }
+    let text = std::fs::read_to_string(f.shortcut.as_ref()?).ok()?;
+    let i = text.find("steam://rungameid/")? + "steam://rungameid/".len();
+    let id: String = text[i..]
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    (!id.is_empty()).then_some(id)
 }
 
 /// What to open for a game: the shell target and a short description for the log.
@@ -180,6 +278,28 @@ pub fn launch(
         ),
     );
     let gen = GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+    // D-032: where the real game runs from (to recognize it after a launcher).
+    let install_dir = steam_app_id_of(&f)
+        .and_then(|app| steam_root().and_then(|root| steam_install_dir(&root, &app)))
+        .or_else(|| {
+            f.shortcut
+                .as_ref()
+                .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("lnk")))
+                .and_then(|p| crate::emulators::read_shortcut(p).ok())
+                .and_then(|sc| sc.target)
+                .and_then(|t| t.parent().map(|d| d.to_path_buf()))
+        });
+    logging::lifecycle(
+        Level::Info,
+        &format!(
+            "start \"{}\": install folder {}",
+            f.name,
+            install_dir
+                .as_ref()
+                .map(|d| d.display().to_string())
+                .unwrap_or_else(|| "unknown".into())
+        ),
+    );
     let run = Running {
         gen,
         id: id.into(),
@@ -188,6 +308,7 @@ pub fn launch(
         exe: pid.and_then(exe_of),
         window: None,
         started: Instant::now(),
+        install_dir,
     };
     if let Ok(mut g) = RUNNING.lock() {
         if let Some(old) = g.replace(run) {
@@ -218,8 +339,8 @@ fn emulator_launch(f: &crate::games::LaunchFields) -> Option<(String, String, st
         .shortcut
         .as_ref()
         .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("lnk")))?;
-    let bytes = std::fs::read(lnk).ok()?;
-    let sc = match crate::emulators::read_lnk(&bytes, &f.folder) {
+    // D-034: Windows' own shortcut reader (read only).
+    let sc = match crate::emulators::read_shortcut(lnk) {
         Ok(sc) => sc,
         Err(e) => {
             logging::lifecycle(
@@ -309,6 +430,12 @@ pub fn return_to_game(id: &str) -> Result<String, String> {
 /// still refuses, AIONE steps aside: the game's window goes to the top (not activated) and AIONE
 /// minimizes itself, so Windows activates the game; the next Guide restores AIONE.
 fn hand_over(r: &Running, what: &str) -> Result<String, String> {
+    if r.pid.is_some_and(|p| !process_alive(p)) {
+        return Err(format!(
+            "{what} \"{}\": its process has ended (no hand-over)",
+            r.name
+        ));
+    }
     let target = r
         .pid
         .and_then(main_window_of)
@@ -377,6 +504,8 @@ fn alive(r: &Running) -> bool {
 /// and reports the game's end once. It stops at once when its game is no longer the tracked one.
 fn watch(gen: u64, report: impl Fn(Event)) {
     let mut found_logged = false;
+    // D-032: (when the launcher ended, its process id) while waiting for the real game.
+    let mut following: Option<(Instant, u32)> = None;
     loop {
         std::thread::sleep(Duration::from_millis(250));
         let Some(mut r) = RUNNING
@@ -388,8 +517,8 @@ fn watch(gen: u64, report: impl Fn(Event)) {
             return;
         };
         let since = r.started.elapsed();
-        // 1. The game's window.
-        if r.window.is_none() {
+        // 1. The game's window (not while following a launcher: the follow finds the game).
+        if r.window.is_none() && following.is_none() {
             if let Some(p) = r.pid {
                 r.window = top_window_of(p);
             }
@@ -461,21 +590,83 @@ fn watch(gen: u64, report: impl Fn(Event)) {
                 return;
             }
         }
-        // 2. The game's end: its process ending (an emulator: the emulator ending, B-18).
-        if r.window.is_some() && !alive(&r) {
-            let minutes = since.as_secs_f64() / 60.0;
-            if take_if(gen) {
+        // 2. D-032: a launcher's end soon after the launch is not the game's end: follow it.
+        if let Some((since_follow, launcher)) = following {
+            let procs = process_list();
+            if let Some((pid, why)) = pick_game(&procs, launcher, r.install_dir.as_deref(), &|p| {
+                main_window_of(p).is_some()
+            }) {
+                let exe = exe_of(pid).unwrap_or_default();
                 logging::lifecycle(
                     Level::Info,
-                    &format!("\"{}\" ended after {:.1} min", r.name, minutes),
+                    &format!(
+                        "start \"{}\": followed {exe} (process {pid}): {why}",
+                        r.name
+                    ),
                 );
-                report(Event::Ended {
+                r.pid = Some(pid);
+                r.exe = Some(exe);
+                r.window = main_window_of(pid);
+                following = None;
+                if let Ok(mut g) = RUNNING.lock() {
+                    if g.as_ref().is_some_and(|x| x.gen == gen) {
+                        *g = Some(r.clone());
+                    }
+                }
+                report(Event::Window {
                     id: r.id.clone(),
                     name: r.name.clone(),
-                    minutes,
+                    ms: r.started.elapsed().as_millis(),
                 });
+                let _ = hand_over(&r, "the game after its launcher:");
+            } else if since_follow.elapsed() > Duration::from_secs(30) {
+                logging::lifecycle(Level::Info, &format!("start \"{}\": no game after the launcher in 30 s (closed without Play): ended", r.name));
+                if take_if(gen) {
+                    report(Event::Ended {
+                        id: r.id.clone(),
+                        name: r.name.clone(),
+                        minutes: since.as_secs_f64() / 60.0,
+                    });
+                }
+                return;
             }
-            return;
+        } else if r.window.is_some() && !alive(&r) {
+            let launcherish =
+                since < Duration::from_secs(30) || r.exe.as_deref().is_some_and(is_launcher);
+            if launcherish {
+                let launcher = r.pid.unwrap_or(0);
+                logging::lifecycle(
+                    Level::Info,
+                    &format!(
+                        "start \"{}\": {} (process {launcher}) ended {} s after the launch: a launcher; waiting up to 30 s for the game (install folder {})",
+                        r.name,
+                        r.exe.clone().unwrap_or_default(),
+                        since.as_secs(),
+                        r.install_dir.as_ref().map(|d| d.display().to_string()).unwrap_or_else(|| "unknown".into())
+                    ),
+                );
+                following = Some((Instant::now(), launcher));
+                r.window = None;
+                report(Event::Following {
+                    id: r.id.clone(),
+                    name: r.name.clone(),
+                });
+            } else {
+                // The game's end: its process ending (an emulator: the emulator ending, B-18).
+                let minutes = since.as_secs_f64() / 60.0;
+                if take_if(gen) {
+                    logging::lifecycle(
+                        Level::Info,
+                        &format!("\"{}\" ended after {:.1} min", r.name, minutes),
+                    );
+                    report(Event::Ended {
+                        id: r.id.clone(),
+                        name: r.name.clone(),
+                        minutes,
+                    });
+                }
+                return;
+            }
         }
         if let Ok(mut g) = RUNNING.lock() {
             if g.as_ref().is_some_and(|x| x.gen == gen) {
@@ -503,7 +694,18 @@ fn take_if(gen: u64) -> bool {
 
 /// B-18: closes the running game politely (WM_CLOSE to its windows, as its ✕ would; never
 /// killed) and waits up to `wait` for its process to end. The watcher reports the end.
-pub fn close_game(id: &str, wait: Duration, hint: impl Fn(String)) -> Result<(), String> {
+/// D-033: the session of a game AIONE closed (recorded when the close is done).
+pub struct ClosedSession {
+    pub id: String,
+    pub name: String,
+    pub minutes: f64,
+}
+
+pub fn close_game(
+    id: &str,
+    wait: Duration,
+    hint: impl Fn(String),
+) -> Result<Option<ClosedSession>, String> {
     let r = RUNNING
         .lock()
         .ok()
@@ -537,7 +739,9 @@ pub fn close_game(id: &str, wait: Duration, hint: impl Fn(String)) -> Result<(),
         if !shown && t0.elapsed() > Duration::from_millis(600) && process_alive(pid) {
             shown = true;
             // Rev. ae: only "answer it there" when there is a window to answer in.
-            let text = if hand_over(&r, "close: it may be asking something:").is_ok() {
+            let text = if process_alive(pid)
+                && hand_over(&r, "close: it may be asking something:").is_ok()
+            {
                 format!("{} may be asking something: answer it there", r.name)
             } else {
                 format!(
@@ -557,7 +761,13 @@ pub fn close_game(id: &str, wait: Duration, hint: impl Fn(String)) -> Result<(),
                     t0.elapsed().as_millis()
                 ),
             );
-            return Ok(());
+            // D-033: the close is done: the session is recorded now (the watcher then stops quietly).
+            let session = take_if(r.gen).then(|| ClosedSession {
+                id: r.id.clone(),
+                name: r.name.clone(),
+                minutes: r.started.elapsed().as_secs_f64() / 60.0,
+            });
+            return Ok(session);
         }
     }
     logging::lifecycle(
@@ -824,6 +1034,77 @@ mod win {
         c.sent
     }
 
+    /// D-032: every running process: (pid, parent pid, full program path).
+    pub fn process_list() -> Vec<(u32, u32, Option<std::path::PathBuf>)> {
+        use windows::Win32::System::Diagnostics::ToolHelp::{
+            CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+            TH32CS_SNAPPROCESS,
+        };
+        let mut out = Vec::new();
+        let Ok(snap) = (unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) }) else {
+            return out;
+        };
+        let mut e = PROCESSENTRY32W {
+            dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
+            ..Default::default()
+        };
+        let mut ok = unsafe { Process32FirstW(snap, &mut e) }.is_ok();
+        while ok {
+            out.push((
+                e.th32ProcessID,
+                e.th32ParentProcessID,
+                full_path_of(e.th32ProcessID),
+            ));
+            ok = unsafe { Process32NextW(snap, &mut e) }.is_ok();
+        }
+        let _ = unsafe { CloseHandle(snap) };
+        out
+    }
+
+    pub fn full_path_of(pid: u32) -> Option<std::path::PathBuf> {
+        let h = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }.ok()?;
+        let mut buf = [0u16; 1024];
+        let mut len = buf.len() as u32;
+        let ok = unsafe {
+            QueryFullProcessImageNameW(
+                h,
+                PROCESS_NAME_WIN32,
+                windows::core::PWSTR(buf.as_mut_ptr()),
+                &mut len,
+            )
+        };
+        let _ = unsafe { CloseHandle(h) };
+        ok.ok()?;
+        Some(std::path::PathBuf::from(String::from_utf16_lossy(
+            &buf[..len as usize],
+        )))
+    }
+
+    /// D-032: Steam's folder (`HKCU\Software\Valve\Steam\SteamPath`).
+    pub fn steam_root() -> Option<std::path::PathBuf> {
+        use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_SZ};
+        let mut buf = [0u16; 1024];
+        let mut size = (buf.len() * 2) as u32;
+        let r = unsafe {
+            RegGetValueW(
+                HKEY_CURRENT_USER,
+                &HSTRING::from("Software\\Valve\\Steam"),
+                &HSTRING::from("SteamPath"),
+                RRF_RT_REG_SZ,
+                None,
+                Some(buf.as_mut_ptr().cast()),
+                Some(&mut size),
+            )
+        };
+        if r.is_err() {
+            return None;
+        }
+        let n = buf.iter().position(|&c| c == 0).unwrap_or(0);
+        Some(std::path::PathBuf::from(
+            String::from_utf16_lossy(&buf[..n]).replace('/', "\\"),
+        ))
+    }
+
     /// B-17 (rev. ae): the program holding the keyboard focus (e.g. GameBar.exe).
     pub fn keys_program() -> Option<String> {
         let mut info = GUITHREADINFO {
@@ -859,7 +1140,8 @@ mod win {
 #[cfg(windows)]
 use win::{
     active_popup, close_windows_of, exe_of, foreground_program, keys_program, main_window_of,
-    process_alive, shell_open, step_aside, top_window_of, window_alive, window_state,
+    process_alive, process_list, shell_open, steam_root, step_aside, top_window_of, window_alive,
+    window_state,
 };
 
 #[cfg(not(windows))]
@@ -889,6 +1171,14 @@ fn foreground_program() -> Option<(isize, u32, String)> {
 #[cfg(not(windows))]
 fn close_windows_of(_pid: u32) -> usize {
     0
+}
+#[cfg(not(windows))]
+fn process_list() -> Vec<(u32, u32, Option<std::path::PathBuf>)> {
+    Vec::new()
+}
+#[cfg(not(windows))]
+fn steam_root() -> Option<std::path::PathBuf> {
+    None
 }
 #[cfg(not(windows))]
 fn keys_program() -> Option<String> {
@@ -950,5 +1240,82 @@ mod tests {
                 && is_not_the_game("GameBar.exe")
                 && !is_not_the_game("Balatro.exe")
         );
+    }
+
+    /// D-032: the real game after a launcher (invented processes and folders).
+    #[test]
+    fn follows_the_launcher_to_the_game() {
+        use std::path::PathBuf;
+        let dir = PathBuf::from("D:\\Steam\\steamapps\\common\\An Invented Game");
+        let procs = vec![
+            (10, 1, Some(PathBuf::from("C:\\Windows\\explorer.exe"))),
+            (20, 5, Some(dir.join("Launcher.exe"))),
+            (30, 20, Some(PathBuf::from("C:\\Steam\\steamwebhelper.exe"))),
+            (40, 7, Some(dir.join("Game_us.exe"))),
+            (50, 20, Some(PathBuf::from("E:\\Other\\game_child.exe"))),
+        ];
+        let windows = |p: u32| p != 10;
+        // A child of the launcher with a window comes first.
+        assert_eq!(
+            pick_game(&procs, 20, Some(&dir), &windows),
+            Some((50, "started by the launcher"))
+        );
+        // No child: the process running from the install folder.
+        let no_child: Vec<_> = procs.iter().filter(|p| p.0 != 50).cloned().collect();
+        assert_eq!(
+            pick_game(&no_child, 20, Some(&dir), &windows),
+            Some((40, "runs from the game's install folder"))
+        );
+        // Steam's helper (a child of the launcher here) is never the game; nothing without a window.
+        assert_eq!(pick_game(&no_child, 20, None, &windows), None);
+        assert_eq!(pick_game(&no_child, 20, Some(&dir), &|_| false), None);
+        assert!(
+            is_launcher("Launcher.exe")
+                && is_launcher("GameLauncher.exe")
+                && !is_launcher("DR2_us.exe")
+        );
+    }
+
+    /// D-032: Steam's install folder from libraryfolders.vdf and appmanifest (invented files).
+    #[test]
+    fn finds_a_steam_games_install_folder() {
+        let root = tempfile::tempdir().unwrap();
+        let lib2 = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("steamapps")).unwrap();
+        std::fs::create_dir_all(lib2.path().join("steamapps")).unwrap();
+        let lib2_vdf = lib2.path().display().to_string().replace('\\', "\\\\");
+        std::fs::write(
+            root.path().join("steamapps").join("libraryfolders.vdf"),
+            format!(
+                "\"libraryfolders\"\n{{\n\t\"1\"\n\t{{\n\t\t\"path\"\t\t\"{lib2_vdf}\"\n\t}}\n}}\n"
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            lib2.path().join("steamapps").join("appmanifest_123450.acf"),
+            "\"AppState\"\n{\n\t\"appid\"\t\t\"123450\"\n\t\"installdir\"\t\t\"An Invented Game\"\n}\n",
+        )
+        .unwrap();
+        assert_eq!(
+            steam_install_dir(root.path(), "123450"),
+            Some(
+                lib2.path()
+                    .join("steamapps")
+                    .join("common")
+                    .join("An Invented Game")
+            )
+        );
+        assert_eq!(steam_install_dir(root.path(), "999"), None);
+        // The Steam id from a .url.
+        let g = tempfile::tempdir().unwrap();
+        let url = g.path().join("game.url");
+        std::fs::write(&url, "[InternetShortcut]\nURL=steam://rungameid/123450\n").unwrap();
+        let f = crate::games::LaunchFields {
+            name: "G".into(),
+            folder: g.path().into(),
+            shortcut: Some(url),
+            steam_app_id: None,
+        };
+        assert_eq!(steam_app_id_of(&f).as_deref(), Some("123450"));
     }
 }

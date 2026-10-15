@@ -35,6 +35,8 @@ pub const EVENT_TILE: &str = "aione://tile";
 /// `close_now`. If it doesn't within `CLOSE_SAFETY`, the core exits anyway.
 pub const EVENT_CLOSE_REQUESTED: &str = "aione://close-requested";
 /// D-026: the running game's window appeared: `{ id, name, ms }`.
+/// D-032: the launcher ended soon after the launch; AIONE waits for the real game: `{ id, name }`.
+pub const EVENT_GAME_FOLLOWING: &str = "aione://game-following";
 /// B-18 (rev. ae): the close's hint for the UI: `{ id, text }`.
 pub const EVENT_CLOSE_HINT: &str = "aione://close-hint";
 pub const EVENT_GAME_WINDOW: &str = "aione://game-window";
@@ -138,6 +140,12 @@ async fn launch_game(app: AppHandle, id: String) -> Result<launch::Started, Stri
                     serde_json::json!({ "id": id, "name": name, "ms": ms }),
                 );
             }
+            launch::Event::Following { id, name } => {
+                let _ = ev_app.emit(
+                    EVENT_GAME_FOLLOWING,
+                    serde_json::json!({ "id": id, "name": name }),
+                );
+            }
             launch::Event::Ended { id, name, minutes } => {
                 let data = ev_app.state::<AppState>().data_dir.clone();
                 match games::record_end(&data, &id, minutes) {
@@ -195,16 +203,46 @@ async fn launch_game(app: AppHandle, id: String) -> Result<launch::Started, Stri
 #[tauri::command]
 async fn close_game(app: AppHandle, id: String) -> Result<(), String> {
     let id2 = id.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    let hint_app = app.clone();
+    let session = tauri::async_runtime::spawn_blocking(move || {
         launch::close_game(&id, std::time::Duration::from_secs(10), move |text| {
-            let _ = app.emit(
+            let _ = hint_app.emit(
                 EVENT_CLOSE_HINT,
                 serde_json::json!({ "id": id2, "text": text }),
             );
         })
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())??;
+    // D-033: the closed game's session, recorded when the close is done (once, INFO).
+    if let Some(c) = session {
+        logging::lifecycle(
+            Level::Info,
+            &format!(
+                "\"{}\" ended (closed by AIONE) after {:.1} min",
+                c.name, c.minutes
+            ),
+        );
+        let data = app.state::<AppState>().data_dir.clone();
+        match games::record_end(&data, &c.id, c.minutes) {
+            Ok(total) => logging::lifecycle(
+                Level::Info,
+                &format!(
+                    "\"{}\": played {:.1} min (total {total:.1} min)",
+                    c.name, c.minutes
+                ),
+            ),
+            Err(e) => logging::lifecycle(
+                Level::Warn,
+                &format!("\"{}\": could not record the session: {e}", c.name),
+            ),
+        }
+        let _ = app.emit(
+            EVENT_GAME_EXITED,
+            serde_json::json!({ "id": c.id, "name": c.name, "minutes": c.minutes }),
+        );
+    }
+    Ok(())
 }
 
 /// T1.3 (B-7): A or Guide on the running game brings it back to the front.

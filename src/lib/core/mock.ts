@@ -297,6 +297,7 @@ export function createMock(search: string): { core: Core; control: MockControl }
   const exitHandlers: ((e: { id: string; name: string; minutes: number }) => void)[] = [];
   const windowHandlers: ((e: { id: string; name: string; ms: number }) => void)[] = [];
   const hintHandlers: ((e: { id: string; text: string }) => void)[] = [];
+  const followHandlers: ((e: { id: string; name: string }) => void)[] = [];
   const control: MockControl = {
     pad(name, kind = 'down', pad = 0) {
       if (!connected.has(pad)) emit('connected', '', pad);
@@ -464,7 +465,15 @@ export function createMock(search: string): { core: Core; control: MockControl }
       running = id;
       // D-026: the game's window appears shortly after (?window=<ms>), or never (?window=never).
       const w = params.get('window');
-      if (w !== 'never') setTimeout(() => control.gameWindow(id), Number(w ?? 300));
+      // D-032: ?launcher=play: the launcher's window, then it ends ("following"), then the game's
+      // window; ?launcher=noplay: the launcher ends and no game follows (then the end).
+      const l = params.get('launcher');
+      if (l) {
+        setTimeout(() => control.gameWindow(id), 300);
+        setTimeout(() => followHandlers.forEach((h) => h({ id, name: g?.name ?? id })), 1300);
+        if (l === 'play') setTimeout(() => control.gameWindow(id), 2300);
+        else setTimeout(() => control.gameExit(id), 2800);
+      } else if (w !== 'never') setTimeout(() => control.gameWindow(id), Number(w ?? 300));
       return Promise.resolve({ id, name: g?.name ?? id, how: 'shortcut game.lnk', pid: 4242, alreadyRunning: false, foreground: null });
     },
     returnToGame(id) {
@@ -495,6 +504,10 @@ export function createMock(search: string): { core: Core; control: MockControl }
         control.gameExit(id);
         res();
       }, 200));
+    },
+    onGameFollowing(h) {
+      followHandlers.push(h);
+      return Promise.resolve(() => {});
     },
     onCloseHint(h) {
       hintHandlers.push(h);

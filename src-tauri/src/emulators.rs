@@ -228,6 +228,73 @@ pub fn read_lnk(bytes: &[u8], lnk_folder: &Path) -> Result<Shortcut, String> {
     })
 }
 
+/// D-034 (rev. af): reads a shortcut with Windows' own interface (`IShellLinkW` + `IPersistFile`,
+/// read only: the same one Explorer uses), which handles every form a `.lnk` stores its target
+/// in (ID list, network or mapped drives, `%…%` variables). Elsewhere (tests), the byte reader.
+pub fn read_shortcut(path: &Path) -> Result<Shortcut, String> {
+    #[cfg(windows)]
+    {
+        win::read(path)
+    }
+    #[cfg(not(windows))]
+    {
+        let bytes = std::fs::read(path).map_err(|e| format!("couldn't open it ({e})"))?;
+        read_lnk(&bytes, path.parent().unwrap_or(Path::new(".")))
+    }
+}
+
+#[cfg(windows)]
+mod win {
+    use super::Shortcut;
+    use std::path::{Path, PathBuf};
+    use windows::core::{Interface, HSTRING};
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, IPersistFile, CLSCTX_INPROC_SERVER,
+        COINIT_APARTMENTTHREADED, STGM_READ,
+    };
+    use windows::Win32::UI::Shell::{IShellLinkW, ShellLink};
+
+    fn text(buf: &[u16]) -> String {
+        let n = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+        String::from_utf16_lossy(&buf[..n])
+    }
+
+    pub fn read(path: &Path) -> Result<Shortcut, String> {
+        // SAFETY: COM calls on this thread with checked results; the shortcut is only loaded.
+        unsafe {
+            let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+            let link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER)
+                .map_err(|e| {
+                    format!("Windows' shortcut reader isn't available ({})", e.message())
+                })?;
+            let file: IPersistFile = link.cast().map_err(|e| e.message().to_string())?;
+            file.Load(&HSTRING::from(path.as_os_str()), STGM_READ)
+                .map_err(|e| format!("Windows couldn't open it ({})", e.message().trim()))?;
+            let mut target = [0u16; 1024];
+            link.GetPath(&mut target, std::ptr::null_mut(), 0)
+                .map_err(|e| {
+                    format!("Windows couldn't read its target ({})", e.message().trim())
+                })?;
+            let mut args = [0u16; 4096];
+            let _ = link.GetArguments(&mut args);
+            let mut dir = [0u16; 1024];
+            let _ = link.GetWorkingDirectory(&mut dir);
+            let t = text(&target);
+            if t.is_empty() {
+                return Err(
+                    "its target isn't a file on this PC (e.g. a shell item or a store app)".into(),
+                );
+            }
+            let d = text(&dir);
+            Ok(Shortcut {
+                target: Some(PathBuf::from(t)),
+                arguments: text(&args),
+                working_dir: (!d.is_empty()).then(|| PathBuf::from(d)),
+            })
+        }
+    }
+}
+
 // ---------- read-only settings checks ----------
 
 /// Dolphin's user folder, found as Dolphin's own UICommon.cpp does (portable.txt next to the
@@ -294,15 +361,16 @@ pub fn check_dolphin(ini: &str) -> Vec<String> {
 /// One game's line in the check report.
 pub fn report_line(
     game: &str,
-    sc: Option<&Shortcut>,
+    sc: Result<&Shortcut, &str>,
     profiles: &[Profile],
     settings: &dyn Fn(&Profile, &Path) -> Vec<String>,
 ) -> String {
-    let Some(sc) = sc else {
-        return format!("## {game}\n- Not a shortcut AIONE can read (a .url or no game.lnk): not an emulator.\n");
+    let sc = match sc {
+        Ok(sc) => sc,
+        Err(why) => return format!("## {game}\n- {why}\n"),
     };
     let Some(target) = sc.target.as_deref() else {
-        return format!("## {game}\n- The shortcut has no target AIONE can read.\n");
+        return format!("## {game}\n- Its game.lnk has no target. What you can do: right-click game.lnk → Properties, check that \"Target\" points to the program (e.g. the emulator's .exe), and recreate the shortcut if it doesn't.\n");
     };
     let Some(p) = recognize(profiles, target) else {
         return format!(
@@ -333,7 +401,12 @@ pub fn report_line(
     for line in settings(p, target) {
         s.push_str(&format!("- **Settings to fix:** {line}\n"));
     }
+    let needs_missing = skip.iter().any(|(_, why)| why.starts_with("needs"));
     for g in &p.guide {
+        // QA-5: the "opens the game directly" line only when the shortcut lacks what it needs.
+        if g.starts_with("Opens the game directly") && !needs_missing && !p.options.is_empty() {
+            continue;
+        }
         s.push_str(&format!("- Guide: {g}\n"));
     }
     s
@@ -361,7 +434,7 @@ pub fn write_report(data: &Path) -> Result<PathBuf, String> {
             )],
         }
     };
-    let mut games: Vec<(String, Option<Shortcut>)> = Vec::new();
+    let mut games: Vec<(String, Result<Shortcut, String>)> = Vec::new();
     let dir = crate::games::games_dir(data);
     let mut ids: Vec<String> = std::fs::read_dir(&dir)
         .map_err(|e| format!("couldn't read {}: {e}", dir.display()))?
@@ -374,12 +447,15 @@ pub fn write_report(data: &Path) -> Result<PathBuf, String> {
         let Ok(f) = crate::games::launch_fields(data, &id) else {
             continue;
         };
-        let sc = f
-            .shortcut
-            .as_ref()
-            .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("lnk")))
-            .and_then(|p| std::fs::read(p).ok())
-            .and_then(|b| read_lnk(&b, &f.folder).ok());
+        let sc = match f.shortcut.as_ref() {
+            None => Err("No game.lnk: AIONE starts this game another way (its Steam id): not an emulator.".to_string()),
+            Some(p) if !p.extension().is_some_and(|e| e.eq_ignore_ascii_case("lnk")) => {
+                Err("Starts through a .url (e.g. Steam): not an emulator.".to_string())
+            }
+            Some(p) => read_shortcut(p).map_err(|e| {
+                format!("Its game.lnk couldn't be read: {e}. What you can do: open game.lnk's Properties to check that it starts the game; recreating it in Explorer (right-click the emulator's .exe → Create shortcut, then add the arguments) usually fixes it.")
+            }),
+        };
         games.push((f.name, sc));
     }
     let mut out = format!(
@@ -388,7 +464,12 @@ pub fn write_report(data: &Path) -> Result<PathBuf, String> {
         env!("CARGO_PKG_VERSION")
     );
     for (name, sc) in &games {
-        out.push_str(&report_line(name, sc.as_ref(), &profiles, &settings));
+        out.push_str(&report_line(
+            name,
+            sc.as_ref().map_err(String::as_str),
+            &profiles,
+            &settings,
+        ));
         out.push('\n');
     }
     let path = data.join("emulator-check.md");
@@ -498,7 +579,12 @@ mod tests {
             "{text}"
         );
         assert!(text.contains("- Added at launch: `-b` (exit when the game stops)"));
-        assert!(text.contains("## An Invented PC Game\n- Not a shortcut AIONE can read"));
+        assert!(
+            text.contains(
+                "## An Invented PC Game\n- Starts through a .url (e.g. Steam): not an emulator."
+            ),
+            "{text}"
+        );
     }
 
     #[test]

@@ -425,6 +425,8 @@
   let launching = $state<'none' | 'starting' | 'ingame'>('none');
   /** The black veil over Home (its fade is 0.2 s, linear). */
   let veil = $state(false);
+  /** D-032: the text on the veil while waiting for a launcher's game. */
+  let veilText = $state<string | null>(null);
   /** The game that is running (started by AIONE), if any. */
   let runningId = $state<string | null>(null);
   let launchTimers: ReturnType<typeof setTimeout>[] = [];
@@ -537,7 +539,8 @@
     core
       ?.returnToGame(id)
       .then((m) => {
-        core?.log('info', `back to "${g?.name ?? id}" (${how}): ${m}`);
+        // QA-4: the core's message starts with its own "back to …"; no doubled prefix.
+        core?.log('info', `back to "${g?.name ?? id}" (${how}): ${m.replace(/^back to "[^"]*": /, '')}`);
         launching = 'ingame';
         veil = true;
       })
@@ -599,6 +602,7 @@
     launchTimers = [];
     launching = 'none';
     veil = false;
+    veilText = null;
     if (runningId) focusGame(runningId);
     core?.log('info', `Home again: ${why}${runningId ? `; focus on the running game` : ''}`);
   }
@@ -940,6 +944,21 @@
           focusGame(id);
         }),
       );
+      // D-032: the launcher ended soon after the launch: black again, "Starting <game>…", input
+      // locked, until the real game's window (the launch completes) or the end (Home).
+      unlisteners.push(
+        await c.onGameFollowing((e) => {
+          if (runningId !== e.id && pendingId !== e.id) return;
+          launchTimers.forEach(clearTimeout);
+          launchTimers = [];
+          pendingId = e.id;
+          launching = 'starting';
+          veil = true;
+          veilText = `Starting ${e.name}…`;
+          fadeEndAt = performance.now();
+          core?.log('info', `"${e.name}": its launcher ended; waiting for the game (black, input locked)`);
+        }),
+      );
       // B-18 (rev. ae): the close's hint, as the core decided it (a window to answer in, or none).
       unlisteners.push(
         await c.onCloseHint((e) => {
@@ -951,6 +970,7 @@
         await c.onGameWindow((e) => {
           if (launching === 'starting' && pendingId === e.id) {
             pendingId = null;
+            veilText = null;
             core?.log('info', `"${e.name}": its window appeared after ${e.ms} ms; the launch is complete`);
             // The transition always completes: a window that appears early waits for the fade.
             launchTimers.push(setTimeout(() => {
@@ -1126,7 +1146,9 @@
     <ConfirmDialog title={confirm.title} text={confirm.text} yes={confirm.yes} focus={confirm.focus} onAnswer={(y) => core?.log('info', `input click question -> ${answer(y, 'click')}`)} />
   {/if}
   <!-- T1.3: the launch veil: Home fades to black (0.3 s, eased) after 0.55 s still. -->
-  <div class="launch-veil" class:on={veil} data-testid="launch-veil" aria-hidden="true"></div>
+  <div class="launch-veil" class:on={veil} data-testid="launch-veil" aria-hidden="true">
+    {#if veil && veilText}<p class="veil-text" data-testid="veil-text">{veilText}</p>{/if}
+  </div>
 </main>
 
 <style>
@@ -1138,6 +1160,16 @@
     pointer-events: none;
     transition: opacity 300ms ease-in-out; /* rev. ab: about 0.3 s, eased */
     z-index: 900;
+  }
+  .veil-text {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 12%;
+    margin: 0;
+    text-align: center;
+    color: rgb(255 255 255 / 0.75);
+    font: 400 var(--text-sm) var(--font-ui);
   }
   .launch-veil.on {
     opacity: 1;

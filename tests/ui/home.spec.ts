@@ -406,7 +406,9 @@ test.describe('T1.1 Home (mocked core)', () => {
   });
 
   test('A / Enter start the focused game once; one sound per action; the row move on every repeat', async ({ page }) => {
-    await open(page);
+    // The game's window at 2 s, so Enter right after A always lands inside the launch transition,
+    // however slow the machine (the same fix as the first launch test, alpha.18).
+    await open(page, 'window=2000');
     await pad(page, 'A');
     await page.keyboard.press('Enter');
     let l = await logs(page);
@@ -416,7 +418,7 @@ test.describe('T1.1 Home (mocked core)', () => {
     expect(l.filter((x) => x.includes('discarded (launching a game: input lock)'))).toHaveLength(1);
     expect(await page.evaluate(() => window.__aioneMock?.launches)).toEqual(['Amber Lighthouse']);
     // Back to Home (the game ends) before the row's own checks.
-    await page.waitForTimeout(900);
+    await page.waitForTimeout(2300);
     await page.evaluate(() => window.__aioneMock?.gameExit('Amber Lighthouse'));
     await page.waitForTimeout(300);
     // B-1 (rev. p): holding a direction, the row move sounds on every move, every repeat included.

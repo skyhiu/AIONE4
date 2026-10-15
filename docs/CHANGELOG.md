@@ -1,5 +1,22 @@
 # Changelog
 
+## 4.0.0-alpha.19 — launcher games, playtime on close, Windows' shortcut reader
+
+- **D-032:** a process that ends within 30 s of the launch (or a launcher) isn't the game's end:
+  AIONE stays black ("Starting <game>…", input locked) and follows the real game for up to 30 s
+  (a child of the launcher, or a process from the install folder; Steam: appmanifest → installdir
+  in every library); then tracks it and hands it the front. Never brought to the front when a
+  launcher exits; no game in 30 s → ended.
+- **D-033:** a game AIONE closes has its session recorded when the close is done:
+  `"<game>" ended (closed by AIONE)` (INFO) and `played … min (total …)`.
+- **D-034:** shortcuts read with Windows' own interface (IShellLinkW + IPersistFile, read only);
+  the check report says why a shortcut couldn't be read and what to do.
+- **Slips:** no hand-over once the game's process has ended; no doubled "back to"; guide lines only
+  when needed.
+- **B-19:** Azahar's `-f` (verified: the game path is taken as the last argument). Eden still
+  unverified (neither its source nor yuzu's is reachable from the sandbox). Cemu's settings check
+  not yet (its keys weren't found).
+
 ## 4.0.0-alpha.18 — Close and start, the hints, emulator profiles part 1
 
 - **D-031:** "Close and start" starts the new game when the close is done, whichever event comes

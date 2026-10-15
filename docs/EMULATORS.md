@@ -64,20 +64,31 @@ Source: `PCSX2/pcsx2`, master **685637d30b**, `pcsx2-qt/QtHost.cpp` (its help te
 | 3 | **added:** `-batch` "Enables batch mode (exits after shutting down)." (`-nogui` "implies batch mode") |
 | 4, 5, 6 | Guide: PCSX2's Settings (Interface, Controllers) |
 
-### Azahar (3DS): read, nothing added yet
-Source: `azahar-emu/azahar`, master **3c3e54989e**, `src/citra_qt/citra_qt.cpp`.
-- **The game:** a single argument without a dash is taken as the game's path, but **only when it is the only argument** (`args.size() == 2`).
-- **Fullscreen:** `-f` / `--fullscreen` exists. Adding it beside the game may stop Azahar from opening the game, so **AIONE adds nothing** until that is checked (alpha.19). Guide: set fullscreen in Azahar's settings.
+### Azahar (3DS)
+Source: `azahar-emu/azahar`, master **3c3e54989e**, [`src/citra_qt/citra_qt.cpp`](https://github.com/azahar-emu/azahar/blob/master/src/citra_qt/citra_qt.cpp).
+
+| Point | How |
+|---|---|
+| 1 | the game's path: alone (`args.size() == 2`) **or as the last argument** ("Launch game at path": `i == args.size() - 1` and not starting with `-`) |
+| 2 | **added (alpha.19):** `-f` / `--fullscreen`, in front of the shortcut's arguments (the game stays last); not added when `-f`, `--fullscreen` or `-w` / `--windowed` is already there |
+| 3, 4, 5, 6 | Guide: Azahar's settings |
 
 ## Not verified yet (recognized; nothing added)
 
 | Emulator | Why |
 |---|---|
-| **Eden** (Switch) | Its source is on git.eden-emu.dev, not GitHub; this build couldn't read it. |
+| **Eden** (Switch) | Its source (git.eden-emu.dev) and yuzu's (rev. af's reference: taken down in 2024; the GitHub mirrors tried, `yuzu-mirror/yuzu`, `yuzu-emu/yuzu-mainline`, `pineappleEA/pineapple-src`, need a login) couldn't be read from the sandbox. **Not "inherited from yuzu" yet:** nothing verified, nothing added. |
 | RPCS3, PPSSPP, Vita3K, shadPS4, xemu, Xenia, Ryujinx, RetroArch | Their option parsing wasn't located in this build; alpha.19. |
 
 For these AIONE recognizes the program (the check report names the emulator) but adds nothing and
 checks nothing, so it never guesses.
+
+## Settings checks
+- **Dolphin:** read only (above).
+- **Cemu:** not in alpha.19. Its `CemuConfig.cpp` (main `a53cf0ece7`) has no fullscreen or update-check key (only `FullscreenScaling`); the interface settings live elsewhere and weren't located, so nothing is checked rather than guessed.
+
+## Reading shortcuts (D-034)
+On Windows, AIONE reads `game.lnk` with Windows' own shortcut interface (`IShellLinkW` + `IPersistFile`, read only), which handles every form (ID list, network or mapped drives, `%…%` variables). The byte reader is only the fallback for tests on other systems.
 
 ## The check report
 On the first start of 4.0.0-alpha.18, AIONE writes **`emulator-check.md`** in its data folder: each

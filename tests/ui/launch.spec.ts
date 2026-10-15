@@ -250,4 +250,35 @@ test.describe('T1.3 launching (mocked core)', () => {
     await pad(page, 'A');
     await expect(page.getByTestId('toast')).toHaveText("AIONE can't see Amber Lighthouse's window; it may still be closing", { timeout: 2000 });
   });
+
+  test('D-032: a launcher ends: black with "Starting…", input locked, then the real game; or the end without Play', async ({ page }) => {
+    await open(page, 'launcher=play');
+    await pad(page, 'A');
+    await page.waitForTimeout(1600); // the launcher's window came, then it ended
+    await expect(page.getByTestId('veil-text')).toHaveText('Starting Amber Lighthouse…');
+    expect(await veil(page)).toBe(1);
+    await pad(page, 'DPadRight'); // locked
+    let l = await logs(page);
+    expect(l.some((x) => x.includes('"Amber Lighthouse": its launcher ended; waiting for the game (black, input locked)'))).toBe(true);
+    expect(l.some((x) => x.includes('discarded (launching a game: input lock)'))).toBe(true);
+    expect(l.some((x) => x.includes('Home again'))).toBe(false); // never Home when the launcher ends
+    await page.waitForTimeout(1200); // the real game's window
+    l = await logs(page);
+    expect(l.filter((x) => x.includes('"Amber Lighthouse": its window appeared')).length).toBe(2);
+    await expect(page.getByTestId('veil-text')).toHaveCount(0);
+    // Guide back to AIONE: the running game is the real one, with its badge.
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await page.waitForTimeout(400);
+    await expect(page.getByTestId('playing-badge')).toHaveCount(1);
+  });
+
+  test('D-032: the launcher closed without Play: the game ends after the wait', async ({ page }) => {
+    await open(page, 'launcher=noplay');
+    await pad(page, 'A');
+    await page.waitForTimeout(1600);
+    await expect(page.getByTestId('veil-text')).toHaveText('Starting Amber Lighthouse…');
+    await page.waitForTimeout(1600); // the core gives up (no game): ended
+    await expect.poll(() => veil(page), { timeout: 3000 }).toBe(0);
+    await expect(page.getByTestId('playing-badge')).toHaveCount(0);
+  });
 });

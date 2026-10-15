@@ -25,6 +25,7 @@ export const EVENTS = {
   gameExited: 'aione://game-exited',
   gameWindow: 'aione://game-window',
   closeHint: 'aione://close-hint',
+  gameFollowing: 'aione://game-following',
 } as const;
 
 /** The core's media protocol (`aione-media`); WebView2 reaches custom protocols as
@@ -61,6 +62,7 @@ export function createTauriCore(): Core {
     closeGame: async (id) => {
       await invoke('close_game', { id });
     },
+    onGameFollowing: (handler) => listen<{ id: string; name: string }>(EVENTS.gameFollowing, (e) => handler(e.payload)),
     onCloseHint: (handler) => listen<{ id: string; text: string }>(EVENTS.closeHint, (e) => handler(e.payload)),
     onGameWindow: (handler) => listen<{ id: string; name: string; ms: number }>(EVENTS.gameWindow, (e) => handler(e.payload)),
     runningGame: () => invoke<string | null>('running_game'),

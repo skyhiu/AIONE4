@@ -4,12 +4,50 @@
     {
       "id": "dolphin",
       "name": "Dolphin",
-      "programs": ["dolphin.exe"],
+      "programs": [
+        "dolphin.exe"
+      ],
       "verified": "dolphin-emu/dolphin master 8d2ad1a66247",
       "options": [
-        { "add": ["-b"], "present": ["-b", "--batch"], "needs": ["-e", "--exec", "-n", "--nand_title"], "point": "stopping closes the emulator", "why": "exit when the game stops" },
-        { "add": ["-C", "Dolphin.Display.Fullscreen=True"], "present": ["Dolphin.Display.Fullscreen="], "point": "starts fullscreen", "why": "start fullscreen" },
-        { "add": ["-C", "Dolphin.Interface.ConfirmStop=False"], "present": ["Dolphin.Interface.ConfirmStop="], "point": "no confirm on stop", "why": "no \"stop the emulation?\" question" }
+        {
+          "add": [
+            "-b"
+          ],
+          "present": [
+            "-b",
+            "--batch"
+          ],
+          "needs": [
+            "-e",
+            "--exec",
+            "-n",
+            "--nand_title"
+          ],
+          "point": "stopping closes the emulator",
+          "why": "exit when the game stops"
+        },
+        {
+          "add": [
+            "-C",
+            "Dolphin.Display.Fullscreen=True"
+          ],
+          "present": [
+            "Dolphin.Display.Fullscreen="
+          ],
+          "point": "starts fullscreen",
+          "why": "start fullscreen"
+        },
+        {
+          "add": [
+            "-C",
+            "Dolphin.Interface.ConfirmStop=False"
+          ],
+          "present": [
+            "Dolphin.Interface.ConfirmStop="
+          ],
+          "point": "no confirm on stop",
+          "why": "no \"stop the emulation?\" question"
+        }
       ],
       "guide": [
         "Opens the game directly: the shortcut must use -e \"<game file>\" (without it, -b does nothing and Dolphin shows its game list).",
@@ -20,10 +58,28 @@
     {
       "id": "cemu",
       "name": "Cemu",
-      "programs": ["cemu.exe"],
+      "programs": [
+        "cemu.exe"
+      ],
       "verified": "cemu-project/Cemu main a53cf0ece7",
       "options": [
-        { "add": ["-f"], "present": ["-f", "--fullscreen"], "needs": ["-g", "--game", "-t", "--title-id"], "point": "starts fullscreen", "why": "start fullscreen" }
+        {
+          "add": [
+            "-f"
+          ],
+          "present": [
+            "-f",
+            "--fullscreen"
+          ],
+          "needs": [
+            "-g",
+            "--game",
+            "-t",
+            "--title-id"
+          ],
+          "point": "starts fullscreen",
+          "why": "start fullscreen"
+        }
       ],
       "guide": [
         "Opens the game directly: the shortcut must use -g \"<game>\".",
@@ -35,11 +91,35 @@
     {
       "id": "duckstation",
       "name": "DuckStation",
-      "programs": ["duckstation-qt-x64-releaseltcg.exe", "duckstation-qt-arm64-releaseltcg.exe", "duckstation-qt.exe"],
+      "programs": [
+        "duckstation-qt-x64-releaseltcg.exe",
+        "duckstation-qt-arm64-releaseltcg.exe",
+        "duckstation-qt.exe"
+      ],
       "verified": "stenzek/duckstation master 66888ba0d4",
       "options": [
-        { "add": ["-batch"], "present": ["-batch", "-nogui"], "point": "stopping closes the emulator", "why": "exit after powering off" },
-        { "add": ["-fullscreen"], "present": ["-fullscreen", "-nofullscreen"], "point": "starts fullscreen", "why": "fullscreen immediately after starting" }
+        {
+          "add": [
+            "-batch"
+          ],
+          "present": [
+            "-batch",
+            "-nogui"
+          ],
+          "point": "stopping closes the emulator",
+          "why": "exit after powering off"
+        },
+        {
+          "add": [
+            "-fullscreen"
+          ],
+          "present": [
+            "-fullscreen",
+            "-nofullscreen"
+          ],
+          "point": "starts fullscreen",
+          "why": "fullscreen immediately after starting"
+        }
       ],
       "guide": [
         "Opens the game directly: the shortcut must end with the game's file.",
@@ -49,11 +129,35 @@
     {
       "id": "pcsx2",
       "name": "PCSX2",
-      "programs": ["pcsx2-qt.exe", "pcsx2.exe", "pcsx2-qtx64-avx2.exe", "pcsx2-qtx64.exe"],
+      "programs": [
+        "pcsx2-qt.exe",
+        "pcsx2.exe",
+        "pcsx2-qtx64-avx2.exe",
+        "pcsx2-qtx64.exe"
+      ],
       "verified": "PCSX2/pcsx2 master 685637d30b",
       "options": [
-        { "add": ["-batch"], "present": ["-batch", "-nogui"], "point": "stopping closes the emulator", "why": "exit after shutting down" },
-        { "add": ["-fullscreen"], "present": ["-fullscreen"], "point": "starts fullscreen", "why": "fullscreen immediately after starting" }
+        {
+          "add": [
+            "-batch"
+          ],
+          "present": [
+            "-batch",
+            "-nogui"
+          ],
+          "point": "stopping closes the emulator",
+          "why": "exit after shutting down"
+        },
+        {
+          "add": [
+            "-fullscreen"
+          ],
+          "present": [
+            "-fullscreen"
+          ],
+          "point": "starts fullscreen",
+          "why": "fullscreen immediately after starting"
+        }
       ],
       "guide": [
         "Opens the game directly: the shortcut must end with the game's file.",
@@ -63,22 +167,140 @@
     {
       "id": "azahar",
       "name": "Azahar",
-      "programs": ["azahar.exe", "azahar-qt.exe"],
-      "verified": "azahar-emu/azahar master 3c3e54989e (read; nothing added yet)",
-      "options": [],
+      "programs": [
+        "azahar.exe",
+        "azahar-qt.exe"
+      ],
+      "verified": "azahar-emu/azahar master 3c3e54989e (src/citra_qt/citra_qt.cpp: the game path is taken as the last argument)",
+      "options": [
+        {
+          "add": [
+            "-f"
+          ],
+          "present": [
+            "-f",
+            "--fullscreen",
+            "-w",
+            "--windowed"
+          ],
+          "point": "starts fullscreen",
+          "why": "start fullscreen"
+        }
+      ],
       "guide": [
-        "Azahar opens a game given as its only argument; it has -f / --fullscreen, but adding it beside the game may stop Azahar from opening the game, so AIONE adds nothing until that is checked.",
-        "Fullscreen, no confirm on stop, start-up pop-ups, controller: set them in Azahar's settings."
+        "Opens the game directly: the shortcut must end with the game's file (Azahar takes the last argument as the game).",
+        "No confirm on stop, start-up pop-ups, controller: set them in Azahar's settings."
       ]
     },
-    { "id": "eden", "name": "Eden", "programs": ["eden.exe"], "verified": null, "options": [], "guide": ["Not verified yet: Eden's source isn't on GitHub (git.eden-emu.dev), which this build could not read. Nothing is added; set fullscreen and the rest in Eden's settings."] },
-    { "id": "rpcs3", "name": "RPCS3", "programs": ["rpcs3.exe"], "verified": null, "options": [], "guide": ["Not verified yet (alpha.19). Nothing is added."] },
-    { "id": "ppsspp", "name": "PPSSPP", "programs": ["ppssppwindows64.exe", "ppssppwindows.exe"], "verified": null, "options": [], "guide": ["Not verified yet (alpha.19). Nothing is added."] },
-    { "id": "vita3k", "name": "Vita3K", "programs": ["vita3k.exe"], "verified": null, "options": [], "guide": ["Not verified yet (alpha.19). Nothing is added."] },
-    { "id": "shadps4", "name": "shadPS4", "programs": ["shadps4.exe"], "verified": null, "options": [], "guide": ["Not verified yet (alpha.19). Nothing is added."] },
-    { "id": "xemu", "name": "xemu", "programs": ["xemu.exe"], "verified": null, "options": [], "guide": ["Not verified yet (alpha.19). Nothing is added."] },
-    { "id": "xenia", "name": "Xenia", "programs": ["xenia.exe", "xenia_canary.exe"], "verified": null, "options": [], "guide": ["Not verified yet (alpha.19). Nothing is added."] },
-    { "id": "ryujinx", "name": "Ryujinx", "programs": ["ryujinx.exe"], "verified": null, "options": [], "guide": ["Not verified yet (alpha.19). Nothing is added."] },
-    { "id": "retroarch", "name": "RetroArch", "programs": ["retroarch.exe"], "verified": null, "options": [], "guide": ["Not verified yet (alpha.19). Nothing is added."] }
+    {
+      "id": "eden",
+      "name": "Eden",
+      "programs": [
+        "eden.exe"
+      ],
+      "verified": null,
+      "options": [],
+      "guide": [
+        "Not verified yet: Eden's source (git.eden-emu.dev) and yuzu's (taken down in 2024; the GitHub mirrors tried need a login) couldn't be read from the sandbox. Nothing is added; set fullscreen and the rest in Eden's settings. Point AIONE's maintainer to an official copy to verify."
+      ]
+    },
+    {
+      "id": "rpcs3",
+      "name": "RPCS3",
+      "programs": [
+        "rpcs3.exe"
+      ],
+      "verified": null,
+      "options": [],
+      "guide": [
+        "Not verified yet (alpha.19). Nothing is added."
+      ]
+    },
+    {
+      "id": "ppsspp",
+      "name": "PPSSPP",
+      "programs": [
+        "ppssppwindows64.exe",
+        "ppssppwindows.exe"
+      ],
+      "verified": null,
+      "options": [],
+      "guide": [
+        "Not verified yet (alpha.19). Nothing is added."
+      ]
+    },
+    {
+      "id": "vita3k",
+      "name": "Vita3K",
+      "programs": [
+        "vita3k.exe"
+      ],
+      "verified": null,
+      "options": [],
+      "guide": [
+        "Not verified yet (alpha.19). Nothing is added."
+      ]
+    },
+    {
+      "id": "shadps4",
+      "name": "shadPS4",
+      "programs": [
+        "shadps4.exe"
+      ],
+      "verified": null,
+      "options": [],
+      "guide": [
+        "Not verified yet (alpha.19). Nothing is added."
+      ]
+    },
+    {
+      "id": "xemu",
+      "name": "xemu",
+      "programs": [
+        "xemu.exe"
+      ],
+      "verified": null,
+      "options": [],
+      "guide": [
+        "Not verified yet (alpha.19). Nothing is added."
+      ]
+    },
+    {
+      "id": "xenia",
+      "name": "Xenia",
+      "programs": [
+        "xenia.exe",
+        "xenia_canary.exe"
+      ],
+      "verified": null,
+      "options": [],
+      "guide": [
+        "Not verified yet (alpha.19). Nothing is added."
+      ]
+    },
+    {
+      "id": "ryujinx",
+      "name": "Ryujinx",
+      "programs": [
+        "ryujinx.exe"
+      ],
+      "verified": null,
+      "options": [],
+      "guide": [
+        "Not verified yet (alpha.19). Nothing is added."
+      ]
+    },
+    {
+      "id": "retroarch",
+      "name": "RetroArch",
+      "programs": [
+        "retroarch.exe"
+      ],
+      "verified": null,
+      "options": [],
+      "guide": [
+        "Not verified yet (alpha.19). Nothing is added."
+      ]
+    }
   ]
 }

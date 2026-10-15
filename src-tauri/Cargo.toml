@@ -2,7 +2,7 @@
 name = "aione4"
 # Mirrors package.json (the one place the version is set). build.rs fails the build if
 # they differ, and the UI and logs read it from the core.
-version = "4.0.0-alpha.18"
+version = "4.0.0-alpha.19"
 description = "AIONE 4: a fullscreen, controller-first game launcher for Windows"
 authors = ["skyhiu"]
 edition = "2021"
@@ -37,6 +37,9 @@ windows = { version = "=0.62.2", default-features = false, features = [
   "Win32_UI_WindowsAndMessaging",
   "Win32_UI_Input_KeyboardAndMouse",
   "Win32_UI_Shell",
+  "Win32_System_Com",
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_Storage_FileSystem",
   "Win32_UI_Accessibility",
   "Win32_System_Power",
   "Win32_NetworkManagement_IpHelper",
