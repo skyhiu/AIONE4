@@ -94,10 +94,11 @@
     gap: calc(7 * var(--ui)); /* rev. y: about 16 px ink to ink (measured: the art adds about 9) */
   }
   .glyph {
-    /* rev. y / D-023: the VISIBLE circle about 37 px. Kenney's circle fills about 72 % of its
-       box (measured: a 38 px box drew 27-28 px of ink), so the box is 51 px. */
-    width: 3.2rem;
-    height: 3.2rem;
+    /* rev. y / D-023: the VISIBLE circle about 37 px, measured at 50 % coverage (Kenney's circle
+       fills about 75 % of its box; alpha.14's first 51 px box gave 38.5 px, CI run #21), so the box
+       is 49 px. */
+    width: 3.075rem;
+    height: 3.075rem;
     background: currentColor;
     -webkit-mask: var(--glyph) center / contain no-repeat;
     mask: var(--glyph) center / contain no-repeat;

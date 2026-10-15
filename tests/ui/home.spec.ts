@@ -136,23 +136,33 @@ test.describe('T1.1 Home (mocked core)', () => {
           await expect(page.getByTestId('title-arrow')).toHaveCount(0);
           expect(await page.locator('[data-testid="selected-title-row"] .icon').count()).toBe(0);
 
-          // D-023 (rev. y): the footer glyph's VISIBLE circle about 37 px (ink, not its box).
+          // D-023 (rev. y): the footer glyph's VISIBLE circle about 37 px (ink, not its box),
+          // measured at 50 % coverage (halfway between the background and the glyph's darkest
+          // tone), so the edge smoothing of each platform doesn't change the result (CI run #21:
+          // a fixed "dark < 110" threshold read 3 px off on Windows).
           {
             const gb = await page.locator('[data-testid="prompt-confirm"] .glyph').boundingBox();
             const shot0 = decodePng(await page.screenshot());
-            const inkRows: number[] = [];
-            for (let y = Math.floor(gb?.y ?? 0); y < Math.ceil((gb?.y ?? 0) + (gb?.height ?? 0)); y++) {
-              for (let x = Math.floor(gb?.x ?? 0); x < Math.ceil((gb?.x ?? 0) + (gb?.width ?? 0)); x++) {
-                const p = pixel(shot0, x, y);
-                const dark = preset === 'dark' ? p[0] > 180 && p[1] > 180 : p[0] < 110 && p[1] < 110;
-                if (dark) {
-                  inkRows.push(y);
-                  break;
-                }
-              }
-            }
-            const ink = inkRows.length ? (inkRows[inkRows.length - 1] ?? 0) - (inkRows[0] ?? 0) + 1 : 0;
-            expect(Math.abs(ink - 37 * px * (scale / 100))).toBeLessThanOrEqual(2);
+            const x0 = Math.floor(gb?.x ?? 0), y0 = Math.floor(gb?.y ?? 0);
+            const w = Math.ceil(gb?.width ?? 0), h = Math.ceil(gb?.height ?? 0);
+            const lumAt = (x: number, y: number) => {
+              const p = pixel(shot0, x, y);
+              return (p[0] + p[1] + p[2]) / 3;
+            };
+            const bgL = lumAt(x0 - 4, y0 + h / 2);
+            let far = bgL;
+            for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) far = Math.abs(lumAt(x, y) - bgL) > Math.abs(far - bgL) ? lumAt(x, y) : far;
+            const half = (bgL + far) / 2;
+            const covered = (x: number, y: number) => (far < bgL ? lumAt(x, y) <= half : lumAt(x, y) >= half);
+            const rows: number[] = [], cols: number[] = [];
+            for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) if (covered(x, y)) { rows.push(y); cols.push(x); }
+            const dh = rows.length ? Math.max(...rows) - Math.min(...rows) + 1 : 0;
+            const dw = cols.length ? Math.max(...cols) - Math.min(...cols) + 1 : 0;
+            const want = 37 * px * (scale / 100);
+            const msg = `footer glyph at 50 % coverage: ${dw} x ${dh} px (want about ${want.toFixed(1)}; bg ${bgL.toFixed(0)}, glyph ${far.toFixed(0)})`;
+            console.warn(`D-023 ${vp.w}x${vp.h} ${scale} ${preset}: ${msg}`);
+            expect(Math.abs(dw - want), msg).toBeLessThanOrEqual(2);
+            expect(Math.abs(dh - want), msg).toBeLessThanOrEqual(2);
           }
           // B-5 (rev. o): the footer mark about 64 px at 1080 p / 100 % (twice the prompt text),
           // scaled with Interface Scale; two-tone: halves in the footer's text colour, the
