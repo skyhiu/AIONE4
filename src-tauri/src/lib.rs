@@ -7,6 +7,7 @@ pub mod boot;
 pub mod foreground;
 pub mod games;
 pub mod input;
+pub mod launch;
 pub mod library;
 pub mod lifecycle;
 pub mod logging;
@@ -32,6 +33,8 @@ pub const EVENT_TILE: &str = "aione://tile";
 /// A9: Close AIONE (Alt+F4 / the window's close): the UI plays the Boot Down, then calls
 /// `close_now`. If it doesn't within `CLOSE_SAFETY`, the core exits anyway.
 pub const EVENT_CLOSE_REQUESTED: &str = "aione://close-requested";
+/// T1.3: the running game ended (AIONE comes back to the front): `{ id, name, minutes }`.
+pub const EVENT_GAME_EXITED: &str = "aione://game-exited";
 const CLOSE_SAFETY: std::time::Duration = std::time::Duration::from_secs(8);
 static CLOSE_STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// The game media protocol: `http://aione-media.localhost/<game id>/<slot>` on Windows.
@@ -109,6 +112,67 @@ async fn boot_media(app: AppHandle) -> Result<boot::BootMedia, String> {
         ),
     );
     Ok(m)
+}
+
+/// T1.3: starts a game (or brings it to the front if it is already running), records the start
+/// (B-11) and, when the game ends, brings AIONE back to the front.
+#[tauri::command]
+async fn launch_game(app: AppHandle, id: String) -> Result<launch::Started, String> {
+    let data = app.state::<AppState>().data_dir.clone();
+    let exit_app = app.clone();
+    let id2 = id.clone();
+    let res = tauri::async_runtime::spawn_blocking(move || {
+        launch::launch(&data, &id2, move |gid, name, minutes| {
+            logging::lifecycle(
+                Level::Info,
+                &format!("\"{name}\" ended: bringing AIONE back to the front"),
+            );
+            show_and_focus(&exit_app, "the game ended");
+            let _ = exit_app.emit(
+                EVENT_GAME_EXITED,
+                serde_json::json!({ "id": gid, "name": name, "minutes": minutes }),
+            );
+        })
+        .map(|s| (s, data))
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    match res {
+        Ok((s, data)) => {
+            if !s.already_running {
+                match games::record_start(&data, &id, chrono::Utc::now()) {
+                    Ok((when, count)) => logging::lifecycle(
+                        Level::Info,
+                        &format!(
+                            "start \"{}\": recorded (last played {when}, {count} starts)",
+                            s.name
+                        ),
+                    ),
+                    Err(e) => logging::lifecycle(
+                        Level::Warn,
+                        &format!("start \"{}\": could not record the start: {e}", s.name),
+                    ),
+                }
+            }
+            Ok(s)
+        }
+        Err(e) => {
+            logging::lifecycle(Level::Warn, &format!("start \"{id}\" failed: {e}"));
+            Err(e)
+        }
+    }
+}
+
+/// T1.3 (B-7): A or Guide on the running game brings it back to the front.
+#[tauri::command]
+fn return_to_game(id: String) -> Result<String, String> {
+    launch::return_to_game(&id)
+}
+
+/// T1.3: the running game, if any.
+#[tauri::command]
+fn running_game() -> Option<String> {
+    launch::running_id()
 }
 
 /// The Boot Down has finished (or there is none): exit now.
@@ -575,7 +639,10 @@ pub fn run() {
             library_load,
             status_now,
             boot_media,
-            close_now
+            close_now,
+            launch_game,
+            return_to_game,
+            running_game
         ])
         .setup(|app| {
             #[cfg(windows)]
@@ -588,6 +655,16 @@ pub fn run() {
             let guide_handle = app.handle().clone();
             input::start(
                 move |ev| {
+                    // B-17 (rev. aa): Guide pressed in front: a second later, a plain hint if Steam
+                    // or the Game Bar took the front.
+                    if ev.control == "Guide" && ev.kind == "down" {
+                        std::thread::spawn(|| {
+                            std::thread::sleep(std::time::Duration::from_millis(1000));
+                            if let Some(h) = launch::guide_hint() {
+                                logging::lifecycle(Level::Warn, &h);
+                            }
+                        });
+                    }
                     let _ = handle.emit(EVENT_PAD, ev);
                 },
                 // B-7: Guide in the background brings AIONE to the front.
@@ -597,6 +674,12 @@ pub fn run() {
                         "Guide pressed while AIONE is in the background: bringing AIONE to the front",
                     );
                     show_and_focus(&guide_handle, "Guide");
+                    std::thread::spawn(|| {
+                        std::thread::sleep(std::time::Duration::from_millis(1000));
+                        if let Some(h) = launch::guide_hint() {
+                            logging::lifecycle(Level::Warn, &h);
+                        }
+                    });
                 },
             );
             let status_handle = app.handle().clone();

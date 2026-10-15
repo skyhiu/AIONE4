@@ -60,6 +60,10 @@ export interface MockControl {
   requestClose(): void;
   /** tiles=pending: the background copies arrive now. */
   releaseTiles(): void;
+  /** T1.3: the games started (ids), in order. */
+  launches: string[];
+  /** T1.3: the running game ends (the core would bring AIONE back to the front). */
+  gameExit(id: string): void;
   /** Reasons passed to `closeNow` (the app would exit). */
   closed: string[];
 }
@@ -124,6 +128,7 @@ export const SAMPLE_GAMES: GameView[] = [
   category: name.startsWith('Zephyr') ? 'Steam' : null,
   playCount: 0,
   playTimeMinutes: 0,
+  lastPlayed: null,
 }));
 
 /** An original wide placeholder picture (920 × 430, like a game's Thumbnail). */
@@ -284,6 +289,8 @@ export function createMock(search: string): { core: Core; control: MockControl }
   // D-002 race: the pad was connected before anyone listened; the event goes nowhere.
   if (params.get('pad') === 'connected') emit('connected', '', 0);
 
+  let running: string | null = null;
+  const exitHandlers: ((e: { id: string; name: string; minutes: number }) => void)[] = [];
   const control: MockControl = {
     pad(name, kind = 'down', pad = 0) {
       if (!connected.has(pad)) emit('connected', '', pad);
@@ -294,6 +301,12 @@ export function createMock(search: string): { core: Core; control: MockControl }
     },
     disconnect(pad = 0) {
       if (connected.has(pad)) emit('disconnected', '', pad);
+    },
+    launches: [],
+    gameExit(id) {
+      const g = SAMPLE_GAMES.find((x) => x.id === id);
+      running = null;
+      exitHandlers.forEach((h) => h({ id, name: g?.name ?? id, minutes: 1 }));
     },
     decisions: [],
     logs: [],
@@ -430,6 +443,25 @@ export function createMock(search: string): { core: Core; control: MockControl }
       if (params.get('status-later') === '1')
         setTimeout(() => statusHandlers.forEach((f) => f({ network: 'offline', battery: { percent: 15, charging: false } })), 300);
       return sub(statusHandlers, h);
+    },
+    // T1.3: ?launch=fail makes every start fail (a missing shortcut).
+    launchGame(id) {
+      const g = SAMPLE_GAMES.find((x) => x.id === id);
+      control.launches.push(id);
+      if (params.get('launch') === 'fail') return Promise.reject(new Error('its shortcut game.lnk is missing'));
+      if (running === id) return Promise.resolve({ id, name: g?.name ?? id, how: 'already running', pid: 4242, alreadyRunning: true, foreground: 'OK via direct' });
+      running = id;
+      return Promise.resolve({ id, name: g?.name ?? id, how: 'shortcut game.lnk', pid: 4242, alreadyRunning: false, foreground: null });
+    },
+    returnToGame(id) {
+      return running === id ? Promise.resolve('OK via direct (before: aione4.exe)') : Promise.reject(new Error("that game isn't running"));
+    },
+    runningGame() {
+      return Promise.resolve(running);
+    },
+    onGameExited(h) {
+      exitHandlers.push(h);
+      return Promise.resolve(() => {});
     },
     bootMedia() {
       const mode = params.get('boot');

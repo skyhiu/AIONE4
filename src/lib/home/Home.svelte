@@ -602,7 +602,7 @@
        then it moves up just enough, keeping 12 px clear. */
     top: min(
       calc((291 + 386 + 87) * var(--px)), /* the disc centre at about 818 px (rev. v, measured) */
-      calc(100vh - 5.5rem - 108 * var(--hdr) - 24.5 * var(--hdr) - 2.93rem - 8 * var(--px))
+      calc(100vh - 5.5rem - 20 * var(--px) * max(0, 3 - 2 * var(--scale)) - 108 * var(--hdr) - 24.5 * var(--hdr) - 2.93rem - 8 * var(--px))
     );
     display: flex;
     justify-content: center;

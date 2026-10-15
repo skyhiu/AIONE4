@@ -1,5 +1,28 @@
 # Changelog
 
+## 4.0.0-alpha.15 — T1.3 part 1: launching games
+
+- **Launching (T1.3):** A, or a click on the selected game, starts it from its `game.json`: the
+  `Shortcut` (`game.lnk` / `game.url` in its folder) is opened through the Windows shell (a
+  `.lnk`'s own target, arguments and working folder apply); without one, `SteamAppId` as
+  `steam://rungameid/<id>`. The launch sound at once; Home still 0.55 s (the press dip), then
+  0.2 s evenly to black; input discarded meanwhile. Every step logged (how, the process, the time
+  to the game's window). An already-running game is brought to the front, never started twice.
+  A failed start: a plain message, Home again, logged with the reason.
+- **Returning (B-7):** Guide or A on the running game brings it back; when the game ends, AIONE
+  comes to the front, focus on that game. A launcher or Steam: the first new program in front
+  is followed as the game.
+- **Last played (B-11):** each start writes `LastPlayed` and `PlayCount` + 1 into the game's own
+  `game.json` (every other field kept; a newer AIONE 4's file never rewritten). The row: played
+  games most recent first, then never-played A–Z.
+- **B-9 rev. aa:** the blink is a trapezoid (bright 0.25 s, fall 0.4 s, dim 0.15 s, rise 0.2 s).
+- **The footer** 20 px higher at 100 % (the divider at y 972 at 1080 p), alpha.14's height at
+  150 % (the drawer needs the room).
+- **B-17:** a hint in the log when Steam or the Game Bar takes the front after Guide.
+- **Log rotation:** one line in the new log; one old file (`aione.1.log`) is kept.
+- **The launch sound:** a bright pop (snap + short glass, 67 ms).
+- **B-16 (mouse / touch dragging)** moved to the next build.
+
 ## 4.0.0-alpha.14 — rev. y / z: the blink B3, the drawer and footer measured 1:1
 
 - **B-9 (rev. y, B3):** the ring #D9006C at the base, #FF58AB at the peak (row and drawer, both

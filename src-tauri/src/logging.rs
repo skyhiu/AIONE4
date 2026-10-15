@@ -63,16 +63,42 @@ impl Logger {
     }
 }
 
+/// Over `MAX_BYTES` (5 MB) a log is rotated: the old file is kept as `<name>.1.log` (one old
+/// file; an older `.1.log` is replaced), and the new file's first line says so (alpha.14 QA-2).
 fn open_log(path: &Path) -> Option<File> {
+    let mut rotated_note = None;
     if let Ok(meta) = fs::metadata(path) {
         if meta.len() > MAX_BYTES {
             let rotated = path.with_extension("1.log");
             let _ = fs::remove_file(&rotated);
             // Fails harmlessly if another instance has the file open; we keep appending.
-            let _ = fs::rename(path, &rotated);
+            if fs::rename(path, &rotated).is_ok() {
+                rotated_note = Some(rotation_line(&rotated, meta.len()));
+            }
         }
     }
-    OpenOptions::new().create(true).append(true).open(path).ok()
+    let mut f = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .ok()?;
+    if let Some(note) = rotated_note {
+        use std::io::Write;
+        let _ = f.write_all(format_line(Level::Info, "lifecycle", &note).as_bytes());
+    }
+    Some(f)
+}
+
+/// "log rotated: previous file aione.1.log (5.4 MB); one old file is kept".
+pub fn rotation_line(rotated: &Path, bytes: u64) -> String {
+    format!(
+        "log rotated: previous file {} ({:.1} MB); one old file is kept",
+        rotated
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+        bytes as f64 / (1024.0 * 1024.0)
+    )
 }
 
 fn write_line(file: &Mutex<Option<File>>, line: &str) {
@@ -151,6 +177,20 @@ pub fn lifecycle(level: Level, message: &str) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_rotation_is_logged_in_the_new_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("aione.log");
+        std::fs::write(&p, vec![b'x'; (super::MAX_BYTES + 10) as usize]).unwrap();
+        drop(super::open_log(&p));
+        let text = std::fs::read_to_string(&p).unwrap();
+        assert!(
+            text.contains("log rotated: previous file aione.1.log (5.0 MB); one old file is kept"),
+            "{text}"
+        );
+        assert!(dir.path().join("aione.1.log").exists());
+    }
+
     use super::*;
 
     #[test]

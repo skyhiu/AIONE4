@@ -49,6 +49,8 @@ export interface GameView {
   category: string | null;
   playCount: number;
   playTimeMinutes: number;
+  /** B-11 (T1.3): the last start (RFC 3339), or null if never played. */
+  lastPlayed: string | null;
 }
 
 export interface LibraryLoad {
@@ -171,9 +173,28 @@ export interface Core {
   /** A9: Close AIONE was requested (Alt+F4): play the Boot Down, then `closeNow`. */
   onCloseRequested(handler: () => void): Promise<Unlisten>;
   closeNow(reason: string): Promise<void>;
+  /** T1.3: starts a game (or brings it to the front if it is already running). */
+  launchGame(id: string): Promise<LaunchResult>;
+  /** T1.3 (B-7): A or Guide on the running game brings it back to the front. */
+  returnToGame(id: string): Promise<string>;
+  /** T1.3: the running game's id, if any. */
+  runningGame(): Promise<string | null>;
+  /** T1.3: the running game ended (the core has brought AIONE back to the front). */
+  onGameExited(handler: (e: { id: string; name: string; minutes: number }) => void): Promise<Unlisten>;
   /** D-010: a tile copy made in the background. */
   onTile(handler: (t: { id: string; tile: string }) => void): Promise<Unlisten>;
   onPad(handler: (event: PadEvent) => void): Promise<Unlisten>;
   onCopyProgress(handler: (progress: CopyProgress) => void): Promise<Unlisten>;
   onCopyDone(handler: (result: CopyResult) => void): Promise<Unlisten>;
 }
+
+/** T1.3: what starting a game did. */
+export interface LaunchResult {
+  id: string;
+  name: string;
+  how: string;
+  pid: number | null;
+  alreadyRunning: boolean;
+  foreground: string | null;
+}
+

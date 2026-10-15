@@ -34,6 +34,15 @@ an item Fixed and Verified.
 | QA-4 (T0 test): an autostart start is not marked | **Implemented, Unverified**: the entry runs `"<exe>" --from-autostart`; logged "started by Windows at sign-in". Unit test on the command. |
 | QA-5 (T0 retest): closing logged as "the user switched away" | **Implemented, Unverified**: exit stops the guard first ("AIONE is closing"); later foreground changes are ignored. Unit test on the guard's decision. Windows code compiles first in CI. |
 
+## T1.3 part 1 (4.0.0-alpha.15)
+
+| Item | Status |
+|---|---|
+| Launching, returning, the game's exit (Windows) | Implemented, Unverified: the Windows code compiles only in CI; the mocked flow is tested |
+| Last played, the row's order | Implemented, Unverified (core test) |
+| Blink trapezoid, footer, B-17 hint, log rotation line | Implemented, Unverified |
+| B-16 mouse / touch dragging | Moved to the next build |
+
 ## Rev. y / z (4.0.0-alpha.14)
 
 | Item | Status |

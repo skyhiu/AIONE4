@@ -23,8 +23,9 @@ import wrapUrl from '../../../assets/sounds/filmcow-menu/wrap.wav?url';
 import optionsOpenUrl from '../../../assets/sounds/filmcow-menu/options_open.wav?url';
 import optionsCloseUrl from '../../../assets/sounds/filmcow-menu/options_close.wav?url';
 import scrollTickUrl from '../../../assets/sounds/filmcow-menu/scroll_tick.wav?url';
+import launchUrl from '../../../assets/sounds/filmcow-menu/launch.wav?url';
 
-export type SoundName = 'rowMove' | 'drawerMove' | 'edgeBump' | 'wrap' | 'confirm' | 'back' | 'error' | 'optionsOpen' | 'optionsClose' | 'scrollTick';
+export type SoundName = 'rowMove' | 'drawerMove' | 'edgeBump' | 'wrap' | 'confirm' | 'back' | 'error' | 'optionsOpen' | 'optionsClose' | 'scrollTick' | 'launch';
 /** What App asks for: a file, or 'rowScroll' (the click now and the scroll tick 65 ms later). */
 export type SoundRequest = SoundName | 'rowScroll';
 /** B-1 (rev. u): the row-scroll tick comes 60-90 ms after the click (measured 44-89 ms). */
@@ -34,6 +35,7 @@ export const SCROLL_TICK_DELAY_S = 0.065;
  *  tools/sound/make_menu_family.py (one family in A major; docs/sound/SOUND_MAPPING.md). */
 export const SOUND_FILES: Record<SoundName, { file: string; source: string; url: string }> = {
   rowMove: { file: 'row_move.wav', source: 'FilmCow "clicky button 7", 10 ms, C8 4186 Hz (rev. v: about 4.2 kHz like Switch)', url: rowMoveUrl },
+  launch: { file: 'launch.wav', source: 'FilmCow "mechanism snap together 6" + "glass ding 4", a bright pop of about 100 ms (T1.3)', url: launchUrl },
   scrollTick: { file: 'scroll_tick.wav', source: 'FilmCow "mouse click 2", A6, 5.5 dB below the click (rev. u; also the drag tick)', url: scrollTickUrl },
   drawerMove: { file: 'drawer_move.wav', source: 'FilmCow "mouse click 2"', url: drawerMoveUrl },
   edgeBump: { file: 'edge_bump.wav', source: 'FilmCow "mouse click 2", 30 ms, E7, -10 dB below the click (rev. s)', url: edgeBumpUrl },

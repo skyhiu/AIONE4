@@ -3,6 +3,7 @@ import { listen } from '@tauri-apps/api/event';
 import type {
   AppInfo,
   BootMedia,
+  LaunchResult,
   CopyProgress,
   CopyResult,
   Core,
@@ -21,6 +22,7 @@ export const EVENTS = {
   status: 'aione://status',
   tile: 'aione://tile',
   closeRequested: 'aione://close-requested',
+  gameExited: 'aione://game-exited',
 } as const;
 
 /** The core's media protocol (`aione-media`); WebView2 reaches custom protocols as
@@ -52,6 +54,10 @@ export function createTauriCore(): Core {
       `${MEDIA_BASE}/${encodeURIComponent(gameId)}/${encodeURIComponent(slot)}${key ? `?v=${encodeURIComponent(key)}` : ''}`,
     statusNow: () => invoke<PcStatus>('status_now'),
     onStatus: (handler) => listen<PcStatus>(EVENTS.status, (e) => handler(e.payload)),
+    launchGame: (id) => invoke<LaunchResult>('launch_game', { id }),
+    returnToGame: (id) => invoke<string>('return_to_game', { id }),
+    runningGame: () => invoke<string | null>('running_game'),
+    onGameExited: (handler) => listen<{ id: string; name: string; minutes: number }>(EVENTS.gameExited, (e) => handler(e.payload)),
     bootMedia: () => invoke<BootMedia>('boot_media'),
     bootUrl: (which, key) => `${MEDIA_BASE}/_boot/${which}?v=${encodeURIComponent(key)}`,
     onCloseRequested: (handler) => listen(EVENTS.closeRequested, () => handler()),

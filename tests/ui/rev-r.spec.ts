@@ -182,6 +182,10 @@ test.describe('rev. r (alpha.10)', () => {
     expect((dip?.w ?? 0) / 386).toBeLessThan(0.95);
     await shot(page, 't16-press-dip');
     await page.evaluate(() => document.querySelectorAll('.tile').forEach((e) => e.getAnimations().forEach((a) => a.finish())));
+    // T1.3: Enter launched the game; it ends, Home again.
+    await page.waitForTimeout(900);
+    await page.evaluate(() => window.__aioneMock?.gameExit('Amber Lighthouse'));
+    await page.waitForTimeout(300);
     // The drawer label: fades in and rises about 4 px over about 0.15 s.
     await page.keyboard.press('ArrowDown');
     const rise = await page.evaluate(() => {

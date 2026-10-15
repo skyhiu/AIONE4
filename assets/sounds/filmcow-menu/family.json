@@ -414,5 +414,58 @@
    "wired": true,
    "proposal_only": false
   }
+ ],
+ "launch": [
+  {
+   "file": "launch_A.wav",
+   "id": "A",
+   "label": "Bright pop: snap + short glass (about 100 ms)",
+   "layers": [
+    {
+     "source": "mech_3_snap_launch/mechanism snap together 6.wav",
+     "library": "FilmCow SFX \u2013 Mechanisms & Movement (192 kHz)",
+     "source_rate": 192000,
+     "noise_floor_db": -101.5,
+     "hit": 1,
+     "of_hits": 1,
+     "start_ms": 166.0,
+     "length_ms": 70.0,
+     "resonance_hz": 3375,
+     "tuned_semitones": 0.73,
+     "tuned_to": "A7 (3520 Hz)",
+     "high_pass_hz": 300,
+     "low_pass_hz": null,
+     "decay_tau_ms": 18,
+     "hold_ms": 3,
+     "gain_db": 0,
+     "offset_ms": 0
+    },
+    {
+     "source": "rec_2_select_confirm/glass ding 4.wav",
+     "library": "FilmCow Recorded SFX",
+     "source_rate": 48000,
+     "noise_floor_db": -69.8,
+     "hit": 1,
+     "of_hits": 2,
+     "start_ms": 18.5,
+     "length_ms": 22.5,
+     "resonance_hz": 5484,
+     "tuned_semitones": -0.68,
+     "tuned_to": "E8 (5274 Hz)",
+     "high_pass_hz": 800,
+     "low_pass_hz": null,
+     "decay_tau_ms": 28,
+     "hold_ms": 4,
+     "gain_db": -9,
+     "offset_ms": 4
+    }
+   ],
+   "length_ms": 67.1,
+   "loudest_30ms_lufs": -16.0,
+   "true_peak_dbfs": -3.7,
+   "sample_peak_dbfs": -3.8,
+   "wired": true,
+   "proposal_only": false
+  }
  ]
 }

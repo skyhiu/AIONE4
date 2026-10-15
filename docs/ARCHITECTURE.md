@@ -326,3 +326,13 @@ the window's close (the Boot Down).
 file outside `.github/`, `docs/`, `tests/`, `tools/`, `scripts/ci-run.mjs` or top-level Markdown
 changed, it publishes nothing.
 
+## Launching games (T1.3, `src-tauri/src/launch.rs`)
+- **What is started:** `Shortcut` (`game.lnk` / `game.url`) through `ShellExecuteExW` (like a
+  double-click), else `SteamAppId` as `steam://rungameid/<id>`.
+- **Tracking:** one running game; a watcher thread finds its window (the started process's first
+  visible top-level window, or the first new program in front for launchers and Steam), logs the
+  time to it, and reports the exit (`aione://game-exited`; the core brings AIONE to the front).
+- **Commands:** `launch_game`, `return_to_game`, `running_game`.
+- **Logs:** `aione.log` rotates at 5 MB; one old file (`aione.1.log`) is kept; the new file's first
+  line says so.
+

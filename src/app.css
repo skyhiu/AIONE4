@@ -224,20 +224,24 @@ body {
   cursor: none;
 }
 
-/* B-9 (rev. s): the ring's flash, one cycle per 1.0 s, starting at the bright peak: a slow fade to
-   the base over 0.75 s (ease-out), a short rest, a fast rise (0.2 s) back to the peak. Opacity of
-   the peak layer only (A7: transform / opacity). */
+/* B-9 (rev. aa, measured frame by frame on Switch): the blink is a trapezoid over 1.0 s, so it
+   reads as a blink, not breathing. It starts at the bright peak (every move restarts it): hold
+   bright 0.25 s → fall 0.4 s → hold dim 0.15 s → rise 0.2 s, ease-in-out. The glow follows it.
+   Opacity of the peak layer only (A7: transform / opacity). */
 @keyframes aione-ring-flash {
   0% {
     opacity: 1;
-    animation-timing-function: cubic-bezier(0.3, 0, 0.4, 1);
   }
-  75% {
+  25% {
+    opacity: 1;
+    animation-timing-function: ease-in-out;
+  }
+  65% {
     opacity: 0;
   }
   80% {
     opacity: 0;
-    animation-timing-function: cubic-bezier(0.2, 0, 0.2, 1);
+    animation-timing-function: ease-in-out;
   }
   100% {
     opacity: 1;

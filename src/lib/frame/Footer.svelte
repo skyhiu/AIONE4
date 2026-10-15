@@ -45,7 +45,10 @@
     left: 2.4vw;
     right: 2.4vw;
     bottom: 0;
-    height: calc(5.5rem);
+    /* rev. aa: about 20 px higher (the divider at about y 972 at 1080 p / 100 %, like Switch's).
+       The extra height shrinks to nothing at 150 % Interface Scale, where the drawer needs the
+       room (alpha.15's first build overlapped the row by 11 px there). */
+    height: calc(5.5rem + 20 * var(--px) * max(0, 3 - 2 * var(--scale)));
     /* rev. y: a 2 px divider, a darker grey than alpha.13's faint line, as on Switch. */
     border-top: max(2px, calc(2 * var(--px))) solid var(--color-footer-divider);
     display: flex;

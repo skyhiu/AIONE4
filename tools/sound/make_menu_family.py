@@ -342,9 +342,10 @@ RECIPES = {
             L(M6, "tin pop 2", 60, 16, "E", hold=2, hp=150, lp=3300, at=95)]},
     ],
     "launch": [
-        {"id": "A", "label": "Snap + glass on A", "layers": [
-            L(M3, "mechanism snap together 6", 100, 26, "A", hold=4, hp=120),
-            L(R2, "glass ding 4", 160, 60, "A|C#|E", pick="first", hold=6, hp=500, gain=-9, at=4)]},
+        # T1.3 (rev. aa): a bright pop of about 100 ms, at once on A.
+        {"id": "A", "label": "Bright pop: snap + short glass (about 100 ms)", "layers": [
+            L(M3, "mechanism snap together 6", 70, 18, "A", hold=3, hp=300),
+            L(R2, "glass ding 4", 90, 28, "A|C#|E", pick="first", hold=4, hp=800, gain=-9, at=4)]},
         {"id": "B", "label": "Gumball machine pop", "layers": [L(M3, "gumball machine 3", 100, 28, "A", hold=4, hp=150)]},
     ],
     "toggle_on": [
@@ -374,9 +375,9 @@ RECIPES = {
     ],
 }
 # Wired in AIONE now (the ones Home uses); the others are for their stages.
-WIRED = {"row_move": "A", "drawer_move": "A", "edge_bump": "A", "confirm": "A", "back": "A", "error": "A", "wrap": "A", "options_open": "A", "options_close": "A", "scroll_tick": "A"}
+WIRED = {"row_move": "A", "drawer_move": "A", "edge_bump": "A", "confirm": "A", "back": "A", "error": "A", "wrap": "A", "options_open": "A", "options_close": "A", "scroll_tick": "A", "launch": "A"}
 # rev. r: no separate row <-> drawer sound (entering a section plays its own move sound).
-PROPOSED_ONLY = ["row_drawer", "launch", "toggle_on", "toggle_off", "open", "home"]
+PROPOSED_ONLY = ["row_drawer", "toggle_on", "toggle_off", "open", "home"]
 
 
 def main(src, out, repo=None):

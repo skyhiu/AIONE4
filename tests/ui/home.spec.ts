@@ -378,15 +378,20 @@ test.describe('T1.1 Home (mocked core)', () => {
     await tile(2).click();
     let l = await logs(page);
     expect(l.some((x) => x.startsWith('info: input click tile 3 "Lantern Valley" (mouse) -> select (first click)'))).toBe(true);
-    expect(l.some((x) => x.startsWith('info: start requested'))).toBe(false);
+    expect(await page.evaluate(() => window.__aioneMock?.launches)).toEqual([]); // nothing started
     // Another tile: still only a selection.
     await tile(3).click();
-    l = await logs(page);
-    expect(l.filter((x) => x.startsWith('info: start requested'))).toHaveLength(0);
+    expect(await page.evaluate(() => window.__aioneMock?.launches)).toEqual([]); // nothing started
     // The selected tile again: start.
     await tile(3).click();
     l = await logs(page);
-    expect(l).toContain('info: start requested: "Moss Kingdom" (second click); launching comes in T1.3');
+    // T1.3: the second click on the selected game starts it (L-06), with the launch sound.
+    expect(await page.evaluate(() => window.__aioneMock?.launches)).toEqual(['Moss Kingdom']);
+    expect(l.some((x) => x.includes('start "Moss Kingdom" (second click), sound launch'))).toBe(true);
+    // The game ends; Home again (B-11: Moss Kingdom is now first in the row).
+    await page.waitForTimeout(900);
+    await page.evaluate(() => window.__aioneMock?.gameExit('Moss Kingdom'));
+    await page.waitForTimeout(300);
     // After starting nothing stays selected; leaving the tile leaves nothing highlighted.
     await page.mouse.move(960, 900);
     await expect(page.locator('.tile.hovered')).toHaveCount(0);
@@ -395,7 +400,8 @@ test.describe('T1.1 Home (mocked core)', () => {
     // B-10: picking up the pad only brings the ring back on the remembered tile.
     await pad(page, 'DPadRight');
     await expect(page.getByTestId('screen')).toHaveAttribute('data-input', 'pad');
-    await expect(page.locator('.tile.focused')).toHaveAttribute('data-index', '3');
+    // (the remembered tile is Moss Kingdom, now first in the row)
+    await expect(page.getByTestId('selected-title')).toHaveText('Moss Kingdom');
   });
 
   test('A / Enter start the focused game once; one sound per action; the row move on every repeat', async ({ page }) => {
@@ -403,9 +409,15 @@ test.describe('T1.1 Home (mocked core)', () => {
     await pad(page, 'A');
     await page.keyboard.press('Enter');
     let l = await logs(page);
-    expect(l.filter((x) => x.startsWith('info: start requested: "Amber Lighthouse" (press)'))).toHaveLength(2);
-    expect(l.filter((x) => x.includes('-> action confirm, start "Amber Lighthouse"'))).toHaveLength(2);
-    expect(l.filter((x) => x.includes('-> action confirm, start "Amber Lighthouse"') && x.includes('sound confirm'))).toHaveLength(2);
+    // T1.3: A starts the game once, with the launch sound; Enter right after falls in the launch
+    // transition and is discarded (never a second start).
+    expect(l.filter((x) => x.includes('-> action confirm, start "Amber Lighthouse" (press), sound launch'))).toHaveLength(1);
+    expect(l.filter((x) => x.includes('discarded (launching a game: input lock)'))).toHaveLength(1);
+    expect(await page.evaluate(() => window.__aioneMock?.launches)).toEqual(['Amber Lighthouse']);
+    // Back to Home (the game ends) before the row's own checks.
+    await page.waitForTimeout(900);
+    await page.evaluate(() => window.__aioneMock?.gameExit('Amber Lighthouse'));
+    await page.waitForTimeout(300);
     // B-1 (rev. p): holding a direction, the row move sounds on every move, every repeat included.
     await pad(page, 'DPadRight');
     for (let i = 0; i < 6; i++) {
@@ -424,7 +436,7 @@ test.describe('T1.1 Home (mocked core)', () => {
     expect(quiet).toBe(3);
     // Every acting line names at most one sound.
     expect(l.every((x) => (x.match(/sound (rowMove|rowScroll|drawerMove|edgeBump|wrap|confirm|back|error|optionsOpen|optionsClose)/g) ?? []).length <= 1)).toBe(true);
-    expect(l.some((x) => x.startsWith('info: menu sounds ready: 10 sounds'))).toBe(true);
+    expect(l.some((x) => x.startsWith('info: menu sounds ready: 11 sounds'))).toBe(true);
   });
 
   test('D-006: an arrow key repeats at 400 ms then every 90 ms; Enter and Alt never repeat; releases logged', async ({ page }) => {
@@ -851,7 +863,7 @@ test.describe('T1.1 Home (mocked core)', () => {
     await expect(page.locator('.tile.focused')).toHaveAttribute('data-index', '1');
     l = await logs(page);
     expect(l).toContain('info: ring back on tile 2 (after mouse)');
-    expect(l.filter((x) => x.startsWith('info: start requested'))).toHaveLength(0);
+    expect(await page.evaluate(() => window.__aioneMock?.launches)).toEqual([]); // nothing started
     // QA-6: the pad's ring-back line carries the slot number.
     await tile(4).hover();
     await page.mouse.move(900, 500, { steps: 4 });

@@ -205,6 +205,13 @@
       }
       return;
     }
+    // T1.3: input during the launch transition is discarded (never queued).
+    if (launching === 'starting') {
+      core?.log('info', `${describeInput(ev, null, 'discarded (launching a game: input lock)')}`);
+      return;
+    }
+    // AIONE took input while a game runs: it is in front again (Guide, Alt-Tab).
+    if (launching === 'ingame') returnHome('input while the game runs: AIONE is in front');
     perf.input(ev.source);
     sounds.resume();
     // D-008: how long the press waited between the core reading it and the UI acting on it.
@@ -304,6 +311,10 @@
         // B-14: A does nothing on an empty slot (its "A OK" prompt is dimmed).
         if (home.focus >= games.length) return 'empty slot: A does nothing';
         return start(home.focus, 'press');
+      case 'guide':
+        // B-7 (T1.3): Guide in front returns to the running game.
+        if (runningId) return returnToGame(runningId, 'Guide');
+        return 'no action (no game is running)';
       case 'options': {
         // B-14: "+ Options" on a game; the game's options come in T4. Rev. u: ≡ / Tab while the
         // Options toast shows closes it (like Switch's panel), with the close sound.
@@ -387,13 +398,115 @@
   }
 
   /** Starting a game comes in T1.3: for now the press is shown, sounded and logged. */
+  // ---------- T1.3: launching games ----------
+  /** 'none'; 'starting' (the launch transition: Home still 0.55 s, then 0.2 s to black; input
+   *  locked); 'ingame' (the game is in front; Home stays black until AIONE is back). */
+  let launching = $state<'none' | 'starting' | 'ingame'>('none');
+  /** The black veil over Home (its fade is 0.2 s, linear). */
+  let veil = $state(false);
+  /** The game that is running (started by AIONE), if any. */
+  let runningId = $state<string | null>(null);
+  let launchTimers: ReturnType<typeof setTimeout>[] = [];
+  const LAUNCH_STILL_MS = 550;
+  const LAUNCH_FADE_MS = 200;
+
+  /** B-11: the row's order: played games most recent first, then the never-played ones A-Z. */
+  function sortForHome(list: GameView[]): GameView[] {
+    const when = (g: GameView) => (g.lastPlayed ? Date.parse(g.lastPlayed) : NaN);
+    return [...list].sort((a, b) => {
+      const x = when(a), y = when(b);
+      if (!isNaN(x) && !isNaN(y)) return y - x || a.id.localeCompare(b.id);
+      if (!isNaN(x)) return -1;
+      if (!isNaN(y)) return 1;
+      return a.name.toLowerCase().localeCompare(b.name.toLowerCase()) || a.id.localeCompare(b.id);
+    });
+  }
+
+  /** The focus on a game by id (after the row's order changed), keeping it in view. */
+  function focusGame(id: string) {
+    const i = games.findIndex((g) => g.id === id);
+    if (i < 0) return;
+    home = { ...home, zone: 'row', focus: i, first: Math.max(0, Math.min(i, home.first, Math.max(0, home.slots - 4))) };
+    if (i < home.first || i > home.first + 3) home = { ...home, first: Math.max(0, i - 3) };
+  }
+
   function start(index: number, how: string): string {
     const g = games[index];
     if (!g) return 'nothing to start';
+    if (launching !== 'none') return 'ignored (a launch is in progress)';
     pressFeedback(index);
-    const s = play('confirm');
-    core?.log('info', `start requested: "${g.name}" (${how}); launching comes in T1.3`);
-    return `start "${g.name}", ${s}`;
+    // An already-running game is brought to the front, never started twice (Part B).
+    if (runningId === g.id) return returnToGame(g.id, how);
+    launching = 'starting';
+    const t0 = performance.now();
+    const s = play('launch');
+    launchTimers.push(setTimeout(() => (veil = true), LAUNCH_STILL_MS));
+    const req = core ? core.launchGame(g.id) : Promise.reject(new Error('no core'));
+    req
+      .then((r) => {
+        const ms = Math.round(performance.now() - t0);
+        core?.log('info', r.alreadyRunning ? `launch "${r.name}": already running: brought to the front (${r.foreground ?? '?'})` : `launch "${r.name}": started (${r.how}${r.pid ? `, process ${r.pid}` : ''}), ${ms} ms after the press`);
+        runningId = g.id;
+        // B-11: the start is recorded by the core; the row shows it at once (the game first).
+        games = sortForHome(games.map((x) => (x.id === g.id ? { ...x, lastPlayed: new Date().toISOString(), playCount: x.playCount + 1 } : x)));
+        launchTimers.push(setTimeout(() => {
+          focusGame(g.id);
+          if (launching === 'starting') launching = 'ingame';
+        }, Math.max(0, LAUNCH_STILL_MS + LAUNCH_FADE_MS - ms)));
+      })
+      .catch((e: unknown) => {
+        const reason = e instanceof Error ? e.message : String(e);
+        const ms = Math.round(performance.now() - t0);
+        core?.log('warn', `launch "${g.name}" failed: ${reason}`);
+        // After the fade, back to Home with a plain message.
+        launchTimers.push(setTimeout(() => {
+          veil = false;
+          launching = 'none';
+          showMessage(`Couldn't start ${g.name}: ${reason}`);
+          play('error');
+        }, Math.max(0, LAUNCH_STILL_MS + LAUNCH_FADE_MS - ms)));
+      });
+    return `start "${g.name}" (${how}), ${s}`;
+  }
+
+  /** B-7: A or Guide on the running game brings it back to the front. */
+  function returnToGame(id: string, how: string): string {
+    const g = games.find((x) => x.id === id);
+    core
+      ?.returnToGame(id)
+      .then((m) => {
+        core?.log('info', `back to "${g?.name ?? id}" (${how}): ${m}`);
+        launching = 'ingame';
+        veil = true;
+      })
+      .catch((e: unknown) => {
+        const reason = e instanceof Error ? e.message : String(e);
+        core?.log('warn', `back to "${g?.name ?? id}" failed: ${reason}`);
+        showMessage(`Couldn't return to ${g?.name ?? 'the game'}: ${reason}`);
+        play('error');
+      });
+    return `back to the running game "${g?.name ?? id}" (${how}), ${play('confirm')}`;
+  }
+
+  /** AIONE is in front again (Guide, the game ended): Home fades in, the focus on that game. */
+  function returnHome(why: string) {
+    if (launching === 'none' && !veil) return;
+    launchTimers.forEach(clearTimeout);
+    launchTimers = [];
+    launching = 'none';
+    veil = false;
+    if (runningId) focusGame(runningId);
+    core?.log('info', `Home again: ${why}${runningId ? `; focus on the running game` : ''}`);
+  }
+
+  /** A plain message (a failed start): longer than a toast, the same place. */
+  function showMessage(text: string) {
+    toast = text;
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      toast = null;
+      toastTimer = null;
+    }, 5000);
   }
 
   function pressFeedback(index: number) {
@@ -705,6 +818,23 @@
       document.documentElement.style.setProperty('--scale', String(info.interfaceScale / 100));
       if (params.get('preset') === 'dark') document.documentElement.dataset['preset'] = 'dark';
       unlisteners.push(await c.onCloseRequested(() => void bootDown(c)));
+      // T1.3: the running game ended: the core brought AIONE to the front; Home, focus on it.
+      unlisteners.push(
+        await c.onGameExited((e) => {
+          core?.log('info', `"${e.name}" ended after ${e.minutes} min`);
+          const id = e.id;
+          runningId = id;
+          returnHome(`"${e.name}" ended`);
+          focusGame(id);
+          runningId = null;
+        }),
+      );
+      // T1.3 (B-7): AIONE came back to the front while a game runs (Guide, Alt-Tab).
+      const onFocus = () => {
+        if (launching === 'ingame') returnHome('AIONE is in front again');
+      };
+      window.addEventListener('focus', onFocus);
+      unlisteners.push(() => window.removeEventListener('focus', onFocus));
       status = await c.statusNow();
       // The window is shown on its first frame, which is black (A9, D-010).
       requestAnimationFrame(() =>
@@ -852,9 +982,24 @@
       }}
     />
   {/if}
+  <!-- T1.3: the launch veil: Home fades to black (0.2 s, evenly) after 0.55 s still. -->
+  <div class="launch-veil" class:on={veil} data-testid="launch-veil" aria-hidden="true"></div>
 </main>
 
 <style>
+  .launch-veil {
+    position: fixed;
+    inset: 0;
+    background: #000;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 200ms linear;
+    z-index: 900;
+  }
+  .launch-veil.on {
+    opacity: 1;
+    pointer-events: auto;
+  }
   main {
     position: relative;
     height: 100%;

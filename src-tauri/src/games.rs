@@ -73,6 +73,8 @@ pub struct GameView {
     pub category: Option<String>,
     pub play_count: u64,
     pub play_time_minutes: u64,
+    /// B-11 (T1.3): the game's last start (RFC 3339, UTC), from `LastPlayed` in its game.json.
+    pub last_played: Option<String>,
 }
 
 /// What `load` returns to the UI and the log.
@@ -185,7 +187,90 @@ pub fn view_of(id: &str, obj: &Obj, folder: &Path) -> GameView {
         category: text(obj, "Category"),
         play_count: number(obj, "PlayCount"),
         play_time_minutes: number(obj, "PlayTimeMinutes"),
+        last_played: text(obj, "LastPlayed"),
     }
+}
+
+/// B-11 (T1.3): the row's order: games that have been played, most recent first; then the
+/// never-played ones A-Z.
+pub fn sort_for_home(games: &mut [GameView]) {
+    let when = |g: &GameView| {
+        g.last_played
+            .as_deref()
+            .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
+            .map(|t| t.timestamp())
+    };
+    games.sort_by(|a, b| match (when(a), when(b)) {
+        (Some(x), Some(y)) => y.cmp(&x).then(a.id.cmp(&b.id)),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => a
+            .name
+            .to_lowercase()
+            .cmp(&b.name.to_lowercase())
+            .then(a.id.cmp(&b.id)),
+    });
+}
+
+/// What `game.json` says about starting a game (T1.3): its `Shortcut` (a `game.lnk` or
+/// `game.url` in its folder) and its `SteamAppId`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LaunchFields {
+    pub name: String,
+    pub folder: PathBuf,
+    pub shortcut: Option<PathBuf>,
+    pub steam_app_id: Option<String>,
+}
+
+pub fn launch_fields(data: &Path, id: &str) -> Result<LaunchFields, String> {
+    let folder = games_dir(data).join(id);
+    let obj = read_object(&folder.join(GAME_FILE))?;
+    let shortcut = text(&obj, "Shortcut").and_then(|f| media_path(&folder, &f));
+    Ok(LaunchFields {
+        name: text(&obj, "Name").unwrap_or_else(|| id.to_string()),
+        shortcut,
+        steam_app_id: text(&obj, "SteamAppId").filter(|v| v.chars().all(|c| c.is_ascii_digit())),
+        folder,
+    })
+}
+
+/// B-11 / B-6 (T1.3): records a start in the game's own `game.json`: `LastPlayed` (now, RFC 3339
+/// UTC) and `PlayCount` + 1, keeping every other field (and the field names' spelling). A
+/// `game.json` written by a newer AIONE 4 is never rewritten. Written atomically.
+pub fn record_start(
+    data: &Path,
+    id: &str,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<(String, u64), String> {
+    let path = games_dir(data).join(id).join(GAME_FILE);
+    let mut obj = read_object(&path)?;
+    if let Some(v) = field(&obj, SCHEMA_FIELD).and_then(|v| v.as_u64()) {
+        if v > LIBRARY_SCHEMA as u64 {
+            return Err(format!(
+                "game.json was written by a newer AIONE 4 (schema {v}); not changed"
+            ));
+        }
+    }
+    let key = |obj: &Obj, name: &str| {
+        obj.keys()
+            .find(|k| norm(k) == norm(name))
+            .cloned()
+            .unwrap_or_else(|| name.to_string())
+    };
+    let when = now.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let count = number(&obj, "PlayCount") + 1;
+    let k = key(&obj, "LastPlayed");
+    obj.insert(k, when.clone().into());
+    let k = key(&obj, "PlayCount");
+    obj.insert(k, count.into());
+    let k = key(&obj, SCHEMA_FIELD);
+    obj.insert(k, LIBRARY_SCHEMA.into());
+    let bytes =
+        serde_json::to_vec_pretty(&serde_json::Value::Object(obj)).map_err(|e| e.to_string())?;
+    let tmp = path.with_extension("json.tmp");
+    fs::write(&tmp, bytes).map_err(|e| format!("could not write: {e}"))?;
+    fs::rename(&tmp, &path).map_err(|e| format!("could not write: {e}"))?;
+    Ok((when, count))
 }
 
 /// A media file name from `game.json`, resolved inside the game's folder only (no absolute
@@ -423,12 +508,7 @@ pub fn load(data: &Path) -> LibraryLoad {
             }
         }
     }
-    games.sort_by(|a, b| {
-        a.name
-            .to_lowercase()
-            .cmp(&b.name.to_lowercase())
-            .then(a.id.cmp(&b.id))
-    });
+    sort_for_home(&mut games);
     LibraryLoad {
         state: if games.is_empty() { "empty" } else { "loaded" }.into(),
         games,
@@ -944,5 +1024,61 @@ mod tests {
         assert!(resolve_media(data, "../G", "Thumbnail").is_none());
         assert!(resolve_media(data, "", "Thumbnail").is_none());
         assert_eq!(mime_of(Path::new("a.JPG")), "image/jpeg");
+    }
+
+    /// B-11 (T1.3): a start is recorded in the game's own game.json, every other field kept; the
+    /// row puts played games first (most recent first), then the rest A-Z.
+    #[test]
+    fn starts_are_recorded_and_order_the_row() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path();
+        for (id, name) in [("a", "Zelda"), ("b", "Amber"), ("c", "Moss")] {
+            let f = games_dir(data).join(id);
+            fs::create_dir_all(&f).unwrap();
+            fs::write(f.join(GAME_FILE), format!(r#"{{"Name":"{name}","Shortcut":"game.lnk","SteamAppId":"1234","Extra":{{"kept":true}},"playcount":2}}"#)).unwrap();
+        }
+        let t1 = chrono::DateTime::parse_from_rfc3339("2026-10-16T10:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let t2 = chrono::DateTime::parse_from_rfc3339("2026-10-16T11:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        assert_eq!(
+            record_start(data, "c", t1).unwrap(),
+            ("2026-10-16T10:00:00Z".to_string(), 3)
+        );
+        record_start(data, "a", t2).unwrap();
+        let obj = read_object(&games_dir(data).join("a").join(GAME_FILE)).unwrap();
+        assert_eq!(obj.get("Extra"), Some(&serde_json::json!({"kept": true})));
+        assert_eq!(obj.get("playcount"), Some(&serde_json::json!(3))); // the original spelling kept
+        assert_eq!(
+            obj.get("LastPlayed"),
+            Some(&serde_json::json!("2026-10-16T11:00:00Z"))
+        );
+        let mut games: Vec<GameView> = ["a", "b", "c"]
+            .iter()
+            .map(|id| {
+                let f = games_dir(data).join(id);
+                view_of(id, &read_object(&f.join(GAME_FILE)).unwrap(), &f)
+            })
+            .collect();
+        sort_for_home(&mut games);
+        let order: Vec<_> = games.iter().map(|g| g.name.as_str()).collect();
+        assert_eq!(order, ["Zelda", "Moss", "Amber"]); // played, most recent first; then A-Z
+        let lf = launch_fields(data, "b").unwrap();
+        assert_eq!(
+            lf.shortcut,
+            Some(games_dir(data).join("b").join("game.lnk"))
+        );
+        assert_eq!(lf.steam_app_id.as_deref(), Some("1234"));
+        // A newer AIONE 4's game.json is never rewritten.
+        fs::write(
+            games_dir(data).join("b").join(GAME_FILE),
+            r#"{"Name":"Amber","AioneSchema":9}"#,
+        )
+        .unwrap();
+        assert!(record_start(data, "b", t2)
+            .unwrap_err()
+            .contains("newer AIONE 4"));
     }
 }
