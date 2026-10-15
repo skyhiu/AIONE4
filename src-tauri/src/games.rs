@@ -235,7 +235,7 @@ pub fn launch_fields(data: &Path, id: &str) -> Result<LaunchFields, String> {
 }
 
 /// B-11 (rev. ab): dates as WPF writes them: local time with the offset and microseconds
-/// (`2026-10-12T02:36:57.347729+07:00`). Both that and UTC `Z` are read.
+/// (e.g. `2026-01-02T03:04:05.123456+07:00`, an invented example). Both that and UTC `Z` are read.
 pub fn wpf_date(t: chrono::DateTime<chrono::Local>) -> String {
     t.to_rfc3339_opts(chrono::SecondsFormat::Micros, false)
 }
