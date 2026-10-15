@@ -1,5 +1,16 @@
 # Changelog
 
+## 4.0.0-alpha.21 — the last build of T1.3 part 1 (rev. ah)
+
+- **B-18 rev. ah:** the launcher wait is 5 s (was 30 s; the real game came within 0.60–0.84 s on
+  the user's PC); the screen shows "Starting <game>…  B Back to Home"; B cancels the wait at once
+  (ended, nothing counted); the follow delay is logged.
+- **D-035 / B-20 rev. ah:** a paused game is resumed the moment it (or a process it started) gets the
+  front by any route: a WinEvent foreground hook for AIONE's lifetime.
+- **B-20 rev. ah:** paused at once when Guide brings AIONE forward (no 0.3 s delay).
+- **B-11 rev. ah:** "not counted: the game never appeared (launcher only)" logged as INFO.
+- Eden: unverified (eden_cli.txt not attached).
+
 ## 4.0.0-alpha.20 — the game paused while in AIONE; force close; launcher-only sessions
 
 - **B-20:** the running game is paused (SuspendThread on its threads and its children's) while

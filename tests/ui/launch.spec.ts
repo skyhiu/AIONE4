@@ -258,7 +258,7 @@ test.describe('T1.3 launching (mocked core)', () => {
     await open(page, 'launcher=play');
     await pad(page, 'A');
     await page.waitForTimeout(1600); // the launcher's window came, then it ended
-    await expect(page.getByTestId('veil-text')).toHaveText('Starting Amber Lighthouse…');
+    await expect(page.getByTestId('veil-text')).toHaveText(/^Starting Amber Lighthouse…\s*B Back to Home$/);
     expect(await veil(page)).toBe(1);
     await pad(page, 'DPadRight'); // locked
     let l = await logs(page);
@@ -275,13 +275,24 @@ test.describe('T1.3 launching (mocked core)', () => {
     await expect(page.getByTestId('playing-badge')).toHaveCount(1);
   });
 
-  test('D-032: the launcher closed without Play: the game ends after the wait', async ({ page }) => {
+  test('B-18 (rev. ah): the launcher closed without Play: Home within about 5 s; or at once with B', async ({ page }) => {
     await open(page, 'launcher=noplay');
     await pad(page, 'A');
     await page.waitForTimeout(1600);
-    await expect(page.getByTestId('veil-text')).toHaveText('Starting Amber Lighthouse…');
-    await page.waitForTimeout(1600); // the core gives up (no game): ended
-    await expect.poll(() => veil(page), { timeout: 3000 }).toBe(0);
+    await expect(page.getByTestId('veil-text')).toHaveText(/^Starting Amber Lighthouse…\s*B Back to Home$/);
+    const t = Date.now();
+    await expect.poll(() => veil(page), { timeout: 7000 }).toBe(0); // the core gives up after about 5 s
+    expect(Date.now() - t).toBeLessThan(6500);
+    await expect(page.getByTestId('playing-badge')).toHaveCount(0);
+    // Again, and B cancels at once.
+    await page.waitForTimeout(500);
+    await pad(page, 'A');
+    await page.waitForTimeout(1600);
+    await expect(page.getByTestId('veil-text')).toContainText('B Back to Home');
+    await pad(page, 'B');
+    await expect.poll(() => veil(page), { timeout: 1500 }).toBe(0);
+    const l = await logs(page);
+    expect(l.some((x) => /the wait for "Amber Lighthouse" cancelled \(B\): Home, nothing counted/.test(x))).toBe(true);
     await expect(page.getByTestId('playing-badge')).toHaveCount(0);
   });
 

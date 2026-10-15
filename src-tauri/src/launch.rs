@@ -140,6 +140,31 @@ pub fn is_not_the_game(exe: &str) -> bool {
     NOT_THE_GAME.contains(&exe.to_ascii_lowercase().as_str())
 }
 
+/// B-18 (rev. ah): how long AIONE waits for the real game after a launcher closes (the game
+/// appeared within 0.60-0.84 s in 4 of 4 Plays on the user's PC).
+pub const FOLLOW_WAIT: Duration = Duration::from_secs(5);
+
+/// B-18 (rev. ah): B on "Starting <game>…" cancels the wait: the game counts as ended, nothing is
+/// counted (the watcher stops: the game is no longer tracked).
+pub fn cancel_start(id: &str) -> Result<String, String> {
+    let r = RUNNING
+        .lock()
+        .ok()
+        .and_then(|g| g.clone())
+        .filter(|r| r.id == id)
+        .ok_or("that game isn't starting")?;
+    if r.counted_at.is_some() {
+        return Err("the game has already appeared".into());
+    }
+    take_if(r.gen);
+    let m = format!(
+        "start \"{}\": the wait was cancelled (B): ended, nothing counted",
+        r.name
+    );
+    logging::lifecycle(Level::Info, &m);
+    Ok(m)
+}
+
 /// D-032: programs known to be launchers (they start the real game and exit).
 pub fn is_launcher(exe: &str) -> bool {
     let e = exe.to_ascii_lowercase();
@@ -702,8 +727,9 @@ fn watch(gen: u64, report: impl Fn(Event)) {
                 logging::lifecycle(
                     Level::Info,
                     &format!(
-                        "start \"{}\": followed {exe} (process {pid}): {why}",
-                        r.name
+                        "start \"{}\": followed {exe} (process {pid}) {} ms after the launcher ended: {why}",
+                        r.name,
+                        since_follow.elapsed().as_millis()
                     ),
                 );
                 r.pid = Some(pid);
@@ -734,8 +760,8 @@ fn watch(gen: u64, report: impl Fn(Event)) {
                     });
                 }
                 let _ = hand_over(&r, "the game after its launcher:");
-            } else if since_follow.elapsed() > Duration::from_secs(30) {
-                logging::lifecycle(Level::Info, &format!("start \"{}\": no game after the launcher in 30 s (closed without Play): ended", r.name));
+            } else if since_follow.elapsed() > FOLLOW_WAIT {
+                logging::lifecycle(Level::Info, &format!("start \"{}\": no game after the launcher in {} s (closed without Play): ended", r.name, FOLLOW_WAIT.as_secs()));
                 if take_if(gen) {
                     report(Event::Ended {
                         id: r.id.clone(),
@@ -757,10 +783,11 @@ fn watch(gen: u64, report: impl Fn(Event)) {
                 logging::lifecycle(
                     Level::Info,
                     &format!(
-                        "start \"{}\": {} (process {launcher}) ended {} s after the launch: a launcher; waiting up to 30 s for the game (install folder {})",
+                        "start \"{}\": {} (process {launcher}) ended {} s after the launch: a launcher; waiting up to {} s for the game (install folder {})",
                         r.name,
                         r.exe.clone().unwrap_or_default(),
                         since.as_secs(),
+                        FOLLOW_WAIT.as_secs(),
                         r.install_dir.as_ref().map(|d| d.display().to_string()).unwrap_or_else(|| "unknown".into())
                     ),
                 );

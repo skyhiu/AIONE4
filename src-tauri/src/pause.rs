@@ -198,6 +198,75 @@ pub fn resume_left_over() {
     );
 }
 
+/// D-035 (rev. ah): the process now in front; if AIONE paused it (the game or a process it
+/// started), the game is resumed at once, by whatever route it came to the front.
+pub fn on_foreground(pid: u32) -> bool {
+    let paused = PAUSED.lock().map(|p| p.contains(&pid)).unwrap_or(false);
+    if paused {
+        resume_running("the game came to the front");
+    }
+    paused
+}
+
+/// D-035: watches the foreground for as long as AIONE runs (a WinEvent hook on its own thread,
+/// like the start-up guard's; that one ends after the guard's seconds).
+#[cfg(windows)]
+pub fn start_watch() {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::Accessibility::{SetWinEventHook, HWINEVENTHOOK};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        DispatchMessageW, GetMessageW, GetWindowThreadProcessId, TranslateMessage,
+        EVENT_SYSTEM_FOREGROUND, MSG, WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS,
+    };
+    unsafe extern "system" fn on_fg(
+        _h: HWINEVENTHOOK,
+        _e: u32,
+        window: HWND,
+        _o: i32,
+        _c: i32,
+        _t: u32,
+        _time: u32,
+    ) {
+        let mut pid = 0u32;
+        unsafe { GetWindowThreadProcessId(window, Some(&mut pid)) };
+        if pid != 0 && PAUSED.lock().map(|p| p.contains(&pid)).unwrap_or(false) {
+            std::thread::spawn(move || on_foreground(pid));
+        }
+    }
+    std::thread::spawn(|| {
+        // SAFETY: an out-of-context hook with a static callback, kept for AIONE's lifetime; the
+        // message loop below delivers its events on this thread.
+        let hook = unsafe {
+            SetWinEventHook(
+                EVENT_SYSTEM_FOREGROUND,
+                EVENT_SYSTEM_FOREGROUND,
+                None,
+                Some(on_fg),
+                0,
+                0,
+                WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS,
+            )
+        };
+        if hook.0.is_null() {
+            logging::lifecycle(
+                Level::Warn,
+                "pause: the foreground watch could not be installed (SetWinEventHook failed)",
+            );
+            return;
+        }
+        let mut msg = MSG::default();
+        while unsafe { GetMessageW(&mut msg, None, 0, 0) }.0 > 0 {
+            unsafe {
+                let _ = TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+        }
+    });
+}
+
+#[cfg(not(windows))]
+pub fn start_watch() {}
+
 // ---------- the platform layer ----------
 
 #[cfg(windows)]
@@ -297,6 +366,18 @@ mod tests {
             )),
         )];
         assert!(anti_cheat(None, &running).unwrap().contains("running"));
+    }
+
+    /// D-035: the game (or a process it started) coming to the front resumes it; others don't.
+    #[test]
+    fn the_game_coming_to_the_front_resumes_it() {
+        if let Ok(mut p) = PAUSED.lock() {
+            *p = vec![4242, 4243];
+        }
+        assert!(!on_foreground(7)); // another program: still paused
+        assert_eq!(PAUSED.lock().unwrap().len(), 2);
+        assert!(on_foreground(4243)); // a process the game started: resumed
+        assert!(PAUSED.lock().unwrap().is_empty());
     }
 
     /// Windows only: a real process is suspended and resumed (a mock game: `ping`).

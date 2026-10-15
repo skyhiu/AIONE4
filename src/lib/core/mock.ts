@@ -294,6 +294,8 @@ export function createMock(search: string): { core: Core; control: MockControl }
   if (params.get('pad') === 'connected') emit('connected', '', 0);
 
   let running: string | null = null;
+  /** B-18 (rev. ah): the launcher wait was cancelled (the mock's later events are dropped). */
+  let cancelled = false;
   const exitHandlers: ((e: { id: string; name: string; minutes: number }) => void)[] = [];
   const windowHandlers: ((e: { id: string; name: string; ms: number }) => void)[] = [];
   const hintHandlers: ((e: { id: string; text: string }) => void)[] = [];
@@ -470,9 +472,10 @@ export function createMock(search: string): { core: Core; control: MockControl }
       const l = params.get('launcher');
       if (l) {
         setTimeout(() => control.gameWindow(id), 300);
+        cancelled = false;
         setTimeout(() => followHandlers.forEach((h) => h({ id, name: g?.name ?? id })), 1300);
-        if (l === 'play') setTimeout(() => control.gameWindow(id), 2300);
-        else setTimeout(() => control.gameExit(id), 2800);
+        if (l === 'play') setTimeout(() => !cancelled && control.gameWindow(id), 2100);
+        else setTimeout(() => !cancelled && control.gameExit(id), 1300 + 5000);
       } else if (w !== 'never') setTimeout(() => control.gameWindow(id), Number(w ?? 300));
       return Promise.resolve({ id, name: g?.name ?? id, how: 'shortcut game.lnk', pid: 4242, alreadyRunning: false, foreground: null });
     },
@@ -508,6 +511,12 @@ export function createMock(search: string): { core: Core; control: MockControl }
     onGameFollowing(h) {
       followHandlers.push(h);
       return Promise.resolve(() => {});
+    },
+    cancelStart(id) {
+      if (running !== id) return Promise.reject(new Error("that game isn't starting"));
+      running = null;
+      cancelled = true;
+      return Promise.resolve(`start "${id}": the wait was cancelled (B): ended, nothing counted`);
     },
     forceCloseGame(id) {
       control.closes.push(`force:${id}`);

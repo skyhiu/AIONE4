@@ -59,6 +59,7 @@ export function createTauriCore(): Core {
     onStatus: (handler) => listen<PcStatus>(EVENTS.status, (e) => handler(e.payload)),
     launchGame: (id) => invoke<LaunchResult>('launch_game', { id }),
     returnToGame: (id) => invoke<string>('return_to_game', { id }),
+    cancelStart: (id) => invoke<string>('cancel_start', { id }),
     forceCloseGame: async (id) => {
       await invoke('force_close_game', { id });
     },

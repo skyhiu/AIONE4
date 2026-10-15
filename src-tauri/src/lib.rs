@@ -163,8 +163,8 @@ async fn launch_game(app: AppHandle, id: String) -> Result<launch::Started, Stri
                         &format!("\"{name}\": played {minutes:.1} min (total {total:.1} min)"),
                     ),
                     Err(e) => logging::lifecycle(
-                        Level::Warn,
-                        &format!("\"{name}\": could not record the session: {e}"),
+                        if counted { Level::Warn } else { Level::Info },
+                        &if counted { format!("\"{name}\": could not record the session: {e}") } else { format!("\"{name}\": {e}") },
                     ),
                 }
                 logging::lifecycle(
@@ -271,6 +271,12 @@ async fn force_close_game(app: AppHandle, id: String) -> Result<(), String> {
         );
     }
     Ok(())
+}
+
+/// B-18 (rev. ah): B on "Starting <game>…" cancels the launcher wait (nothing counted).
+#[tauri::command]
+fn cancel_start(id: String) -> Result<String, String> {
+    launch::cancel_start(&id)
 }
 
 /// T1.3 (B-7): A or Guide on the running game brings it back to the front.
@@ -700,6 +706,8 @@ pub fn run() {
     // B-20: the pause's record; resume anything a previous AIONE left paused.
     pause::init(&data_dir);
     pause::resume_left_over();
+    // D-035: resume a paused game the moment it comes to the front by any route.
+    pause::start_watch();
 
     // B-19 part 1: the one-time emulator check report (read only), in the background; written
     // again with `--check-emulators`.
@@ -777,6 +785,7 @@ pub fn run() {
             launch_game,
             close_game,
             force_close_game,
+            cancel_start,
             return_to_game,
             running_game
         ])
@@ -812,7 +821,6 @@ pub fn run() {
                     show_and_focus(&guide_handle, "Guide");
                     // B-20: the running game is paused while AIONE is in front.
                     std::thread::spawn(|| {
-                        std::thread::sleep(std::time::Duration::from_millis(300));
                         pause::pause_running("Guide: AIONE in front");
                     });
                     std::thread::spawn(|| {

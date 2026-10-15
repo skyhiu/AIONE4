@@ -185,6 +185,8 @@ export interface Core {
   onCloseHint(handler: (e: { id: string; text: string }) => void): Promise<Unlisten>;
   /** B-18 (rev. ag): force close (only after the user confirms): ends the game's processes. */
   forceCloseGame(id: string): Promise<void>;
+  /** B-18 (rev. ah): B on "Starting <game>…" cancels the launcher wait. */
+  cancelStart(id: string): Promise<string>;
   /** D-026: the running game's window appeared. */
   onGameWindow(handler: (e: { id: string; name: string; ms: number }) => void): Promise<Unlisten>;
   /** T1.3: the running game's id, if any. */

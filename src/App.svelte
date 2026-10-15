@@ -206,6 +206,19 @@
       }
       return;
     }
+    // B-18 (rev. ah): B on "Starting <game>…" cancels the launcher wait at once.
+    if (launching === 'starting' && followingId && ev.kind === 'down' && toAction(ev) === 'back') {
+      const id = followingId;
+      const name = games.find((x) => x.id === id)?.name ?? id;
+      followingId = null;
+      core?.cancelStart(id).catch(() => {});
+      core?.log('info', `${describeInput(ev, 'back', `the wait for "${name}" cancelled (B): Home, nothing counted`)}`);
+      runningId = null;
+      pendingId = null;
+      returnHome(`the wait for "${name}" was cancelled`);
+      games = sortForHome(games);
+      return;
+    }
     // T1.3: input during the launch transition is discarded (never queued).
     if (launching === 'starting') {
       core?.log('info', `${describeInput(ev, null, 'discarded (launching a game: input lock)')}`);
@@ -427,6 +440,8 @@
   let veil = $state(false);
   /** D-032: the text on the veil while waiting for a launcher's game. */
   let veilText = $state<string | null>(null);
+  /** B-18 (rev. ah): the game whose launcher wait B can cancel. */
+  let followingId = $state<string | null>(null);
   /** The game that is running (started by AIONE), if any. */
   let runningId = $state<string | null>(null);
   let launchTimers: ReturnType<typeof setTimeout>[] = [];
@@ -630,6 +645,7 @@
     launching = 'none';
     veil = false;
     veilText = null;
+    followingId = null;
     if (runningId) focusGame(runningId);
     core?.log('info', `Home again: ${why}${runningId ? `; focus on the running game` : ''}`);
   }
@@ -982,6 +998,7 @@
           launching = 'starting';
           veil = true;
           veilText = `Starting ${e.name}…`;
+          followingId = e.id;
           fadeEndAt = performance.now();
           core?.log('info', `"${e.name}": its launcher ended; waiting for the game (black, input locked)`);
         }),
@@ -998,6 +1015,7 @@
           if (launching === 'starting' && pendingId === e.id) {
             pendingId = null;
             veilText = null;
+            followingId = null;
             core?.log('info', `"${e.name}": its window appeared after ${e.ms} ms; the launch is complete`);
             // The transition always completes: a window that appears early waits for the fade.
             launchTimers.push(setTimeout(() => {
@@ -1174,7 +1192,7 @@
   {/if}
   <!-- T1.3: the launch veil: Home fades to black (0.3 s, eased) after 0.55 s still. -->
   <div class="launch-veil" class:on={veil} data-testid="launch-veil" aria-hidden="true">
-    {#if veil && veilText}<p class="veil-text" data-testid="veil-text">{veilText}</p>{/if}
+    {#if veil && veilText}<p class="veil-text" data-testid="veil-text">{veilText}{#if followingId}<span class="veil-b">  B Back to Home</span>{/if}</p>{/if}
   </div>
 </main>
 
@@ -1197,6 +1215,11 @@
     text-align: center;
     color: rgb(255 255 255 / 0.75);
     font: 400 var(--text-sm) var(--font-ui);
+  }
+  .veil-b {
+    margin-left: 1.5em;
+    opacity: 0.85;
+    white-space: pre;
   }
   .launch-veil.on {
     opacity: 1;

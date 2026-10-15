@@ -349,8 +349,11 @@ unminimizes it). A background Guide press is consumed in the input gate (D-028).
 - **Mechanism:** every thread of the game's process and of the processes it started is suspended
   with `SuspendThread` (found with `CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD)`) and resumed with
   `ResumeThread`. The undocumented `NtSuspendProcess` isn't used.
-- **When:** after Guide brings AIONE to the front over a running game. Resumed on A Continue, Guide
-  back, before any close (Close Software, Close and start, force close), and when AIONE closes.
+- **When:** at once when Guide brings AIONE to the front over a running game (rev. ah). Resumed on A
+  Continue, Guide back, before any close (Close Software, Close and start, force close), when AIONE
+  closes, and **the moment the game or a process it started gets the front by any route** (a
+  taskbar click, Alt-Tab, the Game Bar, Steam: D-035), watched with a WinEvent foreground hook
+  (`EVENT_SYSTEM_FOREGROUND`, out of context) on its own thread for AIONE's lifetime.
 - **Never:** Steam's client / helper, Explorer, the Game Bar, AIONE; games with an anti-cheat in
   their folder or running (Easy Anti-Cheat, BattlEye, Vanguard); `"NoPause": true` in game.json.
 - **Safety:** the paused processes are recorded in `paused.json` in the data folder; the next start
