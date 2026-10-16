@@ -314,9 +314,13 @@ mod win {
             attempts.push("direct=denied".into());
 
             // 2. attach to the foreground thread's input queue
-            let fg_thread = GetWindowThreadProcessId(GetForegroundWindow(), None);
+            let mut fg_pid = 0u32;
+            let fg_thread = GetWindowThreadProcessId(GetForegroundWindow(), Some(&mut fg_pid));
             let me = GetCurrentThreadId();
-            if fg_thread != 0 && fg_thread != me {
+            // D-039 (rev. al): never attach to (and so wait on) a suspended thread.
+            if crate::pause::is_paused(fg_pid) {
+                attempts.push("attach-thread-input=skipped (the thread in front is paused)".into());
+            } else if fg_thread != 0 && fg_thread != me {
                 let attached = AttachThreadInput(me, fg_thread, true).as_bool();
                 let _ = BringWindowToTop(h);
                 let _ = SetForegroundWindow(h);

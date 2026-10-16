@@ -349,7 +349,10 @@ unminimizes it). A background Guide press is consumed in the input gate (D-028).
 - **Mechanism:** every thread of the game's process and of the processes it started is suspended
   with `SuspendThread` (found with `CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD)`) and resumed with
   `ResumeThread`. The undocumented `NtSuspendProcess` isn't used.
-- **When:** at once when Guide brings AIONE to the front over a running game (rev. ah). The game is
+- **When (rev. al, D-039):** only **after** the foreground step that Guide started has succeeded
+  (AIONE visible and active): Guide requests the pause, `show_and_focus` performs it; a 1 s watchdog
+  drops the request (and resumes) if AIONE isn't confirmed in front; the foreground step never
+  attaches its input to a paused process's thread. (Rev. ah's pause-at-once is superseded.) The game is
   only ever paused **while AIONE itself is in front** (rev. aj, D-035).
 - **Resumed (rev. aj):** on A Continue, Guide back, before any close, when AIONE closes, and **the
   moment the user starts leaving AIONE** (a paused program can't answer Windows, so it can never

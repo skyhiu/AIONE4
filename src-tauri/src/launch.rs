@@ -57,6 +57,8 @@ struct Running {
     counted_at: Option<Instant>,
     /// D-036: AIONE is closing this game (its end is the game's end, never a launcher wait).
     closing: bool,
+    /// B-20 (rev. al): the program in front at the last check, if it was neither the game nor AIONE.
+    behind: Option<String>,
 }
 
 static RUNNING: Mutex<Option<Running>> = Mutex::new(None);
@@ -77,6 +79,8 @@ pub enum Event {
         minutes: f64,
         /// B-11 (rev. ag): false when the real game never appeared (nothing recorded).
         counted: bool,
+        /// B-20 (rev. al): the program that was in front when the game ended (AIONE stays behind).
+        behind: Option<String>,
     },
 }
 
@@ -205,6 +209,25 @@ fn mark_closing(id: &str) {
             r.closing = true;
         }
     }
+}
+
+/// B-20 (rev. al): when the game ends, AIONE stays behind if neither the game nor AIONE was in
+/// front at the last check: the program then in front, else None.
+pub fn behind(
+    front_pid: Option<u32>,
+    front_exe: &str,
+    game_pid: Option<u32>,
+    aione_pid: u32,
+) -> Option<String> {
+    let pid = front_pid?;
+    if Some(pid) == game_pid
+        || pid == aione_pid
+        || front_exe.eq_ignore_ascii_case("aione4.exe")
+        || front_exe.is_empty()
+    {
+        return None;
+    }
+    Some(front_exe.to_string())
 }
 
 /// D-036 (rev. ai): does this process's end start the launcher wait? Never once it IS the game
@@ -427,6 +450,7 @@ pub fn launch(
         no_pause: f.no_pause,
         counted_at: None,
         closing: false,
+        behind: None,
     };
     if let Ok(mut g) = RUNNING.lock() {
         if let Some(old) = g.replace(run) {
@@ -727,6 +751,13 @@ fn watch(gen: u64, report: impl Fn(Event)) {
             return;
         };
         let since = r.started.elapsed();
+        // B-20 (rev. al): who is in front now (the game, AIONE, or another program).
+        if r.counted_at.is_some() {
+            let (fp, fe) = foreground_program()
+                .map(|(_, p, e)| (Some(p), e))
+                .unwrap_or((None, String::new()));
+            r.behind = behind(fp, &fe, r.pid, std::process::id());
+        }
         // 1. The game's window (not while following a launcher: the follow finds the game).
         if r.window.is_none() && following.is_none() {
             if let Some(p) = r.pid {
@@ -812,6 +843,7 @@ fn watch(gen: u64, report: impl Fn(Event)) {
                             .map(|t| t.elapsed().as_secs_f64() / 60.0)
                             .unwrap_or(0.0),
                         counted: r.counted_at.is_some(),
+                        behind: r.behind.clone(),
                     });
                 }
                 return;
@@ -871,6 +903,7 @@ fn watch(gen: u64, report: impl Fn(Event)) {
                             .map(|t| t.elapsed().as_secs_f64() / 60.0)
                             .unwrap_or(0.0),
                         counted: r.counted_at.is_some(),
+                        behind: r.behind.clone(),
                     });
                 }
                 return;
@@ -913,6 +946,7 @@ fn watch(gen: u64, report: impl Fn(Event)) {
                             .map(|t| t.elapsed().as_secs_f64() / 60.0)
                             .unwrap_or(0.0),
                         counted: r.counted_at.is_some(),
+                        behind: r.behind.clone(),
                     });
                 }
                 return;
@@ -1608,5 +1642,17 @@ mod tests {
             Duration::from_secs(60),
             Some("game.exe")
         ));
+    }
+
+    /// B-20 (rev. al): AIONE stays behind only when another program was in front.
+    #[test]
+    fn stays_behind_only_for_another_program() {
+        assert_eq!(behind(Some(10), "Balatro.exe", Some(10), 99), None); // the game in front
+        assert_eq!(behind(Some(99), "AIONE4.exe", Some(10), 99), None); // AIONE in front
+        assert_eq!(
+            behind(Some(42), "chrome.exe", Some(10), 99).as_deref(),
+            Some("chrome.exe")
+        ); // Chrome
+        assert_eq!(behind(None, "", Some(10), 99), None); // unknown: AIONE comes forward as before
     }
 }

@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.0.0-alpha.25 — completing T1.3 part 1 (rev. al)
+
+- **D-039:** the pause only after the foreground step succeeded (AIONE visible and active): Guide
+  requests it, show_and_focus performs it; a 1 s watchdog drops the request and resumes; the
+  attach-thread-input step is skipped when the thread in front belongs to a paused process.
+- **B-20 rev. al:** when a game ends while another program was in front (recorded each check), AIONE
+  stays behind, restored, Home ready (`the game ended while <program> was in front: AIONE stays
+  behind`).
+- Eden: unverified (eden_cli.txt not attached).
+
 ## 4.0.0-alpha.24 — completing T1.3 part 1 (rev. ak)
 
 - **D-038:** bringing AIONE to the front restores it first if it's minimized; "already in front"

@@ -154,7 +154,7 @@ async fn launch_game(app: AppHandle, id: String) -> Result<launch::Started, Stri
                     serde_json::json!({ "id": id, "name": name }),
                 );
             }
-            launch::Event::Ended { id, name, minutes, counted } => {
+            launch::Event::Ended { id, name, minutes, counted, behind } => {
                 let data = ev_app.state::<AppState>().data_dir.clone();
                 // B-11 (rev. ag): a launcher-only session (the game never appeared) isn't recorded.
                 match if counted { games::record_end(&data, &id, minutes) } else { Err("not counted: the game never appeared (launcher only)".into()) } {
@@ -167,11 +167,25 @@ async fn launch_game(app: AppHandle, id: String) -> Result<launch::Started, Stri
                         &if counted { format!("\"{name}\": could not record the session: {e}") } else { format!("\"{name}\": {e}") },
                     ),
                 }
-                logging::lifecycle(
-                    Level::Info,
-                    &format!("\"{name}\" ended: bringing AIONE back to the front"),
-                );
-                show_and_focus(&ev_app, "the game ended");
+                // B-20 (rev. al): AIONE comes forward only if the game or AIONE was in front.
+
+                if let Some(program) = behind {
+
+                    logging::lifecycle(Level::Info, &format!("\"{name}\": the game ended while {program} was in front: AIONE stays behind"));
+
+                    if let Some(w) = ev_app.get_webview_window(MAIN_WINDOW) {
+
+                        let _ = w.unminimize();
+
+                    }
+
+                } else {
+
+                    logging::lifecycle(Level::Info, &format!("\"{name}\" ended: bringing AIONE back to the front"));
+
+                    show_and_focus(&ev_app, "the game ended");
+
+                }
                 let _ = ev_app.emit(
                     EVENT_GAME_EXITED,
                     serde_json::json!({ "id": id, "name": name, "minutes": minutes }),
@@ -629,6 +643,8 @@ fn show_and_focus(app: &AppHandle, reason: &'static str) {
                 &format!("foreground ({reason}): AIONE was still minimized: restored"),
             );
         }
+        // D-039 (rev. al): only now (AIONE visible and active) may a requested pause happen.
+        pause::foreground_done(report.ok && !window.is_minimized().unwrap_or(false));
         // D-005: judged against AIONE's own main window.
         #[cfg(windows)]
         let own_raw: isize = window.hwnd().map(|h| h.0 as isize).unwrap_or(0);
@@ -859,10 +875,9 @@ pub fn run() {
                     );
                     show_and_focus(&guide_handle, "Guide");
                     launch::note_guide();
-                    // B-20: the running game is paused while AIONE is in front.
-                    std::thread::spawn(|| {
-                        pause::pause_running("Guide: AIONE in front");
-                    });
+                    // D-039 (rev. al): the pause is requested here and happens only after the
+                    // foreground step has succeeded (show_and_focus), with a 1 s watchdog.
+                    pause::request_pause();
                     std::thread::spawn(|| {
                         std::thread::sleep(std::time::Duration::from_millis(1000));
                         if let Some(h) = launch::guide_hint() {

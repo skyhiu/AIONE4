@@ -107,6 +107,74 @@ pub fn anti_cheat(
     None
 }
 
+// ---------- D-039 (rev. al): paused only once AIONE is confirmed in front ----------
+
+/// A Guide press asked for a pause; it happens only after the foreground step succeeds.
+static REQUESTED: Mutex<Option<std::time::Instant>> = Mutex::new(None);
+/// The watchdog: no pause if AIONE isn't confirmed in front within this time.
+pub const WATCHDOG_MS: u64 = 1000;
+
+/// What to do with a pause request.
+#[derive(Debug, PartialEq)]
+pub enum Gate {
+    /// The foreground step succeeded in time: pause now.
+    Pause,
+    /// Still waiting for the foreground step.
+    Wait,
+    /// The foreground step failed, or took longer than the watchdog: never pause.
+    Skip,
+}
+
+/// The decision: pause only after the foreground step succeeded, and within the watchdog.
+pub fn gate(foreground_ok: Option<bool>, waited_ms: u64) -> Gate {
+    match foreground_ok {
+        Some(true) if waited_ms <= WATCHDOG_MS => Gate::Pause,
+        Some(_) => Gate::Skip,
+        None if waited_ms > WATCHDOG_MS => Gate::Skip,
+        None => Gate::Wait,
+    }
+}
+
+/// Guide brought (or is bringing) AIONE forward: a pause is requested, with its watchdog.
+pub fn request_pause() {
+    let at = std::time::Instant::now();
+    if let Ok(mut r) = REQUESTED.lock() {
+        *r = Some(at);
+    }
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(WATCHDOG_MS + 50));
+        let still = REQUESTED.lock().map(|r| *r == Some(at)).unwrap_or(false);
+        if still && gate(None, at.elapsed().as_millis() as u64) == Gate::Skip {
+            if let Ok(mut r) = REQUESTED.lock() {
+                *r = None;
+            }
+            logging::lifecycle(Level::Warn, "pause: AIONE wasn't confirmed in front within 1 s (watchdog): the game isn't paused");
+            resume_running("watchdog: AIONE not in front within 1 s");
+        }
+    });
+}
+
+/// The foreground step finished (AIONE visible and active, or not): pause now if it was requested.
+pub fn foreground_done(ok: bool) {
+    let Some(at) = REQUESTED.lock().ok().and_then(|mut r| r.take()) else {
+        return;
+    };
+    match gate(Some(ok), at.elapsed().as_millis() as u64) {
+        Gate::Pause => {
+            pause_running("Guide: AIONE confirmed in front");
+        }
+        _ => logging::lifecycle(
+            Level::Info,
+            "pause: not paused (AIONE wasn't confirmed in front in time)",
+        ),
+    }
+}
+
+/// Whether AIONE has this process paused (the foreground step never attaches to its threads).
+pub fn is_paused(pid: u32) -> bool {
+    PAUSED.lock().map(|p| p.contains(&pid)).unwrap_or(false)
+}
+
 /// Pauses the running game (AIONE came to the front over it). Returns what happened.
 pub fn pause_running(why: &str) -> String {
     let Some(g) = crate::launch::running_game_info() else {
@@ -358,6 +426,12 @@ pub fn resume_process(_pid: u32) -> usize {
 mod tests {
     use super::*;
 
+    /// The tests share PAUSED: one at a time.
+    static LOCK: Mutex<()> = Mutex::new(());
+    fn one_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+        LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     #[test]
     fn pauses_the_game_and_what_it_started_never_steam() {
         let procs = vec![
@@ -400,9 +474,33 @@ mod tests {
         assert!(anti_cheat(None, &running).unwrap().contains("running"));
     }
 
+    /// D-039 (rev. al): the pause comes only after the foreground step succeeded, within 1 s.
+    #[test]
+    fn the_pause_waits_for_the_foreground_step() {
+        assert_eq!(gate(None, 100), Gate::Wait); // no foreground result yet: never pause first
+        assert_eq!(gate(Some(true), 150), Gate::Pause); // AIONE confirmed in front: pause
+        assert_eq!(gate(Some(false), 150), Gate::Skip); // the foreground step failed: no pause
+        assert_eq!(gate(None, 1200), Gate::Skip); // a slow foreground step: the watchdog, no pause
+        assert_eq!(gate(Some(true), 1500), Gate::Skip); // confirmed too late: no pause
+    }
+
+    /// D-039: a paused process is known as such (the foreground step skips its threads).
+    #[test]
+    fn a_paused_process_is_known() {
+        let _one = one_at_a_time();
+        if let Ok(mut p) = PAUSED.lock() {
+            *p = vec![777];
+        }
+        assert!(is_paused(777) && !is_paused(778));
+        if let Ok(mut p) = PAUSED.lock() {
+            p.clear();
+        }
+    }
+
     /// D-035 (rev. aj): leaving AIONE by any route resumes the game; nothing when nothing is paused.
     #[test]
     fn leaving_aione_resumes_the_game() {
+        let _one = one_at_a_time();
         if let Ok(mut p) = PAUSED.lock() {
             *p = vec![4242];
         }
@@ -439,6 +537,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn a_real_paused_process_resumes_when_aione_is_left() {
+        let _one = one_at_a_time();
         let mut child = std::process::Command::new("ping")
             .args(["-n", "30", "127.0.0.1"])
             .stdout(std::process::Stdio::null())
@@ -457,5 +556,40 @@ mod tests {
         let _ = resume_process(child.id());
         let _ = child.kill();
         let _ = child.wait(); // never left as a zombie (clippy::zombie_processes)
+    }
+
+    /// D-039 (rev. al): a slow foreground step (no result within 1 s): the watchdog resumes the
+    /// paused process. On Windows a real suspended process; elsewhere a stand-in id.
+    #[test]
+    fn the_watchdog_resumes_after_a_slow_foreground_step() {
+        let _one = one_at_a_time();
+        #[cfg(windows)]
+        let mut child = std::process::Command::new("ping")
+            .args(["-n", "30", "127.0.0.1"])
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        #[cfg(windows)]
+        let pid = {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            assert!(suspend_process(child.id()) > 0);
+            child.id()
+        };
+        #[cfg(not(windows))]
+        let pid = 4243;
+        if let Ok(mut p) = PAUSED.lock() {
+            *p = vec![pid];
+        }
+        request_pause(); // Guide; the foreground step never reports (it's "slow")
+        std::thread::sleep(std::time::Duration::from_millis(WATCHDOG_MS + 400));
+        assert!(
+            PAUSED.lock().unwrap().is_empty(),
+            "the watchdog didn't resume"
+        );
+        #[cfg(windows)]
+        {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
     }
 }
