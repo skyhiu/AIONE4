@@ -580,11 +580,26 @@ mod tests {
         if let Ok(mut p) = PAUSED.lock() {
             *p = vec![pid];
         }
+        let t0 = std::time::Instant::now();
         request_pause(); // Guide; the foreground step never reports (it's "slow")
-        std::thread::sleep(std::time::Duration::from_millis(WATCHDOG_MS + 400));
+                         // Not before the watchdog's second...
+        std::thread::sleep(std::time::Duration::from_millis(WATCHDOG_MS - 300));
+        assert!(
+            !PAUSED.lock().unwrap().is_empty(),
+            "resumed before the watchdog's 1 s"
+        );
+        // ...then resumed; a busy machine may take a little longer to wake the watchdog (CI #40).
+        while !PAUSED.lock().unwrap().is_empty() && t0.elapsed() < std::time::Duration::from_secs(5)
+        {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
         assert!(
             PAUSED.lock().unwrap().is_empty(),
-            "the watchdog didn't resume"
+            "the watchdog didn't resume within 5 s"
+        );
+        assert!(
+            t0.elapsed() >= std::time::Duration::from_millis(WATCHDOG_MS),
+            "resumed too early"
         );
         #[cfg(windows)]
         {
