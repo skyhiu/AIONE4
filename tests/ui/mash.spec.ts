@@ -157,3 +157,64 @@ for (const seed of SEEDS) {
     console.warn(`button-mashing seed ${seed}: ${counts.join(', ')} inputs; every transition ended sane; at most ${most} foreground attempt at once; no lock after the game's end`);
   });
 }
+
+// D-046 rev. ar and D-048 (B-22 rev. aq): a window of the launcher or Steam during a start.
+async function openWith(page: Page, q: string) {
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.goto(`./?time=1:10&h12=1&pad=connected&${q}`);
+  await page.locator('main[data-phase="home"]').waitFor();
+  await page.waitForTimeout(300);
+}
+const logs = (page: Page) => page.evaluate(() => window.__aioneMock?.logs ?? []);
+
+test("D-046 rev. ar: the launcher's window up 10 s, B mashed: nothing cancelled; the game is followed", async ({ page }) => {
+  test.setTimeout(60_000);
+  await openWith(page, 'showing=launcher&showingms=10000&window=11000');
+  await press(page, 'A');
+  await page.waitForTimeout(3500);
+  await mash(page, lcg(7), 4000, ['B', 'B', 'A', 'DPadLeft', 'Guide']);
+  await expect(page.getByTestId('veil-text')).not.toContainText('B Cancel start');
+  let l = await logs(page);
+  expect(l.some((x) => x.includes('B ignored (the launcher is showing a window)'))).toBe(true);
+  expect(l.some((x) => x.includes('the start was cancelled (B)'))).toBe(false);
+  await expect.poll(async () => (await state(page)).launching, { timeout: 8000 }).toBe('ingame'); // followed
+  l = await logs(page);
+  expect(l.some((x) => x.includes('its window appeared'))).toBe(true);
+});
+
+test("D-048: Steam's window in front for 10 s, then the game: the wait extends and the game is followed", async ({ page }) => {
+  test.setTimeout(60_000);
+  await openWith(page, 'launcher=steam&showing=steam&showingms=10000&steamgame=1&followat=1500');
+  await press(page, 'A');
+  await page.waitForTimeout(2000);
+  await mash(page, lcg(7), 4000, ['B', 'A', 'DPadRight', 'Guide']);
+  let l = await logs(page);
+  expect(l.some((x) => x.includes('Steam is showing a window during the start: waiting'))).toBe(true);
+  expect((await state(page)).launching).toBe('starting'); // still waiting at about 6.5 s (no 5 s give-up)
+  await expect.poll(async () => (await state(page)).launching, { timeout: 8000 }).toBe('ingame');
+  l = await logs(page);
+  expect(l.some((x) => x.includes('the start was cancelled (B)'))).toBe(false);
+});
+
+test("D-048: Steam's window and no game: the start ends at its limit; AIONE stays behind Steam's window", async ({ page }) => {
+  test.setTimeout(60_000);
+  await openWith(page, 'launcher=steam&showing=steam&showingms=60000&startlimit=8000&followat=1500');
+  await press(page, 'A');
+  await page.waitForTimeout(2000);
+  await mash(page, lcg(7), 3000, ['B', 'A', 'Guide']);
+  await expectSane(page, 8000 + 1000);
+  const l = await logs(page);
+  expect(l.some((x) => x.includes('the start ended while Steam is showing a window: AIONE stays behind'))).toBe(true);
+});
+
+test('D-046: nothing showing for 3 s, then B: the start is cancelled (as before)', async ({ page }) => {
+  test.setTimeout(60_000);
+  await openWith(page, 'window=8000');
+  await press(page, 'A');
+  await page.waitForTimeout(3600);
+  await expect(page.getByTestId('veil-text')).toContainText('B Cancel start');
+  await press(page, 'B');
+  await expectSane(page, 1500);
+  const l = await logs(page);
+  expect(l.some((x) => x.includes('the start was cancelled (B)'))).toBe(true);
+});

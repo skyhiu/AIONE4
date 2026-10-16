@@ -1,5 +1,17 @@
 # Changelog
 
+## 4.0.0-alpha.29 — a window of the launcher or Steam during a start (B-22 revs aq and ar)
+
+- **D-046 rev. ar:** "B Cancel start" only while nothing is showing (no window of the game, its
+  launcher or Steam); otherwise B is neither shown nor acted on (`B ignored (…)`), and AIONE stays
+  black behind that window.
+- **D-048:** Steam's window in front during the launcher wait = Steam is asking something: the wait
+  extends to the start's 45 s limit, a game appearing afterwards is followed, and AIONE never takes
+  the front from Steam's window (during the start or when it ends).
+- **Release naming (A11 rev. aq):** every test build a pre-release; the accepted builds titled
+  "✓ <stage> accepted".
+- Eden: unverified (eden_cli.txt not attached).
+
 ## 4.0.0-alpha.28 — completing T1.3 part 1 (B-22 revs ao and ap)
 
 - **D-045:** key releases reach the core (they stopped in the UI); only keys that act in AIONE

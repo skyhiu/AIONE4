@@ -161,7 +161,7 @@ async fn launch_game(app: AppHandle, id: String) -> Result<launch::Started, Stri
                     serde_json::json!({ "id": id, "name": name }),
                 );
             }
-            launch::Event::Ended { id, name, minutes, counted, behind: _ } => {
+            launch::Event::Ended { id, name, minutes, counted, behind } => {
                 let data = ev_app.state::<AppState>().data_dir.clone();
                 // B-11 (rev. ag): a launcher-only session (the game never appeared) isn't recorded.
                 match if counted { games::record_end(&data, &id, minutes) } else { Err("not counted: the game never appeared (launcher only)".into()) } {
@@ -177,8 +177,16 @@ async fn launch_game(app: AppHandle, id: String) -> Result<launch::Started, Stri
                 // B-22: the game's end clears any input-locking state.
                 transit::with(|m| m.clear("the game ended", std::time::Instant::now()));
                 // B-20 (rev. am): when a game ends, AIONE always comes to the front (restored, Home).
-                logging::lifecycle(Level::Info, &format!("\"{name}\" ended: bringing AIONE back to the front"));
-                show_and_focus(&ev_app, "the game ended");
+                if !counted && behind.as_deref().is_some_and(launch::is_steam) {
+                    // D-048 (B-22 rev. aq): never take the front from Steam's window.
+                    logging::lifecycle(Level::Info, &format!("\"{name}\": the start ended while Steam is showing a window: AIONE stays behind (Home ready)"));
+                    if let Some(w) = ev_app.get_webview_window(MAIN_WINDOW) {
+                        let _ = w.unminimize();
+                    }
+                } else {
+                    logging::lifecycle(Level::Info, &format!("\"{name}\" ended: bringing AIONE back to the front"));
+                    show_and_focus(&ev_app, "the game ended");
+                }
                 let _ = ev_app.emit(
                     EVENT_GAME_EXITED,
                     serde_json::json!({ "id": id, "name": name, "minutes": minutes }),
@@ -329,6 +337,12 @@ fn lock_leave(kind: String, how: String) -> bool {
 #[tauri::command]
 fn held_now() -> Vec<String> {
     transit::with(|m| m.held())
+}
+
+/// D-046 rev. ar: during a start, what is showing (a window of the game, its launcher, or Steam).
+#[tauri::command]
+fn start_showing(id: String) -> Option<String> {
+    launch::start_showing(&id)
 }
 
 /// D-045: AIONE gained or lost the front: the keyboard part of the held set is cleared.
@@ -892,6 +906,7 @@ pub fn run() {
             held_now,
             note_key,
             clear_keys,
+            start_showing,
             return_to_game,
             running_game
         ])

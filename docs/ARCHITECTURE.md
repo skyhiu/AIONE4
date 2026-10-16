@@ -382,12 +382,19 @@ it keeps no copy. A core thread checks every 200 ms and ends any state past its 
 | State | Limit (as built) | Escape | Ends | Guide in the core |
 |---|---|---|---|---|
 | Boot Up / Boot Down | 10 s (the animations' own skip and caps first) | skip (Boot Up) | done | ignored |
-| Launching a game | 46 s (the UI says "Still starting <game>…" at 45 s) | **B Cancel start** after 3 s (shown): the start is cancelled for real; the core keeps watching to the limit and **closes** a game appearing anyway (rev. ao, D-046) | the game's window; the start failed; B; timed out | ignored |
-| Launcher wait | 6 s (the core's own wait is 5 s) | **none** (rev. ao, D-046: its short limit is the way out) | the game followed; none | ignored |
+| Launching a game | 46 s (the UI says "Still starting <game>…" at 45 s) | **B Cancel start** after 3 s, **only while nothing is showing** (rev. ar: no window of the game, its launcher or Steam; otherwise `B ignored (…)`): the start is cancelled for real; the core keeps watching to the limit and **closes** a game appearing anyway (rev. ao, D-046) | the game's window; the start failed; B; timed out | ignored |
+| Launcher wait | 6 s (the core's own wait is 5 s); **with Steam's window in front, the launch's 46 s** (rev. aq, D-048: "Steam is asking something") | **none** (rev. ao, D-046) | the game followed; none (AIONE never takes the front from Steam's window) | ignored |
 | **The game still loading** (rev. ap) | from the game's window appearing until it has stayed put for 3 s (the same window, size and position, in front; each change restarts the 3 s), capped at 20 s (21 s in the machine) | none needed | settled; the 20 s cap | ignored (`Guide ignored (the game is still loading)`) |
 | Going back to the game (D-040) | 3 s waiting for the release, then **resumed anyway** (`still held: …`) | B: cancel, stay on Home (the game stays paused) | resumed; B | ignored |
 | Closing the game | 7 s (3 s for the game, then AIONE ends it, then up to 3 s) | none needed | ended | ignored |
 | A dialog / toast | none (answered) | B / Cancel | answered | acts |
+
+**Steam asking something during a start (rev. aq, D-048):** during the launcher wait, Steam's own
+window (`steamwebhelper.exe` / `steam.exe`, any user's Steam) in front means Steam is asking something
+(e.g. its "Launch game with custom arguments" dialog): the start isn't ended, the wait extends to the
+start's 45 s limit (`Steam is showing a window during the start: waiting`), a game appearing after
+it is followed, and a start that ends anyway leaves AIONE **behind** Steam's window (`AIONE stays
+behind (Home ready)`). B Cancel start is offered only while nothing is showing (`start_showing`).
 
 **The held set counts what matters (rev. ao, D-045):** the pad's buttons, and only the keys that
 act in AIONE (arrows, Enter, Space, Esc, Backspace, Tab), each press **and release** reported; never

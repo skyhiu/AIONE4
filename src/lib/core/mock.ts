@@ -301,6 +301,8 @@ export function createMock(search: string): { core: Core; control: MockControl }
   if (params.get('pad') === 'connected') emit('connected', '', 0);
 
   let running: string | null = null;
+  /** D-046 rev. ar: when the current start began (the mock's windows are timed from it). */
+  let launchAt = 0;
   /** B-22: the mirrored state machine, its held set and its limits (as transit.rs). */
   let lock: { kind: string; game: string | null; since: number } = { kind: 'none', game: null, since: Date.now() };
   const held = new Set<string>();
@@ -502,6 +504,7 @@ export function createMock(search: string): { core: Core; control: MockControl }
     },
     // T1.3: ?launch=fail makes every start fail (a missing shortcut).
     launchGame(id) {
+      launchAt = Date.now();
       const g = SAMPLE_GAMES.find((x) => x.id === id);
       control.launches.push(id);
       if (params.get('launch') === 'fail') return Promise.reject(new Error('its shortcut game.lnk is missing'));
@@ -525,7 +528,29 @@ export function createMock(search: string): { core: Core; control: MockControl }
             gameShown = true;
             control.gameWindow(id);
           }, followAt + 800);
-        else setTimeout(() => !cancelled && control.gameExit(id), followAt + 5000);
+        else if (l === 'steam') {
+          // D-048: Steam's window during the launcher wait (?showing=steam): the wait extends to the
+          // start's limit; Continue → the game (?steamgame=1), or no game: the start ends at its
+          // limit (?startlimit=ms) without AIONE taking the front from Steam's window.
+          // As the core: Steam seen during the wait → the launch's limit replaces the 6 s wait's.
+          setTimeout(() => {
+            control.logs.push(`info: start "${g?.name ?? id}": Steam is showing a window during the start: waiting (up to the start's 45 s)`);
+            if (lock.kind !== 'none') control.logs.push(`info: lock: ${lock.kind} ended: replaced`);
+            lock = { kind: 'launching', game: id, since: Date.now() };
+          }, followAt + 50);
+          if (params.get('steamgame') === '1')
+            setTimeout(() => {
+              if (cancelled) return;
+              gameShown = true;
+              control.gameWindow(id);
+            }, Number(params.get('showingms') ?? 10000) + 500);
+          else
+            setTimeout(() => {
+              if (cancelled) return;
+              control.logs.push(`info: "${g?.name ?? id}": the start ended while Steam is showing a window: AIONE stays behind (Home ready)`);
+              control.gameExit(id);
+            }, Number(params.get('startlimit') ?? 45000));
+        } else setTimeout(() => !cancelled && control.gameExit(id), followAt + 5000);
       } else if (w !== 'never') setTimeout(() => control.gameWindow(id), Number(w ?? 300));
       return Promise.resolve({ id, name: g?.name ?? id, how: 'shortcut game.lnk', pid: 4242, alreadyRunning: false, foreground: null });
     },
@@ -595,6 +620,13 @@ export function createMock(search: string): { core: Core; control: MockControl }
     },
     heldNow() {
       return Promise.resolve([...held]);
+    },
+    // D-046 rev. ar: ?showing=launcher|steam&showingms=N: that window is up for N ms from the start.
+    startShowing(id) {
+      const what = params.get('showing');
+      const ms = Number(params.get('showingms') ?? 10000);
+      if (running !== id || !what || Date.now() - launchAt > ms) return Promise.resolve(null);
+      return Promise.resolve(what === 'steam' ? 'Steam is showing a window' : 'the launcher is showing a window');
     },
     clearKeys() {
       for (const k of [...held]) if (k.startsWith('key:')) held.delete(k);

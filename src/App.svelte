@@ -231,6 +231,11 @@
     }
     // D-046 (B-22 rev. ao): the launcher wait has no B (its 5 s limit is the way out).
     // B-22 (D-042): B leaves a normal launch after about 3 s ("B Back to Home" shown).
+    if (launching === 'starting' && ev.kind === 'down' && toAction(ev) === 'back' && !launchBackOk) {
+      // D-046 rev. ar: a window of the game, its launcher or Steam is up: B is neither shown nor acted on.
+      core?.log('info', `${describeInput(ev, 'back', `B ignored (${showingNow ?? (followingId ? 'the launcher wait' : 'the start has just begun')})`)}`);
+      return;
+    }
     if (launching === 'starting' && !followingId && launchBackOk && ev.kind === 'down' && toAction(ev) === 'back') {
       lockHow = 'escaped (B)';
       const id = pendingId ?? runningId;
@@ -462,6 +467,8 @@
   /** D-040: the buttons and keys held right now (a press adds, a release removes). */
   /** B-22: a return in progress can be resumed anyway when its 3 s limit passes. */
   let returnResume: (() => void) | null = null;
+  /** D-046 rev. ar: what the core says is showing during the start (null: nothing). */
+  let showingNow: string | null = null;
   /** B-22 (D-042): B leaves a normal launch after about 3 s. */
   let launchBackOk = $state(false);
   /** B-22: why the current input-locking state ends (the core logs it). */
@@ -544,12 +551,19 @@
     }
     launching = 'starting';
     launchBackOk = false;
-    launchTimers.push(setTimeout(() => {
-      if (launching === 'starting' && !followingId) {
-        launchBackOk = true;
+    // D-046 rev. ar: from 3 s, "B Cancel start" only while NOTHING is showing (no window of the
+    // game, its launcher or Steam); the core says what is.
+    const checkShowing = () => {
+      if (launching !== 'starting' || followingId) return;
+      void core?.startShowing(g.id).then((what) => {
+        if (launching !== 'starting') return;
+        showingNow = what;
+        launchBackOk = !what && !followingId;
         veilText = `Starting ${g.name}…`;
-      }
-    }, 3000));
+        launchTimers.push(setTimeout(checkShowing, 500));
+      });
+    };
+    launchTimers.push(setTimeout(checkShowing, 3000));
     const t0 = performance.now();
     fadeEndAt = t0 + LAUNCH_STILL_MS + LAUNCH_FADE_MS;
     const s = play('launch');

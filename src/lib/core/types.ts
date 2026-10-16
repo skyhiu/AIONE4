@@ -195,6 +195,8 @@ export interface Core {
   heldNow(): Promise<string[]>;
   /** B-22: a keyboard key down / up. */
   noteKey(key: string, down: boolean): Promise<void>;
+  /** D-046 rev. ar: during a start, what is showing (null: nothing; B Cancel start is offered). */
+  startShowing(id: string): Promise<string | null>;
   /** D-045: AIONE gained or lost the front: clear the keyboard part of the held set. */
   clearKeys(): Promise<void>;
   /** B-22: a state reached its limit. */

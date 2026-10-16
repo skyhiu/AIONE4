@@ -267,6 +267,52 @@ pub fn end_is_launcher(
     exe.is_some_and(is_launcher) || since_launch < Duration::from_secs(30)
 }
 
+/// D-048 (B-22 rev. aq): Steam's own window (any user's Steam: its client or its web helper).
+pub fn is_steam(exe: &str) -> bool {
+    let e = exe.to_ascii_lowercase();
+    e == "steamwebhelper.exe" || e == "steam.exe"
+}
+
+/// D-048: does the launcher wait give up now? With Steam's window seen during it ("Steam is asking
+/// something"), only at the start's 45 s limit; otherwise after the usual wait.
+pub fn follow_gives_up(since_follow: Duration, since_launch: Duration, steam_seen: bool) -> bool {
+    if steam_seen {
+        since_launch > Duration::from_secs(45)
+    } else {
+        since_follow > FOLLOW_WAIT
+    }
+}
+
+/// D-046 rev. ar: what is showing during a start (B is offered only when nothing is).
+pub fn showing_label(
+    steam_in_front: bool,
+    started_window: bool,
+    started_is_launcher: bool,
+) -> Option<&'static str> {
+    if steam_in_front {
+        Some("Steam is showing a window")
+    } else if started_window && started_is_launcher {
+        Some("the launcher is showing a window")
+    } else if started_window {
+        Some("the game is showing a window")
+    } else {
+        None
+    }
+}
+
+/// D-046 rev. ar: during the start of `id`, is any window of the game, its launcher or Steam up?
+pub fn start_showing(id: &str) -> Option<String> {
+    let r = RUNNING
+        .lock()
+        .ok()
+        .and_then(|g| g.clone())
+        .filter(|r| r.id == id)?;
+    let steam = foreground_program().is_some_and(|(_, _, e)| is_steam(&e));
+    let window = r.pid.and_then(main_window_of).is_some();
+    let launcher = r.exe.as_deref().is_some_and(is_launcher);
+    showing_label(steam, window, launcher).map(str::to_string)
+}
+
 /// D-032: programs known to be launchers (they start the real game and exit).
 pub fn is_launcher(exe: &str) -> bool {
     let e = exe.to_ascii_lowercase();
@@ -769,6 +815,8 @@ fn watch(gen: u64, report: impl Fn(Event)) {
     let mut found_logged = false;
     // D-032: (when the launcher ended, its process id) while waiting for the real game.
     let mut following: Option<(Instant, u32)> = None;
+    // D-048: Steam's window was seen in front during the launcher wait.
+    let mut steam_seen = false;
     loop {
         std::thread::sleep(Duration::from_millis(250));
         let Some(mut r) = RUNNING
@@ -938,6 +986,20 @@ fn watch(gen: u64, report: impl Fn(Event)) {
         // 2. D-032: a launcher's end soon after the launch is not the game's end: follow it.
         if let Some((since_follow, launcher)) = following {
             let procs = process_list();
+            // D-048 (B-22 rev. aq): Steam's window in front = Steam is asking something.
+            if !steam_seen && foreground_program().is_some_and(|(_, _, e)| is_steam(&e)) {
+                steam_seen = true;
+                logging::lifecycle(Level::Info, &format!("start \"{}\": Steam is showing a window during the start: waiting (up to the start's 45 s)", r.name));
+                crate::transit::with(|m| {
+                    m.enter(
+                        crate::transit::Kind::Launching,
+                        Some(r.id.clone()),
+                        "Steam is showing a window",
+                        Instant::now(),
+                    )
+                });
+            }
+            let gives_up = follow_gives_up(since_follow.elapsed(), since, steam_seen);
             if let Some((pid, why)) = pick_game(&procs, launcher, r.install_dir.as_deref(), &|p| {
                 main_window_of(p).is_some()
             }) {
@@ -1001,7 +1063,11 @@ fn watch(gen: u64, report: impl Fn(Event)) {
                     });
                 }
                 let _ = hand_over(&r, "the game after its launcher:");
-            } else if since_follow.elapsed() > FOLLOW_WAIT {
+            } else if gives_up {
+                if foreground_program().is_some_and(|(_, _, e)| is_steam(&e)) {
+                    // D-048: never take the front from Steam's window when the start ends.
+                    r.behind = Some("steamwebhelper.exe".into());
+                }
                 logging::lifecycle(Level::Info, &format!("start \"{}\": no game after the launcher in {} s (closed without Play): ended", r.name, FOLLOW_WAIT.as_secs()));
                 if take_if(gen) {
                     report(Event::Ended {
@@ -1772,5 +1838,32 @@ mod tests {
             Some("chrome.exe")
         ); // Chrome
         assert_eq!(behind(None, "", Some(10), 99), None); // unknown: AIONE comes forward as before
+    }
+
+    /// D-048 / D-046 rev. ar (B-23: any user's Steam).
+    #[test]
+    fn steam_asking_extends_the_wait_and_b_only_when_nothing_shows() {
+        let s = Duration::from_secs;
+        assert!(is_steam("steamwebhelper.exe") && is_steam("Steam.exe") && !is_steam("DR2_us.exe"));
+        // Without Steam: the usual 5 s wait.
+        assert!(!follow_gives_up(s(4), s(10), false));
+        assert!(follow_gives_up(s(6), s(10), false));
+        // With Steam's window seen: up to the start's 45 s limit.
+        assert!(!follow_gives_up(s(30), s(40), true));
+        assert!(follow_gives_up(s(40), s(46), true));
+        // B is offered only when nothing is showing.
+        assert_eq!(
+            showing_label(true, false, false),
+            Some("Steam is showing a window")
+        );
+        assert_eq!(
+            showing_label(false, true, true),
+            Some("the launcher is showing a window")
+        );
+        assert_eq!(
+            showing_label(false, true, false),
+            Some("the game is showing a window")
+        );
+        assert_eq!(showing_label(false, false, false), None);
     }
 }

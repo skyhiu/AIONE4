@@ -68,6 +68,7 @@ export function createTauriCore(): Core {
     },
     lockLeave: (kind, how) => invoke<boolean>('lock_leave', { kind, how }),
     heldNow: () => invoke<string[]>('held_now'),
+    startShowing: (id) => invoke<string | null>('start_showing', { id }),
     clearKeys: async () => {
       await invoke('clear_keys');
     },
