@@ -17,6 +17,7 @@ pub mod paths;
 pub mod pause;
 pub mod status;
 pub mod tiles;
+pub mod transit;
 pub mod version;
 
 use logging::Level;
@@ -38,6 +39,11 @@ pub const EVENT_CLOSE_REQUESTED: &str = "aione://close-requested";
 /// D-026: the running game's window appeared: `{ id, name, ms }`.
 /// D-032: the launcher ended soon after the launch; AIONE waits for the real game: `{ id, name }`.
 pub const EVENT_GAME_FOLLOWING: &str = "aione://game-following";
+/// D-043: a foreground attempt is running.
+static FG_BUSY: AtomicBool = AtomicBool::new(false);
+
+/// B-22: an input-locking state reached its limit: `{ kind }`.
+pub const EVENT_LOCK_EXPIRED: &str = "aione://lock-expired";
 /// B-18 (rev. ae): the close's hint for the UI: `{ id, text }`.
 pub const EVENT_CLOSE_HINT: &str = "aione://close-hint";
 pub const EVENT_GAME_WINDOW: &str = "aione://game-window";
@@ -167,6 +173,8 @@ async fn launch_game(app: AppHandle, id: String) -> Result<launch::Started, Stri
                         &if counted { format!("\"{name}\": could not record the session: {e}") } else { format!("\"{name}\": {e}") },
                     ),
                 }
+                // B-22: the game's end clears any input-locking state.
+                transit::with(|m| m.clear("the game ended", std::time::Instant::now()));
                 // B-20 (rev. am): when a game ends, AIONE always comes to the front (restored, Home).
                 logging::lifecycle(Level::Info, &format!("\"{name}\" ended: bringing AIONE back to the front"));
                 show_and_focus(&ev_app, "the game ended");
@@ -295,6 +303,37 @@ async fn cancel_start(app: AppHandle, id: String) -> Result<String, String> {
 #[tauri::command]
 fn return_to_game(id: String) -> Result<String, String> {
     launch::return_to_game(&id)
+}
+
+/// B-22: the UI enters an input-locking state (the core owns it, its limit and its log).
+#[tauri::command]
+fn lock_enter(kind: String, game: Option<String>, why: String) {
+    transit::with(|m| {
+        m.enter(
+            transit::Kind::parse(&kind),
+            game,
+            &why,
+            std::time::Instant::now(),
+        )
+    });
+}
+
+/// B-22: the UI ends a state (done / escaped (B) / answered …).
+#[tauri::command]
+fn lock_leave(kind: String, how: String) -> bool {
+    transit::with(|m| m.leave(transit::Kind::parse(&kind), &how, std::time::Instant::now()))
+}
+
+/// B-22: what is held right now (every pad press and release, and the keys the UI reports).
+#[tauri::command]
+fn held_now() -> Vec<String> {
+    transit::with(|m| m.held())
+}
+
+/// B-22: a keyboard key down / up (keys only reach the UI; the core keeps the one held set).
+#[tauri::command]
+fn note_key(key: String, down: bool) {
+    transit::with(|m| m.press(&format!("key:{key}"), down));
 }
 
 /// D-037 (rev. ak): the window-swap hand-back (the game only, a visible window, no step-aside).
@@ -583,7 +622,22 @@ fn restart_app(app: AppHandle) -> Result<(), String> {
 /// main thread.
 fn show_and_focus(app: &AppHandle, reason: &'static str) {
     let handle = app.clone();
+    // D-043: one foreground attempt at a time; a later one is dropped (logged).
+    if FG_BUSY.swap(true, Ordering::SeqCst) {
+        logging::lifecycle(
+            Level::Info,
+            &format!("foreground ({reason}): one attempt is already running: this one dropped"),
+        );
+        return;
+    }
     let run = move || {
+        struct Release;
+        impl Drop for Release {
+            fn drop(&mut self) {
+                FG_BUSY.store(false, Ordering::SeqCst);
+            }
+        }
+        let _release = Release;
         let Some(window) = handle.get_webview_window(MAIN_WINDOW) else {
             logging::lifecycle(Level::Error, "main window missing");
             return;
@@ -824,10 +878,24 @@ pub fn run() {
             cancel_start,
             ms_since_guide,
             hand_back,
+            lock_enter,
+            lock_leave,
+            held_now,
+            note_key,
             return_to_game,
             running_game
         ])
         .setup(|app| {
+            // B-22: every 200 ms, a state past its limit ends ("timed out") and the UI is told.
+            {
+                let tick_app = app.handle().clone();
+                std::thread::spawn(move || loop {
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                    if let Some(k) = transit::with(|m| m.tick(std::time::Instant::now())) {
+                        let _ = tick_app.emit(EVENT_LOCK_EXPIRED, serde_json::json!({ "kind": k.name() }));
+                    }
+                });
+            }
             #[cfg(windows)]
             if let Some(w) = app.get_webview_window(MAIN_WINDOW) {
                 if let Ok(h) = w.hwnd() {
@@ -853,6 +921,13 @@ pub fn run() {
                 },
                 // B-7: Guide in the background brings AIONE to the front.
                 move || {
+                    // B-22 (D-042): during a launch, a launcher wait, a return or a close, Guide does
+                    // nothing in the core, and AIONE never takes the front.
+                    let (kind, _, _) = transit::current();
+                    if !transit::guide_allowed(kind) {
+                        logging::lifecycle(Level::Info, &format!("Guide ignored ({})", kind.name()));
+                        return;
+                    }
                     logging::lifecycle(
                         Level::Info,
                         "Guide pressed while AIONE is in the background: bringing AIONE to the front",

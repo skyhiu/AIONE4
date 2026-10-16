@@ -344,8 +344,8 @@ test.describe('T1.3 launching (mocked core)', () => {
     await page.waitForTimeout(700); // the fade (0.3 s) is over
     expect(await veil(page)).toBe(1);
     expect(await page.evaluate(() => window.__aioneMock?.returns ?? [])).toEqual([]); // not resumed while A is held
-    await hold(page, 'B'); // input locked meanwhile
-    await release(page, 'B');
+    await hold(page, 'DPadRight'); // input locked meanwhile (B would cancel the return: B-22)
+    await release(page, 'DPadRight');
     await page.waitForTimeout(1600); // more than 2 s held: the hint
     await expect(page.getByTestId('veil-text')).toHaveText('Release the buttons');
     expect(await page.evaluate(() => window.__aioneMock?.returns ?? [])).toEqual([]);
@@ -355,5 +355,42 @@ test.describe('T1.3 launching (mocked core)', () => {
     const l = await logs(page);
     expect(l.some((x) => /back to "Amber Lighthouse": waiting for the buttons to be released \(\d+ ms\)/.test(x))).toBe(true);
     expect(l.some((x) => x.includes('discarded (going back to the game: input lock)'))).toBe(true);
+  });
+
+  test('D-041 (B-22): a return started with Guide completes once Guide is released (the core sees its release)', async ({ page }) => {
+    await open(page);
+    await pad(page, 'A');
+    await page.waitForTimeout(1100);
+    await page.evaluate(() => window.dispatchEvent(new Event('focus'))); // Home again
+    await page.waitForTimeout(400);
+    await pad(page, 'Guide'); // Guide on the running game: back to it (a full press: down, then up)
+    await page.waitForTimeout(800);
+    expect(await page.evaluate(() => window.__aioneMock?.returns ?? [])).toEqual(['Amber Lighthouse']);
+    const l = await logs(page);
+    expect(l.some((x) => x.includes('lock: returning ended: done (released)'))).toBe(true);
+  });
+
+  test('B-22: B cancels a return (Home, the game stays paused); a button held past 3 s: resumed anyway', async ({ page }) => {
+    await open(page);
+    await pad(page, 'A');
+    await page.waitForTimeout(1100);
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await page.waitForTimeout(400);
+    await hold(page, 'A'); // Continue, held
+    await page.waitForTimeout(500);
+    await pad(page, 'B'); // the escape
+    await expect.poll(() => veil(page), { timeout: 1500 }).toBe(0);
+    expect(await page.evaluate(() => window.__aioneMock?.returns ?? [])).toEqual([]);
+    let l = await logs(page);
+    expect(l.some((x) => x.includes('lock: returning ended: escaped (B)'))).toBe(true);
+    await release(page, 'A');
+    // Again, and keep A held past the 3 s limit: resumed anyway.
+    await page.waitForTimeout(300);
+    await hold(page, 'A');
+    await page.waitForTimeout(3800);
+    expect(await page.evaluate(() => window.__aioneMock?.returns ?? [])).toEqual(['Amber Lighthouse']);
+    l = await logs(page);
+    expect(l.some((x) => x.includes('still held: pad:A; resuming anyway'))).toBe(true);
+    await release(page, 'A');
   });
 });

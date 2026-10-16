@@ -26,6 +26,7 @@ export const EVENTS = {
   gameWindow: 'aione://game-window',
   closeHint: 'aione://close-hint',
   gameFollowing: 'aione://game-following',
+  lockExpired: 'aione://lock-expired',
 } as const;
 
 /** The core's media protocol (`aione-media`); WebView2 reaches custom protocols as
@@ -62,6 +63,15 @@ export function createTauriCore(): Core {
     cancelStart: (id) => invoke<string>('cancel_start', { id }),
     msSinceGuide: () => invoke<number>('ms_since_guide'),
     handBack: (id) => invoke<string>('hand_back', { id }),
+    lockEnter: async (kind, game, why) => {
+      await invoke('lock_enter', { kind, game, why });
+    },
+    lockLeave: (kind, how) => invoke<boolean>('lock_leave', { kind, how }),
+    heldNow: () => invoke<string[]>('held_now'),
+    noteKey: async (key, down) => {
+      await invoke('note_key', { key, down });
+    },
+    onLockExpired: (handler) => listen<{ kind: string }>(EVENTS.lockExpired, (e) => handler(e.payload)),
     forceCloseGame: async (id) => {
       await invoke('force_close_game', { id });
     },

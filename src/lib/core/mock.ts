@@ -68,6 +68,9 @@ export interface MockControl {
   closes: string[];
   /** D-040: the returns to the running game (ids), in order. */
   returns: string[];
+  /** D-043: foreground attempts in flight now, and the most ever at once. */
+  inFlight: number;
+  maxInFlight: number;
   /** D-026: the running game's window appears (?window=never: only when this is called). */
   gameWindow(id: string): void;
   /** Reasons passed to `closeNow` (the app would exit). */
@@ -296,6 +299,23 @@ export function createMock(search: string): { core: Core; control: MockControl }
   if (params.get('pad') === 'connected') emit('connected', '', 0);
 
   let running: string | null = null;
+  /** B-22: the mirrored state machine, its held set and its limits (as transit.rs). */
+  let lock: { kind: string; game: string | null; since: number } = { kind: 'none', game: null, since: Date.now() };
+  const held = new Set<string>();
+  const LIMITS: Record<string, number> = { 'boot-up': 10000, 'boot-down': 10000, launching: 46000, 'launcher-wait': 6000, returning: 3000, closing: 7000 };
+  const expiredHandlers: ((e: { kind: string }) => void)[] = [];
+  setInterval(() => {
+    const lim = LIMITS[lock.kind];
+    if (lim !== undefined && Date.now() - lock.since > lim) {
+      const k = lock.kind;
+      if (k === 'returning' && held.size) control.logs.push(`info: lock: ${k}: still held: ${[...held].join(', ')}; resuming anyway`);
+      control.logs.push(`info: lock: ${k} ended: timed out after ${Date.now() - lock.since} ms`);
+      lock = { kind: 'none', game: null, since: Date.now() };
+      // As transit.rs's Kind::name (what the core sends).
+      const NAMES: Record<string, string> = { 'boot-up': 'Boot Up', 'boot-down': 'Boot Down', launching: 'launching a game', 'launcher-wait': 'the launcher wait', returning: 'going back to the game', closing: 'closing the game' };
+      expiredHandlers.forEach((h) => h({ kind: NAMES[k] ?? k }));
+    }
+  }, 200);
   /** D-037: whether the real game's window has appeared (after a launcher). */
   let gameShown = false;
   /** B-18 (rev. ah): the launcher wait was cancelled (the mock's later events are dropped). */
@@ -307,6 +327,9 @@ export function createMock(search: string): { core: Core; control: MockControl }
   const control: MockControl = {
     pad(name, kind = 'down', pad = 0) {
       if (!connected.has(pad)) emit('connected', '', pad);
+      // B-22: the core's one held set sees every press and release (Guide included).
+      if (kind === 'up') held.delete(`pad:${name}`);
+      else held.add(`pad:${name}`);
       emit(kind, name, pad);
     },
     connect(pad = 0) {
@@ -318,6 +341,8 @@ export function createMock(search: string): { core: Core; control: MockControl }
     launches: [],
     closes: [],
     returns: [],
+    inFlight: 0,
+    maxInFlight: 0,
     gameWindow(id) {
       const g = SAMPLE_GAMES.find((x) => x.id === id);
       windowHandlers.forEach((h) => h({ id, name: g?.name ?? id, ms: 1200 }));
@@ -495,7 +520,13 @@ export function createMock(search: string): { core: Core; control: MockControl }
     returnToGame(id) {
       if (running !== id) return Promise.reject(new Error("that game isn't running"));
       control.returns.push(id);
-      return Promise.resolve('OK via direct (before: aione4.exe)');
+      // D-043: count foreground attempts in flight (the mashing test asserts never two at once).
+      control.inFlight += 1;
+      control.maxInFlight = Math.max(control.maxInFlight, control.inFlight);
+      return new Promise((res) => setTimeout(() => {
+        control.inFlight -= 1;
+        res('OK via direct (before: aione4.exe)');
+      }, 60));
     },
     runningGame() {
       return Promise.resolve(running);
@@ -535,6 +566,32 @@ export function createMock(search: string): { core: Core; control: MockControl }
       if (running !== id) return Promise.reject(new Error("that game isn't running"));
       if (params.get('launcher') && !gameShown) return Promise.reject(new Error('not the game yet (a launcher): no hand-back'));
       return Promise.resolve(`window swap: "${id}": OK via direct`);
+    },
+    // B-22: the core's state machine, mirrored (the same limits as transit.rs).
+    lockEnter(kind, game, why) {
+      if (lock.kind !== 'none' && lock.kind !== kind) control.logs.push(`info: lock: ${lock.kind} ended: replaced`);
+      if (lock.kind === kind && lock.game === game) return Promise.resolve();
+      lock = { kind, game, since: Date.now() };
+      control.logs.push(`info: lock: ${kind} started (${why})`);
+      return Promise.resolve();
+    },
+    lockLeave(kind, how) {
+      if (lock.kind !== kind || kind === 'none') return Promise.resolve(false);
+      control.logs.push(`info: lock: ${kind} ended: ${how} after ${Date.now() - lock.since} ms`);
+      lock = { kind: 'none', game: null, since: Date.now() };
+      return Promise.resolve(true);
+    },
+    heldNow() {
+      return Promise.resolve([...held]);
+    },
+    noteKey(key, down) {
+      if (down) held.add(`key:${key}`);
+      else held.delete(`key:${key}`);
+      return Promise.resolve();
+    },
+    onLockExpired(h) {
+      expiredHandlers.push(h);
+      return Promise.resolve(() => {});
     },
     msSinceGuide() {
       // The tests' focus events stand for Guide (just pressed); ?guidems=999999: no Guide (a swap).

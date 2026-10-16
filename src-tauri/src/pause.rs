@@ -111,6 +111,8 @@ pub fn anti_cheat(
 
 /// A Guide press asked for a pause; it happens only after the foreground step succeeds.
 static REQUESTED: Mutex<Option<std::time::Instant>> = Mutex::new(None);
+/// D-043: when the watchdog last fired (a late confirmation within 5 s still pauses).
+static WATCHDOG_FIRED: Mutex<Option<std::time::Instant>> = Mutex::new(None);
 /// The watchdog: no pause if AIONE isn't confirmed in front within this time.
 pub const WATCHDOG_MS: u64 = 1000;
 
@@ -148,7 +150,10 @@ pub fn request_pause() {
             if let Ok(mut r) = REQUESTED.lock() {
                 *r = None;
             }
-            logging::lifecycle(Level::Warn, "pause: AIONE wasn't confirmed in front within 1 s (watchdog): the game isn't paused");
+            logging::lifecycle(Level::Warn, "pause: AIONE wasn't confirmed in front within 1 s (watchdog): the game isn't paused (retried when AIONE is confirmed)");
+            if let Ok(mut w) = WATCHDOG_FIRED.lock() {
+                *w = Some(std::time::Instant::now());
+            }
             resume_running("watchdog: AIONE not in front within 1 s");
         }
     });
@@ -157,6 +162,15 @@ pub fn request_pause() {
 /// The foreground step finished (AIONE visible and active, or not): pause now if it was requested.
 pub fn foreground_done(ok: bool) {
     let Some(at) = REQUESTED.lock().ok().and_then(|mut r| r.take()) else {
+        // D-043: the watchdog fired, but AIONE is now confirmed in front: pause after all.
+        let late = WATCHDOG_FIRED
+            .lock()
+            .ok()
+            .and_then(|mut w| w.take())
+            .is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(5));
+        if ok && late {
+            pause_running("Guide: AIONE confirmed in front after the watchdog (retried)");
+        }
         return;
     };
     match gate(Some(ok), at.elapsed().as_millis() as u64) {
@@ -191,6 +205,15 @@ pub fn pause_running(why: &str) -> String {
         logging::lifecycle(Level::Info, &m);
         return m;
     };
+    // D-044: only the game is ever paused, never a launcher.
+    if !g.counted {
+        let m = format!(
+            "pause \"{}\" ({why}): not paused: not the game yet (a launcher)",
+            g.name
+        );
+        logging::lifecycle(Level::Info, &m);
+        return m;
+    }
     if g.no_pause {
         let m = format!(
             "pause \"{}\" ({why}): not paused: \"NoPause\": true in its game.json",
@@ -218,6 +241,8 @@ pub fn pause_running(why: &str) -> String {
     if let Ok(mut paused) = PAUSED.lock() {
         *paused = done.clone();
     }
+    // B-22: AIONE paused again: any input-locking state left over is cleared.
+    crate::transit::with(|m| m.clear("AIONE paused the game again", std::time::Instant::now()));
     save(&done);
     let m = format!(
         "pause \"{}\" ({why}): paused {} process(es) {:?}, {threads} thread(s) (SuspendThread)",

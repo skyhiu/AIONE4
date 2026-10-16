@@ -184,11 +184,15 @@
   }
 
   function handleInput(ev: InputEvent) {
-    // D-040 (rev. am): what is held right now (kept for every event, whatever the state).
-    const key = `${ev.source}:${ev.control}`;
-    if (ev.kind === 'up') held.delete(key);
-    else held.add(key);
+    // B-22: the core owns the held set; keys only reach the UI, so they are reported to it.
+    if (ev.source === 'keyboard') void core?.noteKey(ev.control, ev.kind !== 'up');
     // D-040 / B-18 rev. am: going back to the game, or closing it: input locked.
+    if (launching === 'returning' && ev.kind === 'down' && toAction(ev) === 'back') {
+      lockHow = 'escaped (B)';
+      core?.log('info', `${describeInput(ev, 'back', 'the return was cancelled (B): Home, the game stays paused')}`);
+      returnHome('the return was cancelled (B)');
+      return;
+    }
     if (launching === 'returning' || launching === 'closing') {
       if (ev.kind === 'down') core?.log('info', `${describeInput(ev, null, `discarded (${launching === 'returning' ? 'going back to the game' : 'closing the game'}: input lock)`)}`);
       return;
@@ -227,6 +231,13 @@
       pendingId = null;
       returnHome(`the wait for "${name}" was cancelled`);
       games = sortForHome(games);
+      return;
+    }
+    // B-22 (D-042): B leaves a normal launch after about 3 s ("B Back to Home" shown).
+    if (launching === 'starting' && !followingId && launchBackOk && ev.kind === 'down' && toAction(ev) === 'back') {
+      lockHow = 'escaped (B)';
+      core?.log('info', `${describeInput(ev, 'back', 'the launch: back to Home (B); the game may still appear')}`);
+      returnHome('the launch: back to Home (B)');
       return;
     }
     // T1.3: input during the launch transition is discarded (never queued).
@@ -447,9 +458,12 @@
    *  locked); 'ingame' (the game is in front; Home stays black until AIONE is back). */
   let launching = $state<'none' | 'starting' | 'ingame' | 'returning' | 'closing'>('none');
   /** D-040: the buttons and keys held right now (a press adds, a release removes). */
-  // Not reactive on purpose: nothing on screen reads it; only the return's timer checks it.
-  // eslint-disable-next-line svelte/prefer-svelte-reactivity
-  const held = new Set<string>();
+  /** B-22: a return in progress can be resumed anyway when its 3 s limit passes. */
+  let returnResume: (() => void) | null = null;
+  /** B-22 (D-042): B leaves a normal launch after about 3 s. */
+  let launchBackOk = $state(false);
+  /** B-22: why the current input-locking state ends (the core logs it). */
+  let lockHow = 'done';
   /** The black veil over Home (its fade is 0.2 s, linear). */
   let veil = $state(false);
   /** B-18 (rev. am): the small progress ring on the "Closing <game>…" screen. */
@@ -527,6 +541,13 @@
       return `asked: close "${r?.name ?? runningId}" and start "${g.name}"?, ${play('optionsOpen')}`;
     }
     launching = 'starting';
+    launchBackOk = false;
+    launchTimers.push(setTimeout(() => {
+      if (launching === 'starting' && !followingId) {
+        launchBackOk = true;
+        veilText = `Starting ${g.name}…`;
+      }
+    }, 3000));
     const t0 = performance.now();
     fadeEndAt = t0 + LAUNCH_STILL_MS + LAUNCH_FADE_MS;
     const s = play('launch');
@@ -588,15 +609,25 @@
       if (launching !== 'returning') return;
       const now = performance.now();
       if (now - t0 < RETURN_FADE_MS) return void launchTimers.push(setTimeout(tick, 50));
-      if (held.size > 0) {
-        freeSince = -1;
-        if (now - t0 > RELEASE_HINT_MS) veilText = 'Release the buttons';
-        return void launchTimers.push(setTimeout(tick, 50));
-      }
-      if (freeSince < 0) freeSince = now;
-      if (now - freeSince < RELEASE_SETTLE_MS) return void launchTimers.push(setTimeout(tick, 50));
+      void core?.heldNow().then((h) => {
+        if (launching !== 'returning') return;
+        const t = performance.now();
+        if (h.length > 0) {
+          freeSince = -1;
+          if (t - t0 > RELEASE_HINT_MS) veilText = 'Release the buttons';
+          launchTimers.push(setTimeout(tick, 50));
+          return;
+        }
+        if (freeSince < 0) freeSince = t;
+        if (t - freeSince < RELEASE_SETTLE_MS) return void launchTimers.push(setTimeout(tick, 50));
+        resume(t);
+      });
+    };
+    const resume = (now: number) => {
+      if (launching !== 'returning') return;
       veilText = null;
       core?.log('info', `back to "${name}": waiting for the buttons to be released (${Math.round(now - t0)} ms)`);
+      lockHow = 'done (released)';
       core
         ?.returnToGame(id)
         .then((m) => {
@@ -612,6 +643,7 @@
           play('error');
         });
     };
+    returnResume = () => resume(performance.now());
     tick();
     return `back to the running game "${name}" (${how}): fading, then waiting for the buttons, ${play('confirm')}`;
   }
@@ -1040,6 +1072,21 @@
           if (closingId === e.id) showMessage(e.text, 10000);
         }),
       );
+      // B-22: a state reached its limit (the core decides): per the table.
+      unlisteners.push(
+        await c.onLockExpired((e) => {
+          lockSent = 'none';
+          if (e.kind === 'going back to the game' && launching === 'returning') {
+            core?.log('info', 'the return waited 3 s for the buttons: resuming anyway');
+            returnResume?.();
+          } else if (e.kind === 'launching a game' && launching === 'starting') {
+            showMessage(`Still starting ${games.find((x) => x.id === pendingId)?.name ?? 'the game'}…`);
+            returnHome('the launch reached its limit');
+          } else if (launching !== 'none' && launching !== 'ingame' && e.kind !== 'closing the game') {
+            returnHome(`${e.kind} reached its limit`);
+          }
+        }),
+      );
       // D-026: the game's window appeared: only now is AIONE behind the game ('ingame').
       unlisteners.push(
         await c.onGameWindow((e) => {
@@ -1155,6 +1202,30 @@
       unlisteners.forEach((u) => u());
     };
   });
+
+  /**
+   * B-22: the input-locking state the UI shows, mirrored into the core (the one owner of states,
+   * limits, the held set and the log). Changes are sent from here only.
+   */
+  const lockKind = $derived(
+    phase === 'boot' ? 'boot-up'
+    : phase === 'bootdown' ? 'boot-down'
+    : launching === 'returning' ? 'returning'
+    : launching === 'closing' ? 'closing'
+    : launching === 'starting' && followingId ? 'launcher-wait'
+    : launching === 'starting' ? 'launching'
+    : confirm ? 'dialog'
+    : 'none',
+  );
+  let lockSent = 'none';
+  $effect(() => {
+    const k = lockKind;
+    if (k === lockSent) return;
+    if (lockSent !== 'none') void core?.lockLeave(lockSent, lockHow);
+    lockHow = 'done';
+    if (k !== 'none') void core?.lockEnter(k, runningId ?? pendingId ?? null, `the UI: ${k}`);
+    lockSent = k;
+  });
 </script>
 
 <svelte:window
@@ -1172,7 +1243,7 @@
 />
 
 <!-- D-010: black (the html background) until the library is loaded; then Home. -->
-<main data-phase={phase} data-icons-ready={iconsReady} class:icons-ready={iconsReady} data-input={inputMode} data-testid="screen" data-version={info?.version ?? ''} data-library={library?.state ?? 'loading'}>
+<main data-phase={phase} data-launching={launching} data-lock={lockKind} data-icons-ready={iconsReady} class:icons-ready={iconsReady} data-input={inputMode} data-testid="screen" data-version={info?.version ?? ''} data-library={library?.state ?? 'loading'}>
   <!-- A9: black from the first frame; the Boot Up / Boot Down draw here, over everything. -->
   <!-- Always mounted (the presenter keeps drawing into it); hidden on Home. -->
   <div
@@ -1244,7 +1315,7 @@
   <!-- T1.3: the launch veil: Home fades to black (0.3 s, eased) after 0.55 s still. -->
   <div class="launch-veil" class:on={veil} data-testid="launch-veil" aria-hidden="true">
     {#if veil && closingSpinner}<div class="veil-ring" data-testid="closing-ring"></div>{/if}
-    {#if veil && veilText}<p class="veil-text" data-testid="veil-text">{veilText}{#if followingId}<span class="veil-b">  B Back to Home</span>{/if}</p>{/if}
+    {#if veil && veilText}<p class="veil-text" data-testid="veil-text">{veilText}{#if followingId || (launching === 'starting' && launchBackOk)}<span class="veil-b">  B Back to Home</span>{/if}</p>{/if}
   </div>
 </main>
 

@@ -90,6 +90,8 @@ pub struct GameInfo {
     pub pid: Option<u32>,
     pub install_dir: Option<std::path::PathBuf>,
     pub no_pause: bool,
+    /// D-044: the real game appeared (never pause a launcher).
+    pub counted: bool,
 }
 
 pub fn running_game_info() -> Option<GameInfo> {
@@ -99,6 +101,7 @@ pub fn running_game_info() -> Option<GameInfo> {
         pid: r.pid,
         install_dir: r.install_dir,
         no_pause: r.no_pause,
+        counted: r.counted_at.is_some(),
     })
 }
 
@@ -119,6 +122,18 @@ pub fn ms_since_guide() -> u64 {
         .and_then(|g| *g)
         .map(|t| t.elapsed().as_millis() as u64)
         .unwrap_or(u64::MAX)
+}
+
+/// D-043: the running game's process appeared less than 3 s ago (its input thread is busy then;
+/// the foreground step doesn't attach to it).
+pub fn game_is_young(pid: u32) -> bool {
+    RUNNING
+        .lock()
+        .ok()
+        .and_then(|g| g.clone())
+        .filter(|r| r.pid == Some(pid))
+        .and_then(|r| r.counted_at)
+        .is_some_and(|t| t.elapsed() < Duration::from_secs(3))
 }
 
 /// A process's program name (for the log).
@@ -419,6 +434,12 @@ pub fn launch(
         ),
     );
     let gen = GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+    // B-22: a new launch clears any input-locking state left over (the UI enters "launching").
+    crate::transit::with(|m| {
+        if m.kind != crate::transit::Kind::Launching {
+            m.clear("a new launch", Instant::now())
+        }
+    });
     // D-032: where the real game runs from (to recognize it after a launcher).
     let install_dir = steam_app_id_of(&f)
         .and_then(|app| steam_root().and_then(|root| steam_install_dir(&root, &app)))

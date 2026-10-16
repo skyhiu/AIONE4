@@ -187,6 +187,16 @@ export interface Core {
   forceCloseGame(id: string): Promise<void>;
   /** B-18 (rev. ah): B on "Starting <game>…" cancels the launcher wait. */
   cancelStart(id: string): Promise<string>;
+  /** B-22: enter an input-locking state (the core owns it, its limit and its log). */
+  lockEnter(kind: string, game: string | null, why: string): Promise<void>;
+  /** B-22: leave a state (done / escaped (B) / answered …). */
+  lockLeave(kind: string, how: string): Promise<boolean>;
+  /** B-22: what is held right now (every pad press and release; the keys the UI reports). */
+  heldNow(): Promise<string[]>;
+  /** B-22: a keyboard key down / up. */
+  noteKey(key: string, down: boolean): Promise<void>;
+  /** B-22: a state reached its limit. */
+  onLockExpired(handler: (e: { kind: string }) => void): Promise<Unlisten>;
   /** D-037 (rev. ak): the window-swap hand-back (the game only; a visible window; no step-aside). */
   handBack(id: string): Promise<string>;
   /** D-037: milliseconds since the last Guide press. */

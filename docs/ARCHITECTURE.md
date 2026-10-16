@@ -369,3 +369,31 @@ unminimizes it). A background Guide press is consumed in the input gate (D-028).
 - **Known risks:** a brief audio repeat or click at the pause or resume; a game measuring real time
   may jump forward on resume; online games may time out (mark them `"NoPause": true`).
 
+## Input-locking states: one owner (alpha.27, B-22; `src-tauri/src/transit.rs`)
+
+One state machine in the core owns the current input-locking state and **the set of held buttons
+and keys** (every pad press and release, Guide included, recorded where the core reads the pad; the
+UI reports keyboard keys, the only place they arrive). The UI mirrors the state it shows into the
+core from one `$effect` (`lock_enter` / `lock_leave`) and asks the core what is held (`held_now`);
+it keeps no copy. A core thread checks every 200 ms and ends any state past its limit
+(`timed out`), telling the UI (`aione://lock-expired`). Every start and end is logged
+(`lock: <state> started (…)` / `ended: <how> after N ms`).
+
+| State | Limit (as built) | Escape | Ends | Guide in the core |
+|---|---|---|---|---|
+| Boot Up / Boot Down | 10 s (the animations' own skip and caps first) | skip (Boot Up) | done | ignored |
+| Launching a game | 46 s (the UI says "Still starting <game>…" at 45 s) | **B Back to Home** after 3 s (shown) | the game's window; the start failed; B; timed out | ignored |
+| Launcher wait | 6 s (the core's own wait is 5 s) | B | the game followed; none | ignored |
+| Going back to the game (D-040) | 3 s waiting for the release, then **resumed anyway** (`still held: …`) | B: cancel, stay on Home (the game stays paused) | resumed; B | ignored |
+| Closing the game | 7 s (3 s for the game, then AIONE ends it, then up to 3 s) | none needed | ended | ignored |
+| A dialog / toast | none (answered) | B / Cancel | answered | acts |
+
+**Cleared** (logged `cleared (…)`) when the game ends, a new launch starts, or AIONE pauses a game
+again. **Never two foreground attempts at once** (D-043): `show_and_focus` drops an attempt while
+one runs (logged).
+
+**Tests:** `transit::tests::button_mashing_never_leaves_a_lock_behind` (8 seeds, about 1,600
+random presses / releases each, over every state) and `tests/ui/mash.spec.ts` (3 seeds, the UI with
+the mock's mirror of the machine: a launch, a return, A / Guide spam, a close, the launcher wait,
+and the game's end during a lock).
+

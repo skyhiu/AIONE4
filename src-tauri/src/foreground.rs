@@ -320,6 +320,11 @@ mod win {
             // D-039 (rev. al): never attach to (and so wait on) a suspended thread.
             if crate::pause::is_paused(fg_pid) {
                 attempts.push("attach-thread-input=skipped (the thread in front is paused)".into());
+            } else if crate::launch::game_is_young(fg_pid) {
+                // D-043: a game in its first seconds: its input thread is busy; don't wait on it.
+                attempts.push(
+                    "attach-thread-input=skipped (the game started less than 3 s ago)".into(),
+                );
             } else if fg_thread != 0 && fg_thread != me {
                 let attached = AttachThreadInput(me, fg_thread, true).as_bool();
                 let _ = BringWindowToTop(h);

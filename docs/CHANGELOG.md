@@ -1,5 +1,21 @@
 # Changelog
 
+## 4.0.0-alpha.27 — B-22: every input-locking state can be left, one owner (rev. an)
+
+- **B-22:** one state machine in the core (`transit.rs`) owns the input-locking states and the held
+  set (every press and release, Guide included); each state has a limit, an escape, is cleared by
+  the game's end / a new launch / a new pause, and is logged; Guide does nothing in the core during
+  a launch, a launcher wait, a return or a close. The table in ARCHITECTURE.md.
+- **D-041:** a return started with Guide completes (the core sees Guide's release); 3 s limit, then
+  resumed anyway; B cancels it (Home, the game stays paused).
+- **D-042:** Guide ignored in the core during a launch (AIONE never in front of Steam mid-launch);
+  "B Back to Home" after 3 s; the 45 s limit.
+- **D-043:** one foreground attempt at a time; no attach-thread-input toward a game in its first
+  3 s; a late confirmation after the watchdog pauses after all.
+- **D-044:** a launcher is never paused.
+- **Button-mashing tests** (seeded) in Rust and in the UI, on every build.
+- Eden: unverified (eden_cli.txt not attached).
+
 ## 4.0.0-alpha.26 — completing T1.3 part 1 (rev. am, the user's decisions)
 
 - **D-040 (B-20 rev. am):** Continue / Guide back fade AIONE to black (0.3 s) with input locked,

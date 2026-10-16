@@ -134,6 +134,8 @@ fn run(get_state: GetStateFn, emit: impl Fn(PadEvent), guide: impl Fn()) {
     };
     let out = |e: &PadOut, slot: u32| {
         let control = CONTROLS[e.index];
+        // B-22: the one held set sees every press and release, whatever its route (Guide included).
+        crate::transit::with(|m| m.press(&format!("pad:{control}"), e.kind != Kind::Up));
         let foreground = crate::foreground::aione_is_foreground();
         let route = gate
             .borrow_mut()
