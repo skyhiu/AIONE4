@@ -402,7 +402,7 @@ test.describe('T1.3 launching (mocked core)', () => {
     await page.waitForTimeout(400);
     await page.keyboard.press('MediaTrackNext'); // never counted
     await page.keyboard.down('Alt'); // a modifier, never counted; its release unseen (Alt-Tab)
-    await page.keyboard.down('Enter'); // an acting key, released in another window...
+    await page.keyboard.down('ArrowUp'); // an acting key (no move on the top row), released in another window...
     await page.evaluate(() => window.dispatchEvent(new Event('blur'))); // ...AIONE lost the front: cleared
     await page.evaluate(() => window.dispatchEvent(new Event('focus')));
     await page.waitForTimeout(300);
@@ -411,9 +411,9 @@ test.describe('T1.3 launching (mocked core)', () => {
     await pad(page, 'A'); // Continue
     await expect.poll(async () => (await page.evaluate(() => window.__aioneMock?.returns ?? [])).length, { timeout: 2000 }).toBe(1);
     expect(Date.now() - t0).toBeLessThan(1500); // fast: no "Release the buttons"
-    const l = await logs(page);
-    expect(l.some((x) => x.includes('lock: returning ended: done (released)'))).toBe(true);
+    // The lock ends once the return's call has completed (a moment after it starts): wait for it.
+    await expect.poll(async () => (await logs(page)).some((x) => x.includes('lock: returning ended: done (released)')), { timeout: 2000 }).toBe(true);
     await page.keyboard.up('Alt');
-    await page.keyboard.up('Enter');
+    await page.keyboard.up('ArrowUp');
   });
 });
