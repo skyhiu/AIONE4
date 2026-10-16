@@ -1,5 +1,18 @@
 # Changelog
 
+## 4.0.0-alpha.26 — completing T1.3 part 1 (rev. am, the user's decisions)
+
+- **D-040 (B-20 rev. am):** Continue / Guide back fade AIONE to black (0.3 s) with input locked,
+  wait until every button and key is released (+0.1 s; "Release the buttons" after 2 s), then
+  resume the game and hand it the front (`waiting for the buttons to be released (N ms)`).
+- **B-18 rev. am:** closing from AIONE with one question; a "Closing <game>…" screen (black, a
+  progress ring, input locked) until every process has ended; WM_CLOSE, about 3 s, then AIONE ends
+  the process tree (no second question). The polite-close hint, the 10 s wait and the force-close
+  question are gone.
+- **B-20 rev. am:** when a game ends, AIONE always comes to the front (rev. al's "stay behind"
+  removed).
+- Eden: unverified (eden_cli.txt not attached).
+
 ## 4.0.0-alpha.25 — completing T1.3 part 1 (rev. al)
 
 - **D-039:** the pause only after the foreground step succeeded (AIONE visible and active): Guide

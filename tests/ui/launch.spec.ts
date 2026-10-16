@@ -2,7 +2,15 @@ import { expect, test, type Page } from '@playwright/test';
 
 // T1.3 part 1: launching a game, the transition, returning, the game's exit, a failed start.
 const logs = (page: Page): Promise<string[]> => page.evaluate(() => window.__aioneMock?.logs ?? []);
-const pad = (page: Page, c: string) => page.evaluate((x) => window.__aioneMock?.pad(x, 'down'), c);
+// A full press (down, then up), as a real pad sends; D-040 waits for the release.
+const pad = (page: Page, c: string) =>
+  page.evaluate((x) => {
+    window.__aioneMock?.pad(x, 'down');
+    window.__aioneMock?.pad(x, 'up');
+  }, c);
+// Only the down (a held button); release with `release`.
+const hold = (page: Page, c: string) => page.evaluate((x) => window.__aioneMock?.pad(x, 'down'), c);
+const release = (page: Page, c: string) => page.evaluate((x) => window.__aioneMock?.pad(x, 'up'), c);
 async function open(page: Page, extra = '') {
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto(`./?time=1:10&h12=1&pad=connected${extra ? `&${extra}` : ''}`);
@@ -154,31 +162,29 @@ test.describe('T1.3 launching (mocked core)', () => {
     await expect(page.getByTestId('footer-prompts')).toContainText('Start');
   });
 
-  test('B-18 / D-029 / D-030: "Closing…", X and A locked meanwhile (one request), the hint, then left running, said plainly', async ({ page }) => {
+  test('B-18 (rev. am): one question, then "Closing…" (a ring, input locked) until the game ended; a stuck game is ended by AIONE', async ({ page }) => {
     await open(page, 'closewait=stuck');
     await pad(page, 'A');
     await page.waitForTimeout(1100);
     await page.evaluate(() => window.dispatchEvent(new Event('focus')));
     await page.waitForTimeout(400);
     await pad(page, 'X');
+    await expect(page.getByTestId('confirm-no')).toHaveClass(/focused/); // one question, Cancel focused
     await pad(page, 'DPadLeft');
-    await pad(page, 'A');
-    await expect(page.getByTestId('toast')).toHaveText('Closing Amber Lighthouse…');
-    // D-030: X (and A) on the closing game wait: no second request.
-    await pad(page, 'X');
+    await pad(page, 'A'); // Close
+    await expect(page.getByTestId('veil-text')).toHaveText('Closing Amber Lighthouse…');
+    await expect(page.getByTestId('closing-ring')).toHaveCount(1);
+    await page.screenshot({ path: 'ui-screenshots/t22-closing.png' });
+    await pad(page, 'X'); // locked
     await pad(page, 'A');
     expect(await page.evaluate(() => window.__aioneMock?.closes)).toEqual(['Amber Lighthouse']);
     const l = await logs(page);
-    expect(l.filter((x) => x.includes('ignored ("Amber Lighthouse" is closing)')).length).toBe(2);
-    // D-029: after a moment, the hint (the core brings the game forward so it can be answered).
-    await expect(page.getByTestId('toast')).toHaveText('Amber Lighthouse may be asking something: answer it there', { timeout: 2000 });
-    // Rev. ag: still running after 10 s: the force-close question (Cancel focused); the game keeps
-    // running until the user confirms.
-    await expect(page.getByTestId('confirm-dialog')).toContainText('Force close Amber Lighthouse?', { timeout: 3000 });
-    await expect(page.getByTestId('confirm-no')).toHaveClass(/focused/);
-    await expect(page.getByTestId('playing-badge')).toHaveCount(1);
+    expect(l.filter((x) => x.includes('discarded (closing the game: input lock)')).length).toBe(2);
+    // About 3 s later AIONE ended it: Home, no second question.
+    await expect.poll(() => veil(page), { timeout: 6000 }).toBe(0);
+    await expect(page.getByTestId('confirm-dialog')).toHaveCount(0);
+    await expect(page.getByTestId('playing-badge')).toHaveCount(0);
   });
-
   test('B-16: drag the row 1:1 with a glide, no ring while dragging, ticks; a pressed tile tinted; the footer prompts clickable', async ({ page }) => {
     await open(page);
     const first = () => page.getByTestId('track').evaluate((e) => Number(getComputedStyle(e).getPropertyValue('--first')));
@@ -242,18 +248,6 @@ test.describe('T1.3 launching (mocked core)', () => {
     expect(l.some((x) => x.includes("that game isn't running"))).toBe(false);
   });
 
-  test('B-18 (rev. ae): no window found during a close: "can\'t see its window", never "answer it there"', async ({ page }) => {
-    await open(page, 'closewait=stuck&nowindow');
-    await pad(page, 'A');
-    await page.waitForTimeout(1100);
-    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
-    await page.waitForTimeout(400);
-    await pad(page, 'X');
-    await pad(page, 'DPadLeft');
-    await pad(page, 'A');
-    await expect(page.getByTestId('toast')).toHaveText("AIONE can't see Amber Lighthouse's window; it may still be closing", { timeout: 2000 });
-  });
-
   test('D-032: a launcher ends: black with "Starting…", input locked, then the real game; or the end without Play', async ({ page }) => {
     await open(page, 'launcher=play');
     await pad(page, 'A');
@@ -301,33 +295,6 @@ test.describe('T1.3 launching (mocked core)', () => {
     await expect(page.getByTestId('playing-badge')).toHaveCount(0);
   });
 
-  test('B-18 (rev. ag): a game that won\'t close: "Force close?" (Cancel focused); only on Force close it ends', async ({ page }) => {
-    await open(page, 'closewait=stuck');
-    await pad(page, 'A');
-    await page.waitForTimeout(1100);
-    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
-    await page.waitForTimeout(400);
-    await pad(page, 'X');
-    await pad(page, 'DPadLeft');
-    await pad(page, 'A'); // Close
-    await expect(page.getByTestId('confirm-dialog')).toContainText('Force close Amber Lighthouse?', { timeout: 3000 });
-    await expect(page.getByTestId('confirm-text')).toHaveText('Unsaved progress will be lost.');
-    await expect(page.getByTestId('confirm-no')).toHaveClass(/focused/);
-    await page.screenshot({ path: 'ui-screenshots/t21-force-close-question.png' });
-    await pad(page, 'B'); // Cancel: nothing forced
-    expect(await page.evaluate(() => window.__aioneMock?.closes)).toEqual(['Amber Lighthouse']);
-    // Again, and confirm this time.
-    await pad(page, 'X');
-    await pad(page, 'DPadLeft');
-    await pad(page, 'A');
-    await expect(page.getByTestId('confirm-dialog')).toContainText('Force close Amber Lighthouse?', { timeout: 3000 });
-    await pad(page, 'DPadLeft');
-    await pad(page, 'A'); // Force close
-    await page.waitForTimeout(600);
-    expect(await page.evaluate(() => window.__aioneMock?.closes)).toEqual(['Amber Lighthouse', 'Amber Lighthouse', 'force:Amber Lighthouse']);
-    await expect(page.getByTestId('playing-badge')).toHaveCount(0);
-  });
-
   test('D-037: AIONE gets the front just after the game appeared (a window swap): the front goes back, no Home', async ({ page }) => {
     await open(page, 'guidems=999999');
     await pad(page, 'A');
@@ -365,5 +332,28 @@ test.describe('T1.3 launching (mocked core)', () => {
     await page.waitForTimeout(2500); // the launcher ended (2.5 s), the wait, then the real game (3.3 s)
     l = await logs(page);
     expect(l.filter((x) => x.includes('"Amber Lighthouse": its window appeared')).length).toBe(2);
+  });
+
+  test('D-040 (rev. am): Continue fades to black and resumes the game only after the A is released', async ({ page }) => {
+    await open(page);
+    await pad(page, 'A');
+    await page.waitForTimeout(1100);
+    await page.evaluate(() => window.dispatchEvent(new Event('focus'))); // Guide: Home again
+    await page.waitForTimeout(400);
+    await hold(page, 'A'); // Continue, and keep A held
+    await page.waitForTimeout(700); // the fade (0.3 s) is over
+    expect(await veil(page)).toBe(1);
+    expect(await page.evaluate(() => window.__aioneMock?.returns ?? [])).toEqual([]); // not resumed while A is held
+    await hold(page, 'B'); // input locked meanwhile
+    await release(page, 'B');
+    await page.waitForTimeout(1600); // more than 2 s held: the hint
+    await expect(page.getByTestId('veil-text')).toHaveText('Release the buttons');
+    expect(await page.evaluate(() => window.__aioneMock?.returns ?? [])).toEqual([]);
+    await release(page, 'A');
+    await page.waitForTimeout(400); // released + 0.1 s: resumed
+    expect(await page.evaluate(() => window.__aioneMock?.returns ?? [])).toEqual(['Amber Lighthouse']);
+    const l = await logs(page);
+    expect(l.some((x) => /back to "Amber Lighthouse": waiting for the buttons to be released \(\d+ ms\)/.test(x))).toBe(true);
+    expect(l.some((x) => x.includes('discarded (going back to the game: input lock)'))).toBe(true);
   });
 });

@@ -66,6 +66,8 @@ export interface MockControl {
   gameExit(id: string): void;
   /** B-18: the close requests (ids), in order. */
   closes: string[];
+  /** D-040: the returns to the running game (ids), in order. */
+  returns: string[];
   /** D-026: the running game's window appears (?window=never: only when this is called). */
   gameWindow(id: string): void;
   /** Reasons passed to `closeNow` (the app would exit). */
@@ -315,6 +317,7 @@ export function createMock(search: string): { core: Core; control: MockControl }
     },
     launches: [],
     closes: [],
+    returns: [],
     gameWindow(id) {
       const g = SAMPLE_GAMES.find((x) => x.id === id);
       windowHandlers.forEach((h) => h({ id, name: g?.name ?? id, ms: 1200 }));
@@ -490,7 +493,9 @@ export function createMock(search: string): { core: Core; control: MockControl }
       return Promise.resolve({ id, name: g?.name ?? id, how: 'shortcut game.lnk', pid: 4242, alreadyRunning: false, foreground: null });
     },
     returnToGame(id) {
-      return running === id ? Promise.resolve('OK via direct (before: aione4.exe)') : Promise.reject(new Error("that game isn't running"));
+      if (running !== id) return Promise.reject(new Error("that game isn't running"));
+      control.returns.push(id);
+      return Promise.resolve('OK via direct (before: aione4.exe)');
     },
     runningGame() {
       return Promise.resolve(running);
@@ -500,10 +505,13 @@ export function createMock(search: string): { core: Core; control: MockControl }
       control.closes.push(id);
       if (running !== id) return Promise.reject(new Error("that game isn't running"));
       const g = SAMPLE_GAMES.find((x) => x.id === id)?.name ?? id;
+      // B-18 (rev. am): ?closewait=stuck: the game doesn't close itself; after about 3 s AIONE ends it.
       if (params.get('closewait') === 'stuck') {
-        // The core's hint after 0.6 s (rev. ae: "can't see its window" when none is found).
-        setTimeout(() => hintHandlers.forEach((h) => h({ id, text: params.has('nowindow') ? `AIONE can't see ${g}'s window; it may still be closing` : `${g} may be asking something: answer it there` })), 600);
-        return new Promise((_, rej) => setTimeout(() => rej(new Error(`${id} is still running after 10 seconds (it may be asking to save); it was left as it is`)), 1500));
+        control.logs.push(`info: close "${g}": still running after 3 s: ended by AIONE (1 process(es))`);
+        return new Promise((res) => setTimeout(() => {
+          running = null;
+          res();
+        }, 3200));
       }
       // D-031: ?exitlate: "done" first, the game's end event 150 ms later (alpha.17 QA-1's order).
       if (params.has('exitlate')) {

@@ -184,6 +184,15 @@
   }
 
   function handleInput(ev: InputEvent) {
+    // D-040 (rev. am): what is held right now (kept for every event, whatever the state).
+    const key = `${ev.source}:${ev.control}`;
+    if (ev.kind === 'up') held.delete(key);
+    else held.add(key);
+    // D-040 / B-18 rev. am: going back to the game, or closing it: input locked.
+    if (launching === 'returning' || launching === 'closing') {
+      if (ev.kind === 'down') core?.log('info', `${describeInput(ev, null, `discarded (${launching === 'returning' ? 'going back to the game' : 'closing the game'}: input lock)`)}`);
+      return;
+    }
     if (ev.kind === 'up') {
       // D-019: a released direction may bump again on its next hold.
       const released = toAction({ ...ev, kind: 'down' });
@@ -436,9 +445,19 @@
   // ---------- T1.3: launching games ----------
   /** 'none'; 'starting' (the launch transition: Home still 0.55 s, then 0.2 s to black; input
    *  locked); 'ingame' (the game is in front; Home stays black until AIONE is back). */
-  let launching = $state<'none' | 'starting' | 'ingame'>('none');
+  let launching = $state<'none' | 'starting' | 'ingame' | 'returning' | 'closing'>('none');
+  /** D-040: the buttons and keys held right now (a press adds, a release removes). */
+  // Not reactive on purpose: nothing on screen reads it; only the return's timer checks it.
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity
+  const held = new Set<string>();
   /** The black veil over Home (its fade is 0.2 s, linear). */
   let veil = $state(false);
+  /** B-18 (rev. am): the small progress ring on the "Closing <game>…" screen. */
+  let closingSpinner = $state(false);
+  /** D-040: the return's fade, the settle after the last release, and when to ask for a release. */
+  const RETURN_FADE_MS = 300;
+  const RELEASE_SETTLE_MS = 100;
+  const RELEASE_HINT_MS = 2000;
   /** D-037: when the running game's window appeared (performance.now()). */
   let appearedAt = -1e9;
   /** D-032: the text on the veil while waiting for a launcher's game. */
@@ -460,7 +479,7 @@
   /** D-030: the game being closed (X and A on it locked until it ends or 10 s pass). */
   let closingId = $state<string | null>(null);
   /** B-18: the close question (switching games, or X Close Software). */
-  let confirm = $state<{ kind: 'switch' | 'close' | 'force'; id: string; nextId?: string; title: string; text: string; yes: string; focus: 'yes' | 'no' } | null>(null);
+  let confirm = $state<{ kind: 'switch' | 'close'; id: string; nextId?: string; title: string; text: string; yes: string; focus: 'yes' | 'no' } | null>(null);
 
   /** B-11: the row's order: the running game first (B-18), then played games most recent first,
    *  then the never-played ones A-Z. */
@@ -552,23 +571,49 @@
   }
 
   /** B-7: A or Guide on the running game brings it back to the front. */
+  /**
+   * D-040 (B-20 rev. am): back into the game: fade AIONE to black (0.3 s, eased) with input locked;
+   * wait until every button and key is released (plus 0.1 s; "Release the buttons" after 2 s); only
+   * then resume the game and hand it the front.
+   */
   function returnToGame(id: string, how: string): string {
     const g = games.find((x) => x.id === id);
-    core
-      ?.returnToGame(id)
-      .then((m) => {
-        // QA-4: the core's message starts with its own "back to …"; no doubled prefix.
-        core?.log('info', `back to "${g?.name ?? id}" (${how}): ${m.replace(/^back to "[^"]*": /, '')}`);
-        launching = 'ingame';
-        veil = true;
-      })
-      .catch((e: unknown) => {
-        const reason = e instanceof Error ? e.message : String(e);
-        core?.log('warn', `back to "${g?.name ?? id}" failed: ${reason}`);
-        showMessage(`Couldn't return to ${g?.name ?? 'the game'}: ${reason}`);
-        play('error');
-      });
-    return `back to the running game "${g?.name ?? id}" (${how}), ${play('confirm')}`;
+    const name = g?.name ?? id;
+    launching = 'returning';
+    veil = true;
+    veilText = null;
+    const t0 = performance.now();
+    let freeSince = -1;
+    const tick = () => {
+      if (launching !== 'returning') return;
+      const now = performance.now();
+      if (now - t0 < RETURN_FADE_MS) return void launchTimers.push(setTimeout(tick, 50));
+      if (held.size > 0) {
+        freeSince = -1;
+        if (now - t0 > RELEASE_HINT_MS) veilText = 'Release the buttons';
+        return void launchTimers.push(setTimeout(tick, 50));
+      }
+      if (freeSince < 0) freeSince = now;
+      if (now - freeSince < RELEASE_SETTLE_MS) return void launchTimers.push(setTimeout(tick, 50));
+      veilText = null;
+      core?.log('info', `back to "${name}": waiting for the buttons to be released (${Math.round(now - t0)} ms)`);
+      core
+        ?.returnToGame(id)
+        .then((m) => {
+          // QA-4: the core's message starts with its own "back to …"; no doubled prefix.
+          core?.log('info', `back to "${name}" (${how}): ${m.replace(/^back to "[^"]*": /, '')}`);
+          launching = 'ingame';
+        })
+        .catch((e: unknown) => {
+          const reason = e instanceof Error ? e.message : String(e);
+          core?.log('warn', `back to "${name}" failed: ${reason}`);
+          returnHome(`couldn't go back to "${name}"`);
+          showMessage(`Couldn't return to ${name}: ${reason}`);
+          play('error');
+        });
+    };
+    tick();
+    return `back to the running game "${name}" (${how}): fading, then waiting for the buttons, ${play('confirm')}`;
   }
 
   /** B-18: the answer to the close question. */
@@ -578,62 +623,45 @@
     confirm = null;
     const running = games.find((x) => x.id === q.id);
     if (!yes) return `question: Cancel (${how}), ${play('back')}`;
-    // B-18 (rev. ag): force close, only on this confirmation.
-    if (q.kind === 'force') {
-      core?.log('info', `force close "${running?.name ?? q.id}": confirmed by the user`);
-      closingId = q.id;
-      core
-        ?.forceCloseGame(q.id)
-        .then(() => {
-          if (closingId === q.id) closingId = null;
-          if (runningId === q.id) {
-            runningId = null;
-            games = sortForHome(games);
-          }
-          toast = null;
-        })
-        .catch((e: unknown) => {
-          if (closingId === q.id) closingId = null;
-          showMessage(e instanceof Error ? e.message : String(e));
-          play('error');
-        });
-      return `question: Force close (${how}), ${play('confirm')}`;
-    }
-    core?.log('info', `close "${running?.name ?? q.id}": asked by the user (${q.kind === 'switch' ? 'to start another game' : 'Close Software'})`);
-    // D-030: "Closing <game>…" while it closes; D-029: then the hint (the core brings it forward).
+    // B-18 (rev. am): closing for sure. A "Closing <game>…" loading screen (black, a small progress
+    // ring, input locked) until every process of the game has ended (the core asks it to close,
+    // gives it about 3 s, then ends it); then Home, or the new game's launch.
     const name = running?.name ?? q.id;
+    core?.log('info', `close "${name}": asked by the user (${q.kind === 'switch' ? 'to start another game' : 'Close Software'})`);
     closingId = q.id;
-    showMessage(`Closing ${name}…`, 11000);
-    const done = () => {
+    launching = 'closing';
+    veil = true;
+    veilText = `Closing ${name}…`;
+    closingSpinner = true;
+    const finish = () => {
+      closingSpinner = false;
       if (closingId === q.id) closingId = null;
+      if (runningId === q.id) {
+        runningId = null;
+        games = sortForHome(games);
+      }
     };
     core
       ?.closeGame(q.id)
       .then(() => {
-        done();
-        toast = null;
-        core?.log('info', `close "${running?.name ?? q.id}": done`);
-        // D-031: "done" means the old game's process has ended: it no longer runs, whether or
-        // not its end event has arrived yet; the new game starts now (never the question again).
-        if (runningId === q.id) {
-          runningId = null;
-          games = sortForHome(games);
-        }
+        finish();
+        core?.log('info', `close "${name}": done`);
         if (q.kind === 'switch' && q.nextId) {
+          // D-031: the old game has ended; the new game starts now (from the black screen).
+          launching = 'none';
+          veilText = null;
           const next = games.findIndex((x) => x.id === q.nextId);
           if (next >= 0) core?.log('info', start(next, 'after closing the running game'));
+          else returnHome(`"${name}" closed`);
+        } else {
+          returnHome(`"${name}" closed`);
         }
       })
       .catch((e: unknown) => {
-        done();
+        finish();
         const reason = e instanceof Error ? e.message : String(e);
-        core?.log('warn', `close "${running?.name ?? q.id}" failed: ${reason}`);
-        // B-18 (rev. ag): still running after 10 s: offer the force close (Cancel focused).
-        if (reason.includes('still running after')) {
-          confirm = { kind: 'force', id: q.id, title: `Force close ${name}?`, text: 'Unsaved progress will be lost.', yes: 'Force close', focus: 'no' };
-          core?.log('info', `asked: force close "${name}"?`);
-          return;
-        }
+        core?.log('warn', `close "${name}" failed: ${reason}`);
+        returnHome(`closing "${name}" failed`);
         showMessage(reason);
         play('error');
       });
@@ -1215,6 +1243,7 @@
   {/if}
   <!-- T1.3: the launch veil: Home fades to black (0.3 s, eased) after 0.55 s still. -->
   <div class="launch-veil" class:on={veil} data-testid="launch-veil" aria-hidden="true">
+    {#if veil && closingSpinner}<div class="veil-ring" data-testid="closing-ring"></div>{/if}
     {#if veil && veilText}<p class="veil-text" data-testid="veil-text">{veilText}{#if followingId}<span class="veil-b">  B Back to Home</span>{/if}</p>{/if}
   </div>
 </main>
@@ -1238,6 +1267,24 @@
     text-align: center;
     color: rgb(255 255 255 / 0.75);
     font: 400 var(--text-sm) var(--font-ui);
+  }
+  /* B-18 (rev. am): the small progress ring on "Closing <game>…". */
+  .veil-ring {
+    position: absolute;
+    left: 50%;
+    bottom: calc(12% + 2.6em);
+    width: 1.6em;
+    height: 1.6em;
+    margin-left: -0.8em;
+    border-radius: 50%;
+    border: 0.18em solid rgb(255 255 255 / 0.25);
+    border-top-color: rgb(255 255 255 / 0.85);
+    animation: veil-spin 0.9s linear infinite;
+  }
+  @keyframes veil-spin {
+    to {
+      transform: rotate(360deg);
+    }
   }
   .veil-b {
     margin-left: 1.5em;

@@ -154,7 +154,7 @@ async fn launch_game(app: AppHandle, id: String) -> Result<launch::Started, Stri
                     serde_json::json!({ "id": id, "name": name }),
                 );
             }
-            launch::Event::Ended { id, name, minutes, counted, behind } => {
+            launch::Event::Ended { id, name, minutes, counted, behind: _ } => {
                 let data = ev_app.state::<AppState>().data_dir.clone();
                 // B-11 (rev. ag): a launcher-only session (the game never appeared) isn't recorded.
                 match if counted { games::record_end(&data, &id, minutes) } else { Err("not counted: the game never appeared (launcher only)".into()) } {
@@ -167,25 +167,9 @@ async fn launch_game(app: AppHandle, id: String) -> Result<launch::Started, Stri
                         &if counted { format!("\"{name}\": could not record the session: {e}") } else { format!("\"{name}\": {e}") },
                     ),
                 }
-                // B-20 (rev. al): AIONE comes forward only if the game or AIONE was in front.
-
-                if let Some(program) = behind {
-
-                    logging::lifecycle(Level::Info, &format!("\"{name}\": the game ended while {program} was in front: AIONE stays behind"));
-
-                    if let Some(w) = ev_app.get_webview_window(MAIN_WINDOW) {
-
-                        let _ = w.unminimize();
-
-                    }
-
-                } else {
-
-                    logging::lifecycle(Level::Info, &format!("\"{name}\" ended: bringing AIONE back to the front"));
-
-                    show_and_focus(&ev_app, "the game ended");
-
-                }
+                // B-20 (rev. am): when a game ends, AIONE always comes to the front (restored, Home).
+                logging::lifecycle(Level::Info, &format!("\"{name}\" ended: bringing AIONE back to the front"));
+                show_and_focus(&ev_app, "the game ended");
                 let _ = ev_app.emit(
                     EVENT_GAME_EXITED,
                     serde_json::json!({ "id": id, "name": name, "minutes": minutes }),

@@ -170,6 +170,9 @@ pub fn is_not_the_game(exe: &str) -> bool {
     NOT_THE_GAME.contains(&exe.to_ascii_lowercase().as_str())
 }
 
+/// B-18 (rev. am): how long a game gets to close itself before AIONE ends it.
+pub const CLOSE_GRACE: Duration = Duration::from_secs(3);
+
 /// B-18 (rev. ah): how long AIONE waits for the real game after a launcher closes (the game
 /// appeared within 0.60-0.84 s in 4 of 4 Plays on the user's PC).
 pub const FOLLOW_WAIT: Duration = Duration::from_secs(5);
@@ -987,11 +990,11 @@ pub struct ClosedSession {
 
 pub fn close_game(
     id: &str,
-    wait: Duration,
-    hint: impl Fn(String),
+    _wait: Duration,
+    _hint: impl Fn(String),
 ) -> Result<Option<ClosedSession>, String> {
+    // B-18 (rev. am): closing from AIONE, for sure, after the user's one question.
     mark_closing(id);
-    // B-20: resumed first, so the game can answer the close itself.
     crate::pause::resume_running("before closing");
     let r = RUNNING
         .lock()
@@ -1002,81 +1005,77 @@ pub fn close_game(
     let Some(pid) = r.pid else {
         return Err("its process isn't known, so AIONE can't close it".into());
     };
+    let t0 = Instant::now();
     let n = close_windows_of(pid);
     logging::lifecycle(
         Level::Info,
         &format!(
-            "close \"{}\": asked {n} window(s) of {} to close (as their ✕ would)",
+            "close \"{}\": asked {n} window(s) of {} to close (as their ✕ would); up to 3 s",
             r.name,
             r.exe.clone().unwrap_or_default()
         ),
     );
-    // D-029: no window found: say so at once (no 10 s wait).
-    if n == 0 {
-        return Err(format!(
-            "AIONE found no window of {} to close; it was left as it is",
-            r.name
-        ));
+    let tree_alive = |root: u32| {
+        crate::pause::tree(&process_list(), root)
+            .into_iter()
+            .filter(|p| process_alive(*p))
+            .count()
+    };
+    // About 3 s for the game to close itself (most games save their settings in that time).
+    while n > 0 && t0.elapsed() < CLOSE_GRACE && process_alive(pid) {
+        std::thread::sleep(Duration::from_millis(100));
     }
-    let t0 = Instant::now();
-    let mut shown = false;
-    while t0.elapsed() < wait {
-        std::thread::sleep(Duration::from_millis(200));
-        // D-029: still running after a moment: it may be asking something: bring it to the front.
-        if !shown && t0.elapsed() > Duration::from_millis(600) && process_alive(pid) {
-            shown = true;
-            // Rev. ae: only "answer it there" when there is a window to answer in.
-            let text = if process_alive(pid)
-                && hand_over(&r, "close: it may be asking something:").is_ok()
-            {
-                format!("{} may be asking something: answer it there", r.name)
-            } else {
-                format!(
-                    "AIONE can't see {}'s window; it may still be closing",
-                    r.name
-                )
-            };
-            logging::lifecycle(Level::Info, &format!("hint: {text}"));
-            hint(text);
+    if !process_alive(pid) && tree_alive(pid) == 0 {
+        logging::lifecycle(
+            Level::Info,
+            &format!(
+                "close \"{}\": asked; ended by itself after {} ms",
+                r.name,
+                t0.elapsed().as_millis()
+            ),
+        );
+    } else {
+        // Still running (or nothing to ask): AIONE ends it and what it started, no second question.
+        let pids = crate::pause::tree(&process_list(), pid);
+        let ended: usize = pids
+            .iter()
+            .filter(|p| process_alive(**p))
+            .map(|p| usize::from(terminate(*p)))
+            .sum();
+        logging::lifecycle(
+            Level::Info,
+            &format!(
+                "close \"{}\": {}: ended by AIONE ({ended} process(es))",
+                r.name,
+                if n == 0 {
+                    "no window to ask".to_string()
+                } else {
+                    "still running after 3 s".to_string()
+                }
+            ),
+        );
+        let t1 = Instant::now();
+        while t1.elapsed() < Duration::from_secs(3) && process_alive(pid) {
+            std::thread::sleep(Duration::from_millis(50));
         }
-        if !process_alive(pid) {
-            logging::lifecycle(
-                Level::Info,
-                &format!(
-                    "close \"{}\": ended after {} ms",
-                    r.name,
-                    t0.elapsed().as_millis()
-                ),
-            );
-            // D-033: the close is done: the session is recorded now (the watcher then stops quietly).
-            let counted = RUNNING.lock().ok().and_then(|g| {
-                g.as_ref()
-                    .filter(|x| x.gen == r.gen)
-                    .and_then(|x| x.counted_at)
-            });
-            let session = (take_if(r.gen) && counted.is_some()).then(|| ClosedSession {
-                id: r.id.clone(),
-                name: r.name.clone(),
-                minutes: counted
-                    .map(|t| t.elapsed().as_secs_f64() / 60.0)
-                    .unwrap_or(0.0),
-            });
-            return Ok(session);
+        if process_alive(pid) {
+            return Err(format!("{} couldn't be ended (Windows refused)", r.name));
         }
     }
-    logging::lifecycle(
-        Level::Warn,
-        &format!(
-            "close \"{}\": still running after {} s; left as it is (never forced)",
-            r.name,
-            wait.as_secs()
-        ),
-    );
-    Err(format!(
-        "{} is still running after {} seconds (it may be asking to save); it was left as it is",
-        r.name,
-        wait.as_secs()
-    ))
+    // The session, recorded once (the watcher then stops quietly).
+    let counted = RUNNING.lock().ok().and_then(|g| {
+        g.as_ref()
+            .filter(|x| x.gen == r.gen)
+            .and_then(|x| x.counted_at)
+    });
+    let session = (take_if(r.gen) && counted.is_some()).then(|| ClosedSession {
+        id: r.id.clone(),
+        name: r.name.clone(),
+        minutes: counted
+            .map(|t| t.elapsed().as_secs_f64() / 60.0)
+            .unwrap_or(0.0),
+    });
+    Ok(session)
 }
 
 // ---------- the platform layer ----------
