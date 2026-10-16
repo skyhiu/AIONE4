@@ -350,4 +350,20 @@ test.describe('T1.3 launching (mocked core)', () => {
     const l = await logs(page);
     expect(l.some((x) => x.includes('Home again: AIONE is in front again'))).toBe(true);
   });
+
+  test('D-037 (rev. ak): a launcher hiding its window: no hand-back, no step-aside; the wait, then the game', async ({ page }) => {
+    await open(page, 'launcher=play&guidems=999999&followat=2500');
+    await pad(page, 'A');
+    await page.waitForTimeout(1500); // the launcher's window appeared (not the game), the fade done
+    await page.evaluate(() => window.dispatchEvent(new Event('focus'))); // the launcher hides its window
+    await page.waitForTimeout(200);
+    expect(await veil(page)).toBe(1); // still black: no Home
+    let l = await logs(page);
+    expect(l.some((x) => x.includes('not handed back: not the game yet (a launcher): no hand-back'))).toBe(true);
+    expect(l.some((x) => x.includes('front handed back'))).toBe(false);
+    expect(l.some((x) => x.includes('Home again'))).toBe(false);
+    await page.waitForTimeout(2500); // the launcher ended (2.5 s), the wait, then the real game (3.3 s)
+    l = await logs(page);
+    expect(l.filter((x) => x.includes('"Amber Lighthouse": its window appeared')).length).toBe(2);
+  });
 });

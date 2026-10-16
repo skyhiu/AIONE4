@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.0.0-alpha.24 — completing T1.3 part 1 (rev. ak)
+
+- **D-038:** bringing AIONE to the front restores it first if it's minimized; "already in front"
+  never counts while minimized (logged `minimized: true → restored` / `false`); a failed step-aside
+  restores AIONE at once; after each attempt AIONE is checked and restored if still minimized.
+- **D-037 (reopened):** the window-swap hand-back (`hand_back`) only for the game (counted, never a
+  launcher), only to its visible main window, never with a step-aside; a launcher hiding its window
+  leaves AIONE black for the launcher wait.
+- Eden: unverified (eden_cli.txt not attached).
+
 ## 4.0.0-alpha.23 — completing T1.3 part 1 (rev. aj)
 
 - **D-035 (B-20 rev. aj):** the paused game resumes the moment the user starts leaving AIONE: any

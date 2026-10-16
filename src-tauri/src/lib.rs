@@ -299,6 +299,12 @@ fn return_to_game(id: String) -> Result<String, String> {
     launch::return_to_game(&id)
 }
 
+/// D-037 (rev. ak): the window-swap hand-back (the game only, a visible window, no step-aside).
+#[tauri::command]
+fn hand_back(id: String) -> Result<String, String> {
+    launch::hand_back(&id)
+}
+
 /// D-037: milliseconds since the last Guide press (the UI tells a window swap from Guide).
 #[tauri::command]
 fn ms_since_guide() -> u64 {
@@ -613,6 +619,16 @@ fn show_and_focus(app: &AppHandle, reason: &'static str) {
                 report.summary()
             ),
         );
+        // D-038 (rev. ak): AIONE must end up visible: if still minimized, restore it again.
+        if window.is_minimized().unwrap_or(false) {
+            let _ = window.unminimize();
+            let _ = window.show();
+            let _ = window.set_focus();
+            logging::lifecycle(
+                Level::Info,
+                &format!("foreground ({reason}): AIONE was still minimized: restored"),
+            );
+        }
         // D-005: judged against AIONE's own main window.
         #[cfg(windows)]
         let own_raw: isize = window.hwnd().map(|h| h.0 as isize).unwrap_or(0);
@@ -807,6 +823,7 @@ pub fn run() {
             force_close_game,
             cancel_start,
             ms_since_guide,
+            hand_back,
             return_to_game,
             running_game
         ])

@@ -61,6 +61,7 @@ export function createTauriCore(): Core {
     returnToGame: (id) => invoke<string>('return_to_game', { id }),
     cancelStart: (id) => invoke<string>('cancel_start', { id }),
     msSinceGuide: () => invoke<number>('ms_since_guide'),
+    handBack: (id) => invoke<string>('hand_back', { id }),
     forceCloseGame: async (id) => {
       await invoke('force_close_game', { id });
     },

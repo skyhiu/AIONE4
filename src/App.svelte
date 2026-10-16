@@ -1038,9 +1038,14 @@
           void core?.msSinceGuide().then((ms) => {
             if (ms < 1500 || launching !== 'ingame') return returnHome('AIONE is in front again');
             core
-              ?.returnToGame(id)
-              .then(() => core?.log('info', `the game swapped its window: front handed back (${ms === Number.MAX_SAFE_INTEGER ? 'no Guide' : `last Guide ${ms} ms ago`})`))
-              .catch(() => returnHome('AIONE is in front again'));
+              ?.handBack(id)
+              .then(() => core?.log('info', `the game swapped its window: front handed back (${ms >= 999999 ? 'no Guide' : `last Guide ${ms} ms ago`})`))
+              .catch((e: unknown) => {
+                const why = e instanceof Error ? e.message : String(e);
+                core?.log('info', `not handed back: ${why}`);
+                // A launcher hiding its window: stay black; its end and the wait come next.
+                if (!why.startsWith('not the game yet')) returnHome('AIONE is in front again');
+              });
           });
           return;
         }

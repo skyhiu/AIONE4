@@ -293,10 +293,16 @@ mod win {
                 attempts,
                 previous: previous.clone(),
             };
-            if IsIconic(h).as_bool() {
+            // D-038 (rev. ak): a minimized window is restored first, and "already" never counts
+            // while it is minimized (Windows can keep a minimized window as the active one).
+            let was_minimized = IsIconic(h).as_bool();
+            if was_minimized {
                 let _ = ShowWindow(h, SW_RESTORE);
+                attempts.push("minimized: true → restored".to_string());
+            } else {
+                attempts.push("minimized: false".to_string());
             }
-            if before == h {
+            if before == h && !was_minimized {
                 return done("already", attempts);
             }
 

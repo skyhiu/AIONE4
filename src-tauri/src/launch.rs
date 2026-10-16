@@ -529,6 +529,33 @@ fn emulator_launch(f: &crate::games::LaunchFields) -> Option<(String, String, st
     Some((exe.to_string_lossy().into_owned(), params, dir))
 }
 
+/// D-037 (rev. ak): the window-swap hand-back: only for the game (counted: never a launcher), only to
+/// its visible main window found again by process, and never with a step-aside.
+pub fn hand_back(id: &str) -> Result<String, String> {
+    let r = RUNNING
+        .lock()
+        .ok()
+        .and_then(|g| g.clone())
+        .filter(|r| r.id == id)
+        .ok_or("that game isn't running")?;
+    if r.counted_at.is_none() {
+        return Err("not the game yet (a launcher): no hand-back".into());
+    }
+    let pid = r
+        .pid
+        .filter(|p| process_alive(*p))
+        .ok_or("its process has ended")?;
+    let w = main_window_of(pid).ok_or("no visible window of the game: no hand-back")?;
+    let report = crate::foreground::bring_to_front(w);
+    let m = format!("window swap: \"{}\": {}", r.name, report.summary());
+    logging::lifecycle(Level::Info, &m);
+    if report.ok {
+        Ok(m)
+    } else {
+        Err(m)
+    }
+}
+
 /// B-18 (rev. ag): force close (only on the user's confirmation): resumes the game if paused, ends
 /// its process and those it started (TerminateProcess), and returns its counted session.
 pub fn force_close(id: &str) -> Result<Option<ClosedSession>, String> {
@@ -644,7 +671,20 @@ fn hand_over(r: &Running, what: &str) -> Result<String, String> {
         return Ok(m);
     }
     // Windows refused: AIONE steps aside.
-    let aside = step_aside(crate::foreground::main_window(), target, r.pid.unwrap_or(0));
+    let aione = crate::foreground::main_window();
+    let aside = step_aside(aione, target, r.pid.unwrap_or(0));
+    if !aside && aione != 0 {
+        // D-038 (rev. ak): a failed step-aside never leaves AIONE minimized.
+        let back = crate::foreground::bring_to_front(aione);
+        logging::lifecycle(
+            Level::Info,
+            &format!(
+                "{what} \"{}\": the step-aside failed: AIONE restored and brought back ({})",
+                r.name,
+                back.summary()
+            ),
+        );
+    }
     let m = format!(
         "{what} \"{}\": {}; then {}",
         r.name,

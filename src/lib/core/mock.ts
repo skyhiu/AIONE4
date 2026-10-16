@@ -294,6 +294,8 @@ export function createMock(search: string): { core: Core; control: MockControl }
   if (params.get('pad') === 'connected') emit('connected', '', 0);
 
   let running: string | null = null;
+  /** D-037: whether the real game's window has appeared (after a launcher). */
+  let gameShown = false;
   /** B-18 (rev. ah): the launcher wait was cancelled (the mock's later events are dropped). */
   let cancelled = false;
   const exitHandlers: ((e: { id: string; name: string; minutes: number }) => void)[] = [];
@@ -473,9 +475,17 @@ export function createMock(search: string): { core: Core; control: MockControl }
       if (l) {
         setTimeout(() => control.gameWindow(id), 300);
         cancelled = false;
-        setTimeout(() => followHandlers.forEach((h) => h({ id, name: g?.name ?? id })), 1300);
-        if (l === 'play') setTimeout(() => !cancelled && control.gameWindow(id), 2100);
-        else setTimeout(() => !cancelled && control.gameExit(id), 1300 + 5000);
+        gameShown = false;
+        // ?followat=<ms>: when the launcher ends (default 1.3 s); the game 0.8 s later.
+        const followAt = Number(params.get('followat') ?? 1300);
+        setTimeout(() => followHandlers.forEach((h) => h({ id, name: g?.name ?? id })), followAt);
+        if (l === 'play')
+          setTimeout(() => {
+            if (cancelled) return;
+            gameShown = true;
+            control.gameWindow(id);
+          }, followAt + 800);
+        else setTimeout(() => !cancelled && control.gameExit(id), followAt + 5000);
       } else if (w !== 'never') setTimeout(() => control.gameWindow(id), Number(w ?? 300));
       return Promise.resolve({ id, name: g?.name ?? id, how: 'shortcut game.lnk', pid: 4242, alreadyRunning: false, foreground: null });
     },
@@ -511,6 +521,12 @@ export function createMock(search: string): { core: Core; control: MockControl }
     onGameFollowing(h) {
       followHandlers.push(h);
       return Promise.resolve(() => {});
+    },
+    // D-037 (rev. ak): a launcher (before the game appeared) is never handed the front.
+    handBack(id) {
+      if (running !== id) return Promise.reject(new Error("that game isn't running"));
+      if (params.get('launcher') && !gameShown) return Promise.reject(new Error('not the game yet (a launcher): no hand-back'));
+      return Promise.resolve(`window swap: "${id}": OK via direct`);
     },
     msSinceGuide() {
       // The tests' focus events stand for Guide (just pressed); ?guidems=999999: no Guide (a swap).
