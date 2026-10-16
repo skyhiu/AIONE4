@@ -195,6 +195,8 @@ export interface Core {
   heldNow(): Promise<string[]>;
   /** B-22: a keyboard key down / up. */
   noteKey(key: string, down: boolean): Promise<void>;
+  /** D-045: AIONE gained or lost the front: clear the keyboard part of the held set. */
+  clearKeys(): Promise<void>;
   /** B-22: a state reached its limit. */
   onLockExpired(handler: (e: { kind: string }) => void): Promise<Unlisten>;
   /** D-037 (rev. ak): the window-swap hand-back (the game only; a visible window; no step-aside). */

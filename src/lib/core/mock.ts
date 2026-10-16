@@ -68,6 +68,8 @@ export interface MockControl {
   closes: string[];
   /** D-040: the returns to the running game (ids), in order. */
   returns: string[];
+  /** B-22: what the core's held set holds now (for tests). */
+  held(): string[];
   /** D-043: foreground attempts in flight now, and the most ever at once. */
   inFlight: number;
   maxInFlight: number;
@@ -320,6 +322,8 @@ export function createMock(search: string): { core: Core; control: MockControl }
   let gameShown = false;
   /** B-18 (rev. ah): the launcher wait was cancelled (the mock's later events are dropped). */
   let cancelled = false;
+  /** D-046: the start B cancelled (a window appearing anyway is closed). */
+  let startCancelled: string | null = null;
   const exitHandlers: ((e: { id: string; name: string; minutes: number }) => void)[] = [];
   const windowHandlers: ((e: { id: string; name: string; ms: number }) => void)[] = [];
   const hintHandlers: ((e: { id: string; text: string }) => void)[] = [];
@@ -343,7 +347,15 @@ export function createMock(search: string): { core: Core; control: MockControl }
     returns: [],
     inFlight: 0,
     maxInFlight: 0,
+    held: () => [...held],
     gameWindow(id) {
+      // D-046: a cancelled start: the game appeared anyway: closed (as the core does).
+      if (startCancelled === id) {
+        startCancelled = null;
+        running = null;
+        control.logs.push(`info: start "${id}": cancelled (B); the game appeared anyway: closed`);
+        return;
+      }
       const g = SAMPLE_GAMES.find((x) => x.id === id);
       windowHandlers.forEach((h) => h({ id, name: g?.name ?? id, ms: 1200 }));
     },
@@ -584,6 +596,10 @@ export function createMock(search: string): { core: Core; control: MockControl }
     heldNow() {
       return Promise.resolve([...held]);
     },
+    clearKeys() {
+      for (const k of [...held]) if (k.startsWith('key:')) held.delete(k);
+      return Promise.resolve();
+    },
     noteKey(key, down) {
       if (down) held.add(`key:${key}`);
       else held.delete(`key:${key}`);
@@ -599,6 +615,7 @@ export function createMock(search: string): { core: Core; control: MockControl }
     },
     cancelStart(id) {
       if (running !== id) return Promise.reject(new Error("that game isn't starting"));
+      startCancelled = id;
       running = null;
       cancelled = true;
       // As the core does: its own line, logged once.

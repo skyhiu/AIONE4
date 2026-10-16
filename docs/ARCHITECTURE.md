@@ -382,11 +382,23 @@ it keeps no copy. A core thread checks every 200 ms and ends any state past its 
 | State | Limit (as built) | Escape | Ends | Guide in the core |
 |---|---|---|---|---|
 | Boot Up / Boot Down | 10 s (the animations' own skip and caps first) | skip (Boot Up) | done | ignored |
-| Launching a game | 46 s (the UI says "Still starting <game>…" at 45 s) | **B Back to Home** after 3 s (shown) | the game's window; the start failed; B; timed out | ignored |
-| Launcher wait | 6 s (the core's own wait is 5 s) | B | the game followed; none | ignored |
+| Launching a game | 46 s (the UI says "Still starting <game>…" at 45 s) | **B Cancel start** after 3 s (shown): the start is cancelled for real; the core keeps watching to the limit and **closes** a game appearing anyway (rev. ao, D-046) | the game's window; the start failed; B; timed out | ignored |
+| Launcher wait | 6 s (the core's own wait is 5 s) | **none** (rev. ao, D-046: its short limit is the way out) | the game followed; none | ignored |
+| **The game still loading** (rev. ap) | from the game's window appearing until it has stayed put for 3 s (the same window, size and position, in front; each change restarts the 3 s), capped at 20 s (21 s in the machine) | none needed | settled; the 20 s cap | ignored (`Guide ignored (the game is still loading)`) |
 | Going back to the game (D-040) | 3 s waiting for the release, then **resumed anyway** (`still held: …`) | B: cancel, stay on Home (the game stays paused) | resumed; B | ignored |
 | Closing the game | 7 s (3 s for the game, then AIONE ends it, then up to 3 s) | none needed | ended | ignored |
 | A dialog / toast | none (answered) | B / Cancel | answered | acts |
+
+**The held set counts what matters (rev. ao, D-045):** the pad's buttons, and only the keys that
+act in AIONE (arrows, Enter, Space, Esc, Backspace, Tab), each press **and release** reported; never
+media keys, Alt or other modifiers. The keyboard part is cleared whenever AIONE gains or loses the
+front (a release can't be seen from another window).
+
+**AIONE's only synthetic input (rev. ap, D-047):** the `input-event` foreground method sends one
+zero-distance mouse move (`SendInput`, `INPUT_MOUSE`, `MOUSEEVENTF_MOVE`), logged
+`foreground: synthetic input sent (…)`; never a key. A read-only diagnostic (`keywatch.rs`, a
+low-level keyboard hook that only observes) logs every media / volume key press with whether Windows
+marks it as synthesized by a program, and which program was in front.
 
 **Cleared** (logged `cleared (…)`) when the game ends, a new launch starts, or AIONE pauses a game
 again. **Never two foreground attempts at once** (D-043): `show_and_focus` drops an attempt while

@@ -1,5 +1,17 @@
 # Changelog
 
+## 4.0.0-alpha.28 — completing T1.3 part 1 (B-22 revs ao and ap)
+
+- **D-045:** key releases reach the core (they stopped in the UI); only keys that act in AIONE
+  count as held (never media keys, Alt, modifiers); the keyboard part is cleared on a front change.
+- **D-046:** no B on the launcher wait; B on a slow start cancels it for real, and a game appearing
+  anyway is closed (never left untracked).
+- **B-22 rev. ap:** "the game still loading" (until 3 s put, capped at 20 s): Guide ignored.
+- **D-047:** confirmed in the code: AIONE's only synthetic input is a zero-distance mouse move (never
+  a key); logged when sent. A read-only diagnostic logs where media / volume keys come from.
+- **alpha.27 QA-3:** a return is logged once (by the core).
+- Eden: unverified (eden_cli.txt not attached).
+
 ## 4.0.0-alpha.27 — B-22: every input-locking state can be left, one owner (rev. an)
 
 - **B-22:** one state machine in the core (`transit.rs`) owns the input-locking states and the held

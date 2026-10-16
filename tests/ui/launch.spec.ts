@@ -252,7 +252,7 @@ test.describe('T1.3 launching (mocked core)', () => {
     await open(page, 'launcher=play');
     await pad(page, 'A');
     await page.waitForTimeout(1600); // the launcher's window came, then it ended
-    await expect(page.getByTestId('veil-text')).toHaveText(/^Starting Amber Lighthouse…\s*B Back to Home$/);
+    await expect(page.getByTestId('veil-text')).toHaveText('Starting Amber Lighthouse…');
     expect(await veil(page)).toBe(1);
     await pad(page, 'DPadRight'); // locked
     let l = await logs(page);
@@ -269,32 +269,32 @@ test.describe('T1.3 launching (mocked core)', () => {
     await expect(page.getByTestId('playing-badge')).toHaveCount(1);
   });
 
-  test('B-18 (rev. ah): the launcher closed without Play: Home within about 5 s; or at once with B', async ({ page }) => {
+  test('D-046: the launcher wait has no B; without Play, Home within about 5 s', async ({ page }) => {
     await open(page, 'launcher=noplay');
     await pad(page, 'A');
     await page.waitForTimeout(1600);
-    await expect(page.getByTestId('veil-text')).toHaveText(/^Starting Amber Lighthouse…\s*B Back to Home$/);
+    await expect(page.getByTestId('veil-text')).toHaveText('Starting Amber Lighthouse…');
+    await pad(page, 'B'); // nothing: the wait goes on (its limit is the way out)
+    await page.waitForTimeout(300);
+    expect(await veil(page)).toBe(1);
     const t = Date.now();
-    await expect.poll(() => veil(page), { timeout: 7000 }).toBe(0); // the core gives up after about 5 s
+    await expect.poll(() => veil(page), { timeout: 7000 }).toBe(0);
     expect(Date.now() - t).toBeLessThan(6500);
-    await expect(page.getByTestId('playing-badge')).toHaveCount(0);
-    // Again, and B cancels at once.
-    await page.waitForTimeout(500);
-    await pad(page, 'A');
-    await page.waitForTimeout(1600);
-    await expect(page.getByTestId('veil-text')).toContainText('B Back to Home');
-    await pad(page, 'B');
-    await expect.poll(() => veil(page), { timeout: 1500 }).toBe(0);
-    const l = await logs(page);
-    expect(l.some((x) => /the wait for "Amber Lighthouse" cancelled \(B\): Home/.test(x))).toBe(true);
-    // Rev. ai: the core's own line says what was counted (here: nothing; the game never appeared).
-    // QA-2 (alpha.22): the core's line, logged exactly once.
-    await page.waitForTimeout(200);
-    const l2 = await logs(page);
-    expect(l2.filter((x) => x.includes('the wait was cancelled (B): ended, nothing counted')).length).toBe(1);
     await expect(page.getByTestId('playing-badge')).toHaveCount(0);
   });
 
+  test('D-046: B on a slow start cancels it; the game appearing anyway is closed (never untracked)', async ({ page }) => {
+    await open(page, 'window=6000');
+    await pad(page, 'A');
+    await page.waitForTimeout(3400);
+    await expect(page.getByTestId('veil-text')).toHaveText(/^Starting Amber Lighthouse…\s*B Cancel start$/);
+    await pad(page, 'B');
+    await expect.poll(() => veil(page), { timeout: 1500 }).toBe(0); // Home
+    await page.waitForTimeout(3200); // the game's window appears anyway at 6 s
+    const l = await logs(page);
+    expect(l.some((x) => x.includes('cancelled (B); the game appeared anyway: closed'))).toBe(true);
+    await expect(page.getByTestId('playing-badge')).toHaveCount(0);
+  });
   test('D-037: AIONE gets the front just after the game appeared (a window swap): the front goes back, no Home', async ({ page }) => {
     await open(page, 'guidems=999999');
     await pad(page, 'A');
@@ -392,5 +392,28 @@ test.describe('T1.3 launching (mocked core)', () => {
     l = await logs(page);
     expect(l.some((x) => x.includes('still held: pad:A; resuming anyway'))).toBe(true);
     await release(page, 'A');
+  });
+
+  test('D-045: a media key and Alt never hold up a return; a key released elsewhere is cleared on a front change', async ({ page }) => {
+    await open(page);
+    await pad(page, 'A');
+    await page.waitForTimeout(1100);
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await page.waitForTimeout(400);
+    await page.keyboard.press('MediaTrackNext'); // never counted
+    await page.keyboard.down('Alt'); // a modifier, never counted; its release unseen (Alt-Tab)
+    await page.keyboard.down('Enter'); // an acting key, released in another window...
+    await page.evaluate(() => window.dispatchEvent(new Event('blur'))); // ...AIONE lost the front: cleared
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await page.waitForTimeout(300);
+    expect(await page.evaluate(() => window.__aioneMock?.held())).toEqual([]);
+    const t0 = Date.now();
+    await pad(page, 'A'); // Continue
+    await expect.poll(async () => (await page.evaluate(() => window.__aioneMock?.returns ?? [])).length, { timeout: 2000 }).toBe(1);
+    expect(Date.now() - t0).toBeLessThan(1500); // fast: no "Release the buttons"
+    const l = await logs(page);
+    expect(l.some((x) => x.includes('lock: returning ended: done (released)'))).toBe(true);
+    await page.keyboard.up('Alt');
+    await page.keyboard.up('Enter');
   });
 });

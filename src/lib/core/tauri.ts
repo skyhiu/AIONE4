@@ -68,6 +68,9 @@ export function createTauriCore(): Core {
     },
     lockLeave: (kind, how) => invoke<boolean>('lock_leave', { kind, how }),
     heldNow: () => invoke<string[]>('held_now'),
+    clearKeys: async () => {
+      await invoke('clear_keys');
+    },
     noteKey: async (key, down) => {
       await invoke('note_key', { key, down });
     },

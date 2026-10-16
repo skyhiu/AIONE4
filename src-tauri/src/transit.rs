@@ -29,6 +29,8 @@ pub enum Kind {
     Returning,
     Closing,
     Dialog,
+    /// B-22 rev. ap: from the game's window appearing until it has stayed put for about 3 s.
+    Loading,
 }
 
 impl Kind {
@@ -41,6 +43,7 @@ impl Kind {
             "returning" => Kind::Returning,
             "closing" => Kind::Closing,
             "dialog" => Kind::Dialog,
+            "loading" => Kind::Loading,
             _ => Kind::None,
         }
     }
@@ -54,6 +57,7 @@ impl Kind {
             Kind::Returning => "going back to the game",
             Kind::Closing => "closing the game",
             Kind::Dialog => "a dialog",
+            Kind::Loading => "the game is still loading",
         }
     }
 }
@@ -67,6 +71,19 @@ pub fn limit(kind: Kind) -> Option<Duration> {
         Kind::LauncherWait => Some(Duration::from_secs(6)), // the core's 5 s wait, plus a margin
         Kind::Returning => Some(Duration::from_secs(3)),  // then resume anyway
         Kind::Closing => Some(Duration::from_millis(7000)), // 3 s, AIONE ends it, up to 3 s more
+        Kind::Loading => Some(Duration::from_secs(21)),   // stable 3 s, or the 20 s cap
+    }
+}
+
+/// B-22 rev. ap: the game has settled once it has stayed put for 3 s (the same window, size and
+/// position, in front), or after the 20 s cap.
+pub fn settled(stable_for: Duration, since_window: Duration) -> Option<&'static str> {
+    if stable_for >= Duration::from_secs(3) {
+        Some("settled")
+    } else if since_window >= Duration::from_secs(20) {
+        Some("the 20 s cap")
+    } else {
+        None
     }
 }
 
@@ -80,6 +97,7 @@ pub fn guide_allowed(kind: Kind) -> bool {
             | Kind::Closing
             | Kind::BootUp
             | Kind::BootDown
+            | Kind::Loading
     )
 }
 
@@ -156,6 +174,12 @@ impl Machine {
         } else {
             self.held.remove(key);
         }
+    }
+
+    /// D-045 (B-22 rev. ao): AIONE gained or lost the front: a key's release can't be seen from
+    /// another window, so the keyboard part of the held set is cleared (the pad's stays).
+    pub fn clear_keys(&mut self) {
+        self.held.retain(|k| !k.starts_with("key:"));
     }
 
     pub fn held(&self) -> Vec<String> {
@@ -241,6 +265,7 @@ mod tests {
             Kind::LauncherWait,
             Kind::Returning,
             Kind::Closing,
+            Kind::Loading,
         ] {
             assert!(limit(k).is_some(), "{k:?} has no limit");
             assert!(!guide_allowed(k), "Guide acts during {k:?}");
@@ -264,6 +289,35 @@ mod tests {
             Some(Kind::Returning)
         );
         assert_eq!(m.kind, Kind::None);
+    }
+
+    /// B-22 rev. ap: each change restarts the 3 s; the 20 s cap ends it regardless.
+    #[test]
+    fn the_game_settles_after_3_s_put_or_the_cap() {
+        assert_eq!(
+            settled(Duration::from_millis(2900), Duration::from_secs(5)),
+            None
+        );
+        assert_eq!(
+            settled(Duration::from_millis(3000), Duration::from_secs(5)),
+            Some("settled")
+        );
+        assert_eq!(
+            settled(Duration::from_millis(500), Duration::from_secs(20)),
+            Some("the 20 s cap")
+        );
+    }
+
+    /// D-045: a key whose release AIONE never saw (e.g. Alt from Alt-Tab) is cleared when AIONE
+    /// gains or loses the front; the pad's held buttons stay.
+    #[test]
+    fn keys_are_cleared_on_a_front_change_the_pad_stays() {
+        let t = Instant::now();
+        let mut m = Machine::new(t);
+        m.press("key:Enter", true); // released in another window: never seen
+        m.press("pad:A", true);
+        m.clear_keys();
+        assert_eq!(m.held(), vec!["pad:A".to_string()]);
     }
 
     #[test]
@@ -310,6 +364,7 @@ mod tests {
             Kind::Returning,
             Kind::Closing,
             Kind::BootDown,
+            Kind::Loading,
         ];
         for seed in SEEDS {
             let mut r = Lcg(seed);
@@ -362,7 +417,7 @@ mod tests {
                 guide_acted, 0,
                 "seed {seed}: Guide acted during a transition"
             );
-            println!("button-mashing seed {seed}: {events} presses/releases over 6 transitions: every lock ended in time; Guide never acted; none survived the game's end");
+            println!("button-mashing seed {seed}: {events} presses/releases over 7 transitions: every lock ended in time; Guide never acted; none survived the game's end");
         }
     }
 }

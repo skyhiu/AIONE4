@@ -168,8 +168,18 @@
   const QUIET_AFTER = 3;
   const QUIET_DB = -4;
 
+  /**
+   * D-045 (B-22 rev. ao): only keys that act in AIONE count as "held" (never media keys, Alt or
+   * other modifiers), and every one's press AND release is reported to the core.
+   */
+  const ACTING_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', ' ', 'Space', 'Escape', 'Backspace', 'Tab']);
+  function reportKey(ev: InputEvent) {
+    if (ev.source === 'keyboard' && ACTING_KEYS.has(ev.control)) void core?.noteKey(ev.control, ev.kind !== 'up');
+  }
+
   function onKeyPhase(ev: InputEvent, release?: ReleaseInfo) {
     if (ev.kind === 'up') {
+      reportKey(ev); // D-045: the release reaches the core too (it used to stop here)
       if (release) core?.log('info', describeKeyRelease(ev.control, release.heldMs, release.repeats));
       return;
     }
@@ -185,7 +195,7 @@
 
   function handleInput(ev: InputEvent) {
     // B-22: the core owns the held set; keys only reach the UI, so they are reported to it.
-    if (ev.source === 'keyboard') void core?.noteKey(ev.control, ev.kind !== 'up');
+    reportKey(ev);
     // D-040 / B-18 rev. am: going back to the game, or closing it: input locked.
     if (launching === 'returning' && ev.kind === 'down' && toAction(ev) === 'back') {
       lockHow = 'escaped (B)';
@@ -219,25 +229,17 @@
       }
       return;
     }
-    // B-18 (rev. ah): B on "Starting <game>…" cancels the launcher wait at once.
-    if (launching === 'starting' && followingId && ev.kind === 'down' && toAction(ev) === 'back') {
-      const id = followingId;
-      const name = games.find((x) => x.id === id)?.name ?? id;
-      followingId = null;
-      core?.log('info', `${describeInput(ev, 'back', `the wait for "${name}" cancelled (B): Home`)}`);
-      // Rev. ai: the core ends the watch and says what was counted.
-      core?.cancelStart(id).catch(() => {}); // the core logs its own line (once)
-      runningId = null;
-      pendingId = null;
-      returnHome(`the wait for "${name}" was cancelled`);
-      games = sortForHome(games);
-      return;
-    }
+    // D-046 (B-22 rev. ao): the launcher wait has no B (its 5 s limit is the way out).
     // B-22 (D-042): B leaves a normal launch after about 3 s ("B Back to Home" shown).
     if (launching === 'starting' && !followingId && launchBackOk && ev.kind === 'down' && toAction(ev) === 'back') {
       lockHow = 'escaped (B)';
-      core?.log('info', `${describeInput(ev, 'back', 'the launch: back to Home (B); the game may still appear')}`);
-      returnHome('the launch: back to Home (B)');
+      const id = pendingId ?? runningId;
+      core?.log('info', `${describeInput(ev, 'back', 'the start was cancelled (B): Home; a game appearing anyway is closed')}`);
+      if (id) void core?.cancelStart(id).catch(() => {});
+      pendingId = null;
+      runningId = null;
+      returnHome('the start was cancelled (B)');
+      games = sortForHome(games);
       return;
     }
     // T1.3: input during the launch transition is discarded (never queued).
@@ -631,8 +633,8 @@
       core
         ?.returnToGame(id)
         .then((m) => {
-          // QA-4: the core's message starts with its own "back to …"; no doubled prefix.
-          core?.log('info', `back to "${name}" (${how}): ${m.replace(/^back to "[^"]*": /, '')}`);
+          // alpha.27 QA-3: the core logs the return once (`back to …: OK via …`).
+          void m;
           launching = 'ingame';
         })
         .catch((e: unknown) => {
@@ -1127,6 +1129,15 @@
         returnHome('AIONE is in front again');
       };
       window.addEventListener('focus', onFocus);
+      // D-045: a key's release can't be seen from another window: clear the keyboard part of the
+      // held set whenever AIONE gains or loses the front.
+      const onFrontChange = () => void core?.clearKeys();
+      window.addEventListener('focus', onFrontChange);
+      window.addEventListener('blur', onFrontChange);
+      unlisteners.push(() => {
+        window.removeEventListener('focus', onFrontChange);
+        window.removeEventListener('blur', onFrontChange);
+      });
       unlisteners.push(() => window.removeEventListener('focus', onFocus));
       status = await c.statusNow();
       // The window is shown on its first frame, which is black (A9, D-010).
@@ -1315,7 +1326,7 @@
   <!-- T1.3: the launch veil: Home fades to black (0.3 s, eased) after 0.55 s still. -->
   <div class="launch-veil" class:on={veil} data-testid="launch-veil" aria-hidden="true">
     {#if veil && closingSpinner}<div class="veil-ring" data-testid="closing-ring"></div>{/if}
-    {#if veil && veilText}<p class="veil-text" data-testid="veil-text">{veilText}{#if followingId || (launching === 'starting' && launchBackOk)}<span class="veil-b">  B Back to Home</span>{/if}</p>{/if}
+    {#if veil && veilText}<p class="veil-text" data-testid="veil-text">{veilText}{#if launching === 'starting' && launchBackOk && !followingId}<span class="veil-b">  B Cancel start</span>{/if}</p>{/if}
   </div>
 </main>
 

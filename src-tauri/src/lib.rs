@@ -8,6 +8,7 @@ pub mod emulators;
 pub mod foreground;
 pub mod games;
 pub mod input;
+pub mod keywatch;
 pub mod launch;
 pub mod library;
 pub mod lifecycle;
@@ -328,6 +329,12 @@ fn lock_leave(kind: String, how: String) -> bool {
 #[tauri::command]
 fn held_now() -> Vec<String> {
     transit::with(|m| m.held())
+}
+
+/// D-045: AIONE gained or lost the front: the keyboard part of the held set is cleared.
+#[tauri::command]
+fn clear_keys() {
+    transit::with(|m| m.clear_keys());
 }
 
 /// B-22: a keyboard key down / up (keys only reach the UI; the core keeps the one held set).
@@ -798,6 +805,8 @@ pub fn run() {
     pause::resume_left_over();
     // D-035: resume a paused game the moment it comes to the front by any route.
     pause::start_watch();
+    // D-047: a read-only diagnostic: where the media / volume keys come from (never AIONE).
+    keywatch::start();
 
     // B-19 part 1: the one-time emulator check report (read only), in the background; written
     // again with `--check-emulators`.
@@ -882,6 +891,7 @@ pub fn run() {
             lock_leave,
             held_now,
             note_key,
+            clear_keys,
             return_to_game,
             running_game
         ])

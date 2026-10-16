@@ -100,6 +100,19 @@ for (const seed of SEEDS) {
     await expectSane(page, 3000 + 1000);
     expect((await page.evaluate(() => window.__aioneMock?.returns ?? [])).length).toBeGreaterThan(0);
 
+    // 2c. D-045: a media key and Alt (never counted as held), then a return: fast.
+    await homeAgain(page);
+    await page.keyboard.press('MediaTrackNext');
+    await page.keyboard.press('Alt');
+    {
+      const before = (await page.evaluate(() => window.__aioneMock?.returns ?? [])).length;
+      const t0 = Date.now();
+      await press(page, 'A');
+      await expect.poll(async () => (await page.evaluate(() => window.__aioneMock?.returns ?? [])).length, { timeout: 2000 }).toBe(before + 1);
+      expect(Date.now() - t0).toBeLessThan(1500);
+      counts.push('media key + Alt, then a fast return');
+    }
+
     // 3. A close (X, Close), mashed until the game has ended (limit 7 s).
     await homeAgain(page);
     await press(page, 'X');
@@ -118,6 +131,17 @@ for (const seed of SEEDS) {
     await press(page, 'A');
     counts.push(`launcher wait ${await mash(page, rnd, 3000)}`);
     await expectSane(page, 6000 + 1000);
+
+    // 4b. D-046: a slow start mashed (B included): it ends sane, and no game is left running.
+    await page.goto('./?time=1:10&h12=1&pad=connected&window=5000');
+    await page.locator('main[data-phase="home"]').waitFor();
+    await page.waitForTimeout(300);
+    await press(page, 'A');
+    await page.waitForTimeout(3200); // "B Cancel start" is offered
+    counts.push(`slow start ${await mash(page, rnd, 2500)}`);
+    await expectSane(page, 46_000 + 1000);
+    await page.waitForTimeout(800);
+    if ((await state(page)).launching === 'none') await expect(page.getByTestId('playing-badge')).toHaveCount(0);
 
     // 5. A lock, then the game ends: nothing survives.
     await startGame(page);

@@ -355,6 +355,11 @@ mod win {
                 },
             };
             let sent = SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
+            // D-047 (B-22 rev. ap): AIONE's only synthetic input (never a key; never a press of yours).
+            crate::logging::lifecycle(
+                crate::logging::Level::Info,
+                "foreground: synthetic input sent (a zero-distance mouse move)",
+            );
             let _ = SetForegroundWindow(h);
             if is_foreground(h) {
                 return done("input-event", attempts);

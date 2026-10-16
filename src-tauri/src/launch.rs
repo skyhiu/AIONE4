@@ -59,6 +59,11 @@ struct Running {
     closing: bool,
     /// B-20 (rev. al): the program in front at the last check, if it was neither the game nor AIONE.
     behind: Option<String>,
+    /// D-046 (B-22 rev. ao): B cancelled this start; if the game appears anyway, it's closed.
+    cancelled: bool,
+    /// B-22 rev. ap: while the game is still loading: (when its window appeared, the last change,
+    /// the last sample: main window, its rectangle, the game in front).
+    loading: Option<Loading>,
 }
 
 static RUNNING: Mutex<Option<Running>> = Mutex::new(None);
@@ -136,6 +141,11 @@ pub fn game_is_young(pid: u32) -> bool {
         .is_some_and(|t| t.elapsed() < Duration::from_secs(3))
 }
 
+/// D-047: the program in front now (for the diagnostic's log).
+pub fn foreground_name() -> Option<String> {
+    foreground_program().map(|(_, _, e)| e)
+}
+
 /// A process's program name (for the log).
 pub fn exe_name(pid: u32) -> Option<String> {
     exe_of(pid)
@@ -185,6 +195,11 @@ pub fn is_not_the_game(exe: &str) -> bool {
     NOT_THE_GAME.contains(&exe.to_ascii_lowercase().as_str())
 }
 
+/// B-22 rev. ap: the loading check's sample: the main window, its rectangle, the game in front.
+type Sample = (isize, (i32, i32, i32, i32), bool);
+/// B-22 rev. ap: (when the game's window appeared, the last change, the last sample).
+type Loading = (Instant, Instant, Sample);
+
 /// B-18 (rev. am): how long a game gets to close itself before AIONE ends it.
 pub const CLOSE_GRACE: Duration = Duration::from_secs(3);
 
@@ -195,29 +210,17 @@ pub const FOLLOW_WAIT: Duration = Duration::from_secs(5);
 /// B-18 (rev. ah): B on "Starting <game>…" cancels the wait: the game counts as ended, nothing is
 /// counted (the watcher stops: the game is no longer tracked).
 pub fn cancel_start(id: &str) -> Result<(String, Option<ClosedSession>), String> {
-    let r = RUNNING
-        .lock()
-        .ok()
-        .and_then(|g| g.clone())
+    // D-046 (B-22 rev. ao): the start is cancelled for real but stays watched until its limit: a
+    // game appearing anyway is closed (never left running untracked).
+    let mut g = RUNNING.lock().map_err(|_| "busy")?;
+    let r = g
+        .as_mut()
         .filter(|r| r.id == id)
         .ok_or("that game isn't starting")?;
-    // The watch ends for real (rev. ai): the game is no longer tracked, so the watcher stops and
-    // reports nothing more; anything counted is recorded once by the caller.
-    let taken = take_if(r.gen);
-    let session = (taken && r.counted_at.is_some()).then(|| ClosedSession {
-        id: r.id.clone(),
-        name: r.name.clone(),
-        minutes: r
-            .counted_at
-            .map(|t| t.elapsed().as_secs_f64() / 60.0)
-            .unwrap_or(0.0),
-    });
-    let m = match &session {
-        Some(c) => format!("start \"{}\": the wait was cancelled (B): ended; {:.1} min counted (the game had appeared)", r.name, c.minutes),
-        None => format!("start \"{}\": the wait was cancelled (B): ended, nothing counted", r.name),
-    };
+    r.cancelled = true;
+    let m = format!("start \"{}\": cancelled (B); watching until the start's limit (a game appearing anyway is closed)", r.name);
     logging::lifecycle(Level::Info, &m);
-    Ok((m, session))
+    Ok((m, None))
 }
 
 /// D-036: the game is being closed by AIONE (Close Software, Close and start, force close).
@@ -475,6 +478,8 @@ pub fn launch(
         counted_at: None,
         closing: false,
         behind: None,
+        cancelled: false,
+        loading: None,
     };
     if let Ok(mut g) = RUNNING.lock() {
         if let Some(old) = g.replace(run) {
@@ -775,6 +780,35 @@ fn watch(gen: u64, report: impl Fn(Event)) {
             return;
         };
         let since = r.started.elapsed();
+        // B-22 rev. ap: is the game still loading? (the same window, size and position, in front)
+        if let Some((t0, changed, last)) = r.loading {
+            let now = Instant::now();
+            let w = r.pid.and_then(main_window_of).unwrap_or(0);
+            let front = foreground_program()
+                .map(|(_, p, _)| Some(p) == r.pid)
+                .unwrap_or(false);
+            let sample = (w, window_rect(w), front);
+            let changed = if sample != last { now } else { changed };
+            if let Some(how) = crate::transit::settled(now - changed, now - t0) {
+                r.loading = None;
+                crate::transit::with(|m| m.leave(crate::transit::Kind::Loading, how, now));
+            } else {
+                r.loading = Some((t0, changed, sample));
+            }
+        }
+        // D-046: a cancelled start that showed nothing by the start's limit ends quietly.
+        if r.cancelled && r.window.is_none() && since > Duration::from_secs(46) {
+            if take_if(gen) {
+                logging::lifecycle(
+                    Level::Info,
+                    &format!(
+                        "start \"{}\": cancelled (B); no game appeared by the start's limit",
+                        r.name
+                    ),
+                );
+            }
+            return;
+        }
         // B-20 (rev. al): who is in front now (the game, AIONE, or another program).
         if r.counted_at.is_some() {
             let (fp, fe) = foreground_program()
@@ -815,6 +849,23 @@ fn watch(gen: u64, report: impl Fn(Event)) {
                         r.exe.clone().unwrap_or_default()
                     ),
                 );
+                if r.cancelled {
+                    // D-046: the start was cancelled (B): the game appeared anyway: closed.
+                    let id = r.id.clone();
+                    let name = r.name.clone();
+                    std::thread::spawn(move || {
+                        let how = close_game(&id, Duration::from_secs(3), |_| {})
+                            .map(|_| "closed")
+                            .unwrap_or("could not be closed");
+                        logging::lifecycle(
+                            Level::Info,
+                            &format!(
+                                "start \"{name}\": cancelled (B); the game appeared anyway: {how}"
+                            ),
+                        );
+                    });
+                    return;
+                }
                 report(Event::Window {
                     id: r.id.clone(),
                     name: r.name.clone(),
@@ -831,6 +882,17 @@ fn watch(gen: u64, report: impl Fn(Event)) {
                     report(Event::Counted {
                         id: r.id.clone(),
                         name: r.name.clone(),
+                    });
+                    // B-22 rev. ap: the game is still loading until it has stayed put for 3 s.
+                    let now = Instant::now();
+                    r.loading = Some((now, now, (0, (0, 0, 0, 0), false)));
+                    crate::transit::with(|m| {
+                        m.enter(
+                            crate::transit::Kind::Loading,
+                            Some(r.id.clone()),
+                            "the game's window appeared",
+                            now,
+                        )
                     });
                 }
                 // D-027: the game's window appeared: AIONE hands it the front (Steam included).
@@ -888,6 +950,29 @@ fn watch(gen: u64, report: impl Fn(Event)) {
                         since_follow.elapsed().as_millis()
                     ),
                 );
+                if r.cancelled {
+                    // D-046: the start was cancelled (B): the game appeared anyway (after its launcher): closed.
+                    r.pid = Some(pid);
+                    if let Ok(mut g) = RUNNING.lock() {
+                        if let Some(x) = g.as_mut().filter(|x| x.gen == gen) {
+                            x.pid = Some(pid);
+                        }
+                    }
+                    let id = r.id.clone();
+                    let name = r.name.clone();
+                    std::thread::spawn(move || {
+                        let how = close_game(&id, Duration::from_secs(3), |_| {})
+                            .map(|_| "closed")
+                            .unwrap_or("could not be closed");
+                        logging::lifecycle(
+                            Level::Info,
+                            &format!(
+                                "start \"{name}\": cancelled (B); the game appeared anyway: {how}"
+                            ),
+                        );
+                    });
+                    return;
+                }
                 r.pid = Some(pid);
                 r.exe = Some(exe);
                 r.window = main_window_of(pid);
@@ -1419,6 +1504,15 @@ mod win {
         ))
     }
 
+    /// B-22 rev. ap: a window's rectangle (a move, resize or fullscreen switch changes it).
+    pub fn window_rect(w: isize) -> (i32, i32, i32, i32) {
+        let mut rc = RECT::default();
+        if w != 0 {
+            let _ = unsafe { GetWindowRect(HWND(w as *mut _), &mut rc) };
+        }
+        (rc.left, rc.top, rc.right, rc.bottom)
+    }
+
     /// B-17 (rev. ae): the program holding the keyboard focus (e.g. GameBar.exe).
     pub fn keys_program() -> Option<String> {
         let mut info = GUITHREADINFO {
@@ -1455,7 +1549,7 @@ mod win {
 use win::{
     active_popup, close_windows_of, exe_of, foreground_program, keys_program, main_window_of,
     process_alive, process_list, shell_open, steam_root, step_aside, top_window_of, window_alive,
-    window_state,
+    window_rect, window_state,
 };
 
 #[cfg(not(windows))]
@@ -1485,6 +1579,10 @@ fn foreground_program() -> Option<(isize, u32, String)> {
 #[cfg(not(windows))]
 fn close_windows_of(_pid: u32) -> usize {
     0
+}
+#[cfg(not(windows))]
+fn window_rect(_w: isize) -> (i32, i32, i32, i32) {
+    (0, 0, 0, 0)
 }
 #[cfg(not(windows))]
 fn process_list() -> Vec<(u32, u32, Option<std::path::PathBuf>)> {
