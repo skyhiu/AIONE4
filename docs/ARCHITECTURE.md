@@ -388,6 +388,7 @@ it keeps no copy. A core thread checks every 200 ms and ends any state past its 
 | Going back to the game (D-040) | 3 s waiting for the release, then **resumed anyway** (`still held: …`) | B: cancel, stay on Home (the game stays paused) | resumed; B | ignored |
 | Closing the game | 7 s (3 s for the game, then AIONE ends it, then up to 3 s) | none needed | ended | ignored |
 | A dialog / toast | none (answered) | B / Cancel | answered | acts |
+| **The Quick Menu** (T2.2) | none (answered) | B (a level back), a short Guide (closes it) | closed | a short Guide closes it; a held Guide does nothing more |
 
 **Steam asking something during a start (rev. aq, D-048):** during the launcher wait, Steam's own
 window (`steamwebhelper.exe` / `steam.exe`, any user's Steam) in front means Steam is asking something
@@ -473,4 +474,31 @@ with the guide line to untick "Run as administrator" when it asks. **Windows' pe
 no B. **Refusals:** a pause or a close Windows refuses is logged with its error and said plainly
 ("<game> runs as administrator: AIONE can't pause it" / "… close it"); a refused close offers to
 bring the game to the front. Nothing hangs or retries in a loop. The administrator helper is T2.3.
+
+## The held Guide and the Quick Menu (alpha.31, B-26; `transit::GuideHold`, `QuickMenu.svelte`)
+
+Guide is decided **in the core** (it sees every press and release): its press waits for its release
+or 0.5 s. **Released before 0.5 s:** today's behaviour, at the release (from the background: AIONE
+comes forward; in front: the UI gets Guide's down and up). **Held 0.5 s:** `Guide held N ms: Quick
+Menu`, from the background after bringing AIONE forward (the game pauses, B-20, D-039). Ignored
+during transitions and while a game is still loading (B-22). The Quick Menu slides in from the
+right, flush with the header and footer (measured), the whole screen (header included) dimmed (no
+band, L-13), Home suspended under it (no ring, L-18). It owns input while open (one interaction
+context, above Home and below a dialog). Rows: **Volume** (AIONE's own: left / right 1 %, faster when
+held; LT / RT 10 %; A mutes; applied live to the menu sounds and Boot Up / Down, saved to the store),
+**Theme** ("Coming in a later stage": only the Switch theme so far), **Power** (a submenu). Its own
+footer prompts. Home's footer shows **"Menu"** (the Guide glyph) first.
+
+**The Power menu** (the reference's order): Restart AIONE (Boot Down, then restart), Close AIONE
+(Boot Down, then exit), Sleep Mode ("Coming in a later stage": Windows' sleep and resume are T2.3),
+Restart PC and Turn Off PC (each confirmed, Cancel focused; then Windows' own `shutdown /r` / `/s`).
+
+## Dialogs done once (alpha.31, L-13, L-18; `ConfirmDialog.svelte`)
+
+One component for every question and message: two buttons (a question; Cancel focused for
+destructive choices) or one (a message: OK). B is Cancel / OK; Left / Right move; A answers; the
+buttons are clickable. Its scrim covers the whole screen (no band at the top, L-13), and Home is
+suspended under it (no focus visuals, L-18). Every question and message uses it: the close and
+switch questions, the Power confirmations, start failures, the administrator messages. *Not moved:*
+T0's copy dialog, a multi-step screen (offer, progress, result) with its own verified flow.
 

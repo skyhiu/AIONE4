@@ -105,6 +105,8 @@ fn run(get_state: GetStateFn, emit: impl Fn(PadEvent), guide: impl Fn()) {
     let mut last_probe = [None::<Instant>; 4];
     // B-7: in the background only Guide acts; everything else is logged only.
     let gate = RefCell::new(BackgroundGate::default());
+    // B-26: Guide waits for its release or 0.5 s (short / held), decided here.
+    let hold = RefCell::new(crate::transit::GuideHold::default());
     let send = |kind: &'static str, control: &'static str, pad: u32, detail: &str| {
         let ev = PadEvent {
             kind,
@@ -132,11 +134,81 @@ fn run(get_state: GetStateFn, emit: impl Fn(PadEvent), guide: impl Fn()) {
         }
         emit(ev);
     };
+    // B-26: a held Guide: the Quick Menu (ignored during transitions and while a game loads).
+    let held_guide = |background: bool, ms: u128, slot: u32| {
+        let (kind, _, _) = crate::transit::current();
+        if !crate::transit::guide_allowed(kind) {
+            logging::info(
+                "input",
+                &format!("Guide held {ms} ms: ignored ({})", kind.name()),
+            );
+            return;
+        }
+        logging::info(
+            "input",
+            &format!(
+                "Guide held {ms} ms: Quick Menu{}",
+                if background {
+                    " (AIONE comes forward)"
+                } else {
+                    ""
+                }
+            ),
+        );
+        if background {
+            guide();
+        }
+        send("held", "Guide", slot, "");
+    };
     let out = |e: &PadOut, slot: u32| {
         let control = CONTROLS[e.index];
         // B-22: the one held set sees every press and release, whatever its route (Guide included).
         crate::transit::with(|m| m.press(&format!("pad:{control}"), e.kind != Kind::Up));
         let foreground = crate::foreground::aione_is_foreground();
+        // B-26: Guide is decided here (short at its release; held at 0.5 s in the loop).
+        if control == "Guide" {
+            match e.kind {
+                Kind::Down => {
+                    hold.borrow_mut().down(Instant::now(), !foreground);
+                    logging::info(
+                        "input",
+                        &format!(
+                            "pad {} down Guide (seq {}): short or held?",
+                            slot + 1,
+                            next_seq()
+                        ),
+                    );
+                }
+                Kind::Repeat => {}
+                Kind::Up => match hold.borrow_mut().up(Instant::now()) {
+                    Some(crate::transit::GuideOutcome::Short { background: true }) => {
+                        logging::info("input", &format!("pad {} Guide short ({} ms) (AIONE in the background: Guide brings AIONE to the front; consumed)", slot + 1, e.held.as_millis()));
+                        guide();
+                    }
+                    Some(crate::transit::GuideOutcome::Short { background: false }) => {
+                        send("down", control, slot, " (a short Guide)");
+                        send(
+                            "up",
+                            control,
+                            slot,
+                            &format!(", held {} ms", e.held.as_millis()),
+                        );
+                    }
+                    Some(crate::transit::GuideOutcome::Held { background }) => {
+                        held_guide(background, e.held.as_millis(), slot)
+                    }
+                    None => logging::info(
+                        "input",
+                        &format!(
+                            "pad {} up Guide: released after the Quick Menu opened ({} ms)",
+                            slot + 1,
+                            e.held.as_millis()
+                        ),
+                    ),
+                },
+            }
+            return;
+        }
         let route = gate
             .borrow_mut()
             .route(slot, e.index, control, e.kind, foreground);
@@ -180,6 +252,11 @@ fn run(get_state: GetStateFn, emit: impl Fn(PadEvent), guide: impl Fn()) {
     };
 
     loop {
+        if let Some(crate::transit::GuideOutcome::Held { background }) =
+            hold.borrow_mut().tick(Instant::now())
+        {
+            held_guide(background, crate::transit::GUIDE_HOLD.as_millis(), 0);
+        }
         let now = Instant::now();
         for slot in 0..4u32 {
             let i = slot as usize;

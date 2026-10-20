@@ -57,6 +57,8 @@ pub struct Settings {
     // ----- Bookkeeping -----
     /// The one-time import (B-6 / B-24): when, and from which file. Never runs again once set.
     pub imported_from_wpf: Option<ImportRecord>,
+    /// B-24 rev. aw: the one-time reset of alpha.30's imported volume to 100 % (done once).
+    pub volume_reset_done: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -88,6 +90,7 @@ impl Default for Settings {
             theme: "switch".into(),
             color_preset: "light".into(),
             imported_from_wpf: None,
+            volume_reset_done: false,
         }
     }
 }
@@ -141,7 +144,11 @@ pub fn change(data: &Path, patch: &Value) -> Result<Settings, String> {
     let mut merged = current;
     if let (Some(m), Some(p)) = (merged.as_object_mut(), patch.as_object()) {
         for (k, v) in p {
-            if k != "schema" && k != "importedFromWpf" && m.contains_key(k) {
+            if k != "schema"
+                && k != "importedFromWpf"
+                && k != "volumeResetDone"
+                && m.contains_key(k)
+            {
                 m.insert(k.clone(), v.clone());
             }
         }
@@ -197,14 +204,9 @@ pub fn import_from(wpf: &Value, base: Settings) -> Import {
         let mut take =
             |to: &str, value: String| taken.push((key.clone(), shown(v), to.to_string(), value));
         let why: Option<&str> = match key.as_str() {
-            "MasterVolume" => match fraction_to_percent(v) {
-                Some(p) => {
-                    s.volume = p;
-                    take("volume", format!("{p} %"));
-                    None
-                }
-                None => Some("not a level between 0 and 1"),
-            },
+            // B-24 rev. aw: WPF's master volume belonged to its older audio model (tied to Windows'
+            // volume), so its meaning changed: AIONE 4 starts at 100 %.
+            "MasterVolume" => Some("WPF's master volume belonged to its older audio model (tied to Windows' volume), so its meaning changed: AIONE 4 starts at 100 %"),
             "Mute" => match v.as_bool() {
                 Some(b) => {
                     s.muted = b;
@@ -402,6 +404,30 @@ pub fn import_once(data: &Path, now: &str) -> Option<String> {
     ))
 }
 
+/// B-24 rev. aw: alpha.30 imported WPF's master volume; reset it ONCE to 100 % if it still equals
+/// the imported value (the user hasn't changed it). Returns a line for the log.
+pub fn reset_imported_volume_once(data: &Path) -> Option<String> {
+    let mut s = load(data);
+    if s.volume_reset_done || s.imported_from_wpf.is_none() {
+        return None;
+    }
+    let imported = std::fs::read_to_string(wpf_source(data))
+        .ok()
+        .and_then(|t| serde_json::from_str::<Value>(t.trim_start_matches('\u{feff}')).ok())
+        .and_then(|j| j.get("MasterVolume").and_then(fraction_to_percent));
+    s.volume_reset_done = true;
+    let line = match imported {
+        Some(v) if s.volume == v && v != 100 => {
+            s.volume = 100;
+            format!("settings: the volume imported by alpha.30 ({v} %) reset once to 100 % (B-24 rev. aw: the volume isn't imported)")
+        }
+        Some(v) => format!("settings: the volume ({} %) differs from alpha.30's import ({v} %): kept (changed in AIONE 4)", s.volume),
+        None => "settings: no imported volume to reset".to_string(),
+    };
+    save(data, &s).ok()?;
+    Some(line)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -433,8 +459,13 @@ mod tests {
                 s.menu_sound_volume,
                 s.menu_sounds
             ),
-            (35, true, 50, 80, false)
+            (100, true, 50, 80, false)
         );
+        // B-24 rev. aw: the volume isn't imported (AIONE 4 starts at 100 %).
+        assert!(i
+            .left_out
+            .iter()
+            .any(|(k, _, why)| k == "MasterVolume" && why.contains("older audio model")));
         assert_eq!(
             (
                 s.favorites_first,
@@ -463,10 +494,36 @@ mod tests {
         assert!(i.left_out.iter().all(|(_, _, why)| !why.is_empty()));
     }
 
+    /// B-24 rev. aw: alpha.30's imported volume, unchanged since, is reset once to 100 %.
+    #[test]
+    fn alpha30s_imported_volume_is_reset_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path();
+        let src = wpf_source(data);
+        std::fs::create_dir_all(src.parent().unwrap()).unwrap();
+        std::fs::write(&src, wpf().to_string()).unwrap();
+        let mut s = Settings {
+            volume: 35,
+            ..Settings::default()
+        }; // as alpha.30 left it (invented)
+        s.imported_from_wpf = Some(ImportRecord {
+            at: "x".into(),
+            source: "x".into(),
+            taken: 1,
+            left_out: 1,
+        });
+        save(data, &s).unwrap();
+        assert!(reset_imported_volume_once(data)
+            .unwrap()
+            .contains("reset once to 100 %"));
+        assert_eq!(load(data).volume, 100);
+        assert_eq!(reset_imported_volume_once(data), None); // once only
+    }
+
     #[test]
     fn doubtful_values_are_left_out_never_guessed() {
         let i = import_from(
-            &json!({ "MasterVolume": 7, "Mute": "yes", "SortBy": "Alphabetical", "Theme": "Wii" }),
+            &json!({ "MusicVolume": 7, "Mute": "yes", "SortBy": "Alphabetical", "Theme": "Wii" }),
             Settings::default(),
         );
         assert_eq!(i.settings, Settings::default()); // nothing taken
@@ -483,15 +540,18 @@ mod tests {
         assert!(import_once(data, "2026-01-01 00:00")
             .unwrap()
             .contains("taken"));
-        assert_eq!(load(data).volume, 35);
+        assert_eq!(load(data).volume, 100); // rev. aw: not imported
         assert!(std::fs::read_to_string(data.join("settings-import.md"))
             .unwrap()
-            .contains("| MasterVolume | 0.35 | volume | 35 % |"));
+            .contains(
+                "| MasterVolume | 0.35 | WPF's master volume belonged to its older audio model"
+            ));
         // A change in AIONE 4 wins; the import never runs again.
         change(data, &json!({ "volume": 80 })).unwrap();
         assert_eq!(import_once(data, "2026-01-02 00:00"), None);
         assert_eq!(load(data).volume, 80);
-        // Invalid values fall back; unknown keys are ignored.
+        assert!(reset_imported_volume_once(data).unwrap().contains("kept")); // 80 differs from the imported 35
+                                                                             // Invalid values fall back; unknown keys are ignored.
         let s = change(
             data,
             &json!({ "colorPreset": "purple", "volume": 250, "nonsense": 1 }),

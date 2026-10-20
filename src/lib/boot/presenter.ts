@@ -31,6 +31,16 @@ interface FrameStats {
 export const FADE_START_MS = 4650;
 
 export class BootPresenter {
+  /**
+   * D-049 (the audio model): AIONE's own level for the Boot Up / Boot Down sound and videos
+   * (Volume × Mute, from the settings; never Windows' volume). Set before any presentation.
+   */
+  static level = 1;
+  static levelLine = 'AIONE volume 100 %, unmuted';
+  static setLevel(volume: number, muted: boolean) {
+    BootPresenter.level = muted ? 0 : Math.max(0, Math.min(1, volume));
+    BootPresenter.levelLine = `AIONE volume ${Math.round(volume * 100)} %, ${muted ? 'muted' : 'unmuted'}`;
+  }
   private raf = 0;
   private ctx: AudioContext | null = null;
   private source: AudioBufferSourceNode | null = null;
@@ -83,7 +93,8 @@ export class BootPresenter {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const buf = await ctx.decodeAudioData(await res.arrayBuffer());
       const gain = ctx.createGain();
-      gain.gain.value = 1; // AIONE Volume × Mute × the Boot category (settings in T2 / T3)
+      gain.gain.value = BootPresenter.level; // D-049: AIONE's Volume × Mute
+      this.log('info', `boot sound: ${BootPresenter.levelLine} (AIONE's own; Windows' volume and mute untouched)`);
       gain.connect(ctx.destination);
       const src = ctx.createBufferSource();
       src.buffer = buf;
@@ -158,8 +169,10 @@ export class BootPresenter {
     v.setAttribute('data-testid', `boot-${which}-video`);
     v.playsInline = true;
     v.preload = 'auto';
-    v.muted = opts.muted;
-    v.volume = 1;
+    // D-049: AIONE's Volume × Mute on the custom video too.
+    v.muted = opts.muted || BootPresenter.level === 0;
+    v.volume = BootPresenter.level;
+    this.log('info', `${label} sound: ${BootPresenter.levelLine} (AIONE's own; Windows' volume and mute untouched)`);
     v.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000';
     this.video = v;
     this.host.appendChild(v);

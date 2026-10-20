@@ -59,8 +59,16 @@ async function mash(page: Page, rnd: () => number, ms: number, controls = CONTRO
 async function expectSane(page: Page, withinMs: number) {
   await expect.poll(async () => {
     const s = await state(page);
-    return (s.launching === 'none' || s.launching === 'ingame') && (s.lock === 'none' || s.lock === 'dialog');
+    return (s.launching === 'none' || s.launching === 'ingame') && (s.lock === 'none' || s.lock === 'dialog' || s.lock === 'quick-menu');
   }, { timeout: withinMs }).toBe(true);
+  // T2.2: a held Guide in the mashing may have opened the Quick Menu (or a message): close it
+  // with B, as the user would, before the next step.
+  for (let i = 0; i < 4; i++) {
+    const s = await state(page);
+    if (s.lock !== 'quick-menu' && s.lock !== 'dialog') break;
+    await press(page, 'B');
+    await page.waitForTimeout(250);
+  }
 }
 
 async function startGame(page: Page) {

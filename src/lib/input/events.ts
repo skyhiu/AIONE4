@@ -3,7 +3,7 @@
 import type { PadEvent } from '../core/types';
 
 export type InputSource = 'controller' | 'keyboard' | 'mouse';
-export type InputKind = 'down' | 'up' | 'repeat';
+export type InputKind = 'down' | 'up' | 'repeat' | 'held';
 
 export interface InputEvent {
   source: InputSource;
@@ -69,7 +69,7 @@ export function fromWheel(deltaY: number): InputEvent | null {
 }
 
 /** The actions Home and the dialogs use (T1.1). More come with the Quick Menu (T2). */
-export type UiAction = 'confirm' | 'back' | 'left' | 'right' | 'up' | 'down' | 'options' | 'guide' | 'close';
+export type UiAction = 'confirm' | 'back' | 'left' | 'right' | 'up' | 'down' | 'options' | 'guide' | 'close' | 'menu' | 'bigLeft' | 'bigRight';
 
 const ACTIONS: Record<InputSource, Record<string, UiAction>> = {
   controller: {
@@ -80,6 +80,9 @@ const ACTIONS: Record<InputSource, Record<string, UiAction>> = {
     X: 'close',
     // B-7 (T1.3): Guide in front returns to the running game, if one is running.
     Guide: 'guide',
+    // A8: LT / RT change a focused slider by 10 %.
+    LT: 'bigLeft',
+    RT: 'bigRight',
     B: 'back',
     DPadLeft: 'left',
     DPadRight: 'right',
@@ -111,6 +114,8 @@ const ACTIONS: Record<InputSource, Record<string, UiAction>> = {
 /** Maps an input event to a UI action. Only presses and repeats act; releases never do. */
 export function toAction(ev: InputEvent): UiAction | null {
   if (ev.kind === 'up') return null;
+  // B-26: a held Guide (decided in the core) opens the Quick Menu.
+  if (ev.kind === 'held') return ev.control === 'Guide' ? 'menu' : null;
   const action = ACTIONS[ev.source][ev.control];
   if (!action) return null;
   // Confirm and back never repeat while held (one press, one action).

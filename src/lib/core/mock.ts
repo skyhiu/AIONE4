@@ -302,6 +302,9 @@ export function createMock(search: string): { core: Core; control: MockControl }
   if (params.get('pad') === 'connected') emit('connected', '', 0);
 
   let running: string | null = null;
+  /** B-26: the mock's Guide hold (as transit::GuideHold). */
+  let guideAt = 0;
+  let guideFired = false;
   /** B-24: the mock's settings store. */
   const settings: Settings = {
     schema: 1,
@@ -357,6 +360,28 @@ export function createMock(search: string): { core: Core; control: MockControl }
       // B-22: the core's one held set sees every press and release (Guide included).
       if (kind === 'up') held.delete(`pad:${name}`);
       else held.add(`pad:${name}`);
+      // B-26, as the core: Guide waits for its release (short) or 0.5 s (held: the Quick Menu).
+      if (name === 'Guide') {
+        if (kind === 'down') {
+          guideFired = false;
+          const at = Date.now();
+          guideAt = at;
+          setTimeout(() => {
+            if (guideAt !== at || !held.has('pad:Guide')) return;
+            guideFired = true;
+            const blocked = ['launching', 'launcher-wait', 'returning', 'closing', 'boot-up', 'boot-down'].includes(lock.kind);
+            control.logs.push(`info: Guide held 500 ms: ${blocked ? `ignored (${lock.kind})` : 'Quick Menu'}`);
+            if (!blocked) emit('held', 'Guide', pad);
+          }, 500);
+        } else if (kind === 'up') {
+          guideAt = 0;
+          if (!guideFired) {
+            emit('down', 'Guide', pad);
+            emit('up', 'Guide', pad);
+          }
+        }
+        return;
+      }
       emit(kind, name, pad);
     },
     connect(pad = 0) {
@@ -384,7 +409,8 @@ export function createMock(search: string): { core: Core; control: MockControl }
     },
     gameExit(id) {
       const g = SAMPLE_GAMES.find((x) => x.id === id);
-      running = null;
+      // As the core (take_if checks the generation): an old game's late end never clears the new one.
+      if (running === id) running = null;
       exitHandlers.forEach((h) => h({ id, name: g?.name ?? id, minutes: 1 }));
     },
     decisions: [],
@@ -526,6 +552,8 @@ export function createMock(search: string): { core: Core; control: MockControl }
     // T1.3: ?launch=fail makes every start fail (a missing shortcut).
     launchGame(id) {
       launchAt = Date.now();
+      // As the core: a cancellation belongs to one start (a new launch replaces it).
+      startCancelled = null;
       const g = SAMPLE_GAMES.find((x) => x.id === id);
       control.launches.push(id);
       if (params.get('launch') === 'fail') return Promise.reject(new Error('its shortcut game.lnk is missing'));
@@ -645,6 +673,10 @@ export function createMock(search: string): { core: Core; control: MockControl }
       return Promise.resolve([...held]);
     },
     // B-24: the settings store (defaults; ?volume= / ?muted=1 / ?menusound= for tests).
+    powerPc(action) {
+      control.logs.push(`info: power: ${action} the PC (confirmed by the user)`);
+      return Promise.resolve();
+    },
     getSettings() {
       return Promise.resolve({ ...settings });
     },

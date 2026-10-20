@@ -1,5 +1,18 @@
 # Changelog
 
+## 4.0.0-alpha.31 — T2.2: the Quick Menu, the Power menu, dialogs done once
+
+- **D-049:** AIONE's Volume × Mute on the Boot Up / Boot Down sound and custom videos.
+- **D-050:** Windows' permission prompt detected (the process snapshot's own names; the shell call
+  watched while it blocks); logged; on cancel "<game> needs administrator permission; it wasn't given".
+- **alpha.30 QA-3:** the failure line uses the title; the boot settings line names its sources.
+- **B-24 rev. aw:** the volume isn't imported; alpha.30's imported volume reset once to 100 %.
+- **B-26:** the Quick Menu on a held Guide (decided in the core); a short Guide unchanged; "Menu".
+- **The Power menu:** Restart / Close AIONE (with the Boot Down), Restart / Turn Off PC (confirmed);
+  Sleep Mode in T2.3.
+- **Dialogs done once:** one component for questions and messages; Home suspended under every one.
+- **B-22:** the Quick Menu added to the state table; held-Guide mashing.
+
 ## 4.0.0-alpha.30 — T2.1: the settings store, the audio model, games as administrator
 
 - **B-24:** AIONE 4's own settings store (schema 1); the one-time import from the WPF copy

@@ -13,10 +13,11 @@ import keyTab from '../../../assets/glyphs/kenney-input-prompts/keyboard-mouse/k
 import xboxMenu from '../../../assets/glyphs/kenney-input-prompts/xbox-series/xbox_button_menu.svg?url';
 // B-18: "X Close Software" (on the keyboard, Delete).
 import xboxX from '../../../assets/glyphs/kenney-input-prompts/xbox-series/xbox_button_x.svg?url';
+import xboxGuide from '../../../assets/glyphs/kenney-input-prompts/xbox-series/xbox_guide.svg?url';
 import keyDelete from '../../../assets/glyphs/kenney-input-prompts/keyboard-mouse/keyboard_delete.svg?url';
 
 export type GlyphDevice = 'xbox' | 'keyboard';
-export type PromptButton = 'confirm' | 'back' | 'options' | 'close';
+export type PromptButton = 'confirm' | 'back' | 'options' | 'close' | 'menu';
 
 type Glyph = { url: string; file: string };
 export const GLYPHS: Record<GlyphDevice, Record<'confirm' | 'back', Glyph> & Partial<Record<PromptButton, Glyph>>> = {
@@ -25,6 +26,8 @@ export const GLYPHS: Record<GlyphDevice, Record<'confirm' | 'back', Glyph> & Par
     back: { url: xboxB, file: 'xbox_button_b.svg' },
     options: { url: xboxMenu, file: 'xbox_button_menu.svg' },
     close: { url: xboxX, file: 'xbox_button_x.svg' },
+    // B-26 / A7: the Home / Guide hint, labeled "Menu" in every theme.
+    menu: { url: xboxGuide, file: 'xbox_guide.svg' },
   },
   keyboard: {
     confirm: { url: keyEnter, file: 'keyboard_enter.svg' },

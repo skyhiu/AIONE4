@@ -72,7 +72,7 @@ export interface PcStatus {
 }
 
 /** A normalized controller event from the Rust core (XInput). */
-export type PadEventKind = 'down' | 'up' | 'repeat' | 'connected' | 'disconnected';
+export type PadEventKind = 'down' | 'up' | 'repeat' | 'held' | 'connected' | 'disconnected';
 
 export interface PadEvent {
   kind: PadEventKind;
@@ -197,6 +197,8 @@ export interface Core {
   noteKey(key: string, down: boolean): Promise<void>;
   /** B-27: a plain message for the user (e.g. Windows refused a pause). */
   onNotice(handler: (e: { text: string }) => void): Promise<Unlisten>;
+  /** T2.2: Restart PC / Turn Off PC (after the user's confirmation). */
+  powerPc(action: 'restart' | 'shutdown'): Promise<void>;
   /** B-24: AIONE 4's settings (its own schema). */
   getSettings(): Promise<Settings>;
   /** B-24: change some settings (applied at once, saved). */

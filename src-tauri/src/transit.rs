@@ -31,6 +31,8 @@ pub enum Kind {
     Dialog,
     /// B-22 rev. ap: from the game's window appearing until it has stayed put for about 3 s.
     Loading,
+    /// T2.2 (B-26): the Quick Menu is open (answered by the user; a short Guide closes it).
+    QuickMenu,
 }
 
 impl Kind {
@@ -44,6 +46,7 @@ impl Kind {
             "closing" => Kind::Closing,
             "dialog" => Kind::Dialog,
             "loading" => Kind::Loading,
+            "quick-menu" => Kind::QuickMenu,
             _ => Kind::None,
         }
     }
@@ -58,6 +61,7 @@ impl Kind {
             Kind::Closing => "closing the game",
             Kind::Dialog => "a dialog",
             Kind::Loading => "the game is still loading",
+            Kind::QuickMenu => "the Quick Menu",
         }
     }
 }
@@ -65,7 +69,7 @@ impl Kind {
 /// B-22's table: each state's limit (None: answered by the user; Boot Up has its own skip and cap).
 pub fn limit(kind: Kind) -> Option<Duration> {
     match kind {
-        Kind::None | Kind::Dialog => None,
+        Kind::None | Kind::Dialog | Kind::QuickMenu => None,
         Kind::BootUp | Kind::BootDown => Some(Duration::from_secs(10)),
         Kind::Launching => Some(Duration::from_secs(46)), // the UI says "Still starting" at 45 s
         Kind::LauncherWait => Some(Duration::from_secs(6)), // the core's 5 s wait, plus a margin
@@ -209,6 +213,56 @@ impl Machine {
     }
 }
 
+// ---------- B-26: a short Guide or a held Guide, decided in the core ----------
+
+/// How long Guide must be held to open the Quick Menu (B-26: about 0.5 s).
+pub const GUIDE_HOLD: Duration = Duration::from_millis(500);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GuideOutcome {
+    /// Released before 0.5 s: today's behaviour (`background`: AIONE wasn't in front at the press).
+    Short { background: bool },
+    /// Held 0.5 s: the Quick Menu (`background`: AIONE comes forward first).
+    Held { background: bool },
+}
+
+/// B-26: Guide's press waits for its release or for 0.5 s, whichever comes first.
+#[derive(Debug, Default)]
+pub struct GuideHold {
+    down: Option<(Instant, bool)>,
+    fired: bool,
+}
+
+impl GuideHold {
+    pub fn down(&mut self, now: Instant, background: bool) {
+        self.down = Some((now, background));
+        self.fired = false;
+    }
+    /// Each poll: the hold fires once at 0.5 s.
+    pub fn tick(&mut self, now: Instant) -> Option<GuideOutcome> {
+        let (t, background) = self.down?;
+        if self.fired || now.saturating_duration_since(t) < GUIDE_HOLD {
+            return None;
+        }
+        self.fired = true;
+        Some(GuideOutcome::Held { background })
+    }
+    /// The release: a short press unless the hold already fired.
+    pub fn up(&mut self, now: Instant) -> Option<GuideOutcome> {
+        let (t, background) = self.down.take()?;
+        if self.fired || now.saturating_duration_since(t) >= GUIDE_HOLD {
+            let fired = self.fired;
+            self.fired = false;
+            return if fired {
+                None
+            } else {
+                Some(GuideOutcome::Held { background })
+            };
+        }
+        Some(GuideOutcome::Short { background })
+    }
+}
+
 // ---------- the app's one machine ----------
 
 static GLOBAL: Mutex<Option<Machine>> = Mutex::new(None);
@@ -254,6 +308,34 @@ mod tests {
         fn pick<'a>(&mut self, v: &'a [&'a str]) -> &'a str {
             v[(self.next() as usize) % v.len()]
         }
+    }
+
+    /// B-26: a short Guide acts at its release; a held Guide fires once at 0.5 s; never both.
+    #[test]
+    fn guide_short_or_held() {
+        let t = Instant::now();
+        let ms = Duration::from_millis;
+        let mut g = GuideHold::default();
+        g.down(t, true);
+        assert_eq!(g.tick(t + ms(300)), None);
+        assert_eq!(
+            g.up(t + ms(320)),
+            Some(GuideOutcome::Short { background: true })
+        );
+        g.down(t, false);
+        assert_eq!(g.tick(t + ms(499)), None);
+        assert_eq!(
+            g.tick(t + ms(500)),
+            Some(GuideOutcome::Held { background: false })
+        );
+        assert_eq!(g.tick(t + ms(900)), None); // once
+        assert_eq!(g.up(t + ms(950)), None); // the release after a hold does nothing
+                                             // A release at 0.5 s or later that the poll missed still counts as held (never short).
+        g.down(t, false);
+        assert_eq!(
+            g.up(t + ms(600)),
+            Some(GuideOutcome::Held { background: false })
+        );
     }
 
     #[test]

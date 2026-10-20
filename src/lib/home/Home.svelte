@@ -107,7 +107,11 @@
   const shifted = $derived(Math.abs(titleX - (tileCentre - boxW / 2)) > 0.5);
   const empties = $derived(emptySlots(games.length));
   const onEmpty = $derived(home.zone === 'row' && isEmptySlot(home, home.focus));
-  const prompts = $derived<Prompt[]>(
+  // B-26 / A7: the Home / Guide hint, labeled "Menu", first in the footer wherever Home shows prompts.
+  function withMenu(p: Prompt[]): Prompt[] {
+    return p.length && device === 'xbox' ? [{ button: 'menu', label: 'Menu' }, ...p] : p;
+  }
+  const basePrompts = $derived<Prompt[]>(
     loadState !== 'loaded' || suspended
       ? []
       : home.zone === 'drawer' && mode === 'pad'
@@ -126,6 +130,7 @@
                 { button: 'confirm', label: 'Start' },
               ],
   );
+  const prompts = $derived<Prompt[]>(withMenu(basePrompts));
 
   // ---------- B-16: dragging the row with the mouse or a finger ----------
   /** The drag in progress: the pointer's start, the row's pitch, the offset so far. */

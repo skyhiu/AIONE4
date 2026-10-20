@@ -42,6 +42,7 @@
   } from './lib/home/model';
   import Home from './lib/home/Home.svelte';
   import { BootPresenter, type Outcome } from './lib/boot/presenter';
+  import QuickMenu, { POWER_ITEMS } from './lib/components/QuickMenu.svelte';
   import bootUpSound from '../assets/sounds/boot/aione_boot_up.wav?url';
   import bootDownSound from '../assets/sounds/boot/aione_boot_down.wav?url';
   import type { BootMedia } from './lib/core/types';
@@ -135,6 +136,9 @@
     try {
       const st = await c.getSettings();
       sounds.setLevels(st.volume / 100, st.muted, st.menuSounds ? st.menuSoundVolume / 100 : 0);
+      BootPresenter.setLevel(st.volume / 100, st.muted); // D-049: Boot Up / Boot Down too
+      uiVolume = st.volume;
+      uiMuted = st.muted;
       c.log('info', `audio: AIONE volume ${st.volume} %, ${st.muted ? 'muted' : 'unmuted'}, menu sounds ${st.menuSounds ? `${st.menuSoundVolume} %` : 'off'} (AIONE's own; Windows' volume and mute untouched)`);
     } catch (err) {
       c.log('error', `settings: couldn't load (${String(err)}); defaults in effect`);
@@ -305,6 +309,10 @@
   function act(action: UiAction, kind: 'press' | 'repeat'): string {
     // B-18: the close question takes the input while it is open.
     if (confirm) {
+      if (confirm.single) {
+        if (action === 'confirm' || action === 'back') return answer(false, action === 'confirm' ? 'A' : 'B');
+        return 'message: no action';
+      }
       if (action === 'left' || action === 'right') {
         const f = action === 'left' ? 'yes' : 'no';
         if (confirm.focus === f) return 'question: already there';
@@ -326,6 +334,10 @@
       const moved = 'focus' in before && 'focus' in next && before.focus !== next.focus;
       return moved ? `dialog focus moved, ${play('rowMove')}` : 'dialog: nothing to do';
     }
+    // B-26: the Quick Menu owns input while it is open (one interaction context).
+    if (qm) return qmAct(action, kind);
+    if (action === 'menu') return openQm('a held Guide');
+    if (action === 'bigLeft' || action === 'bigRight') return 'no action';
     if (loadState !== 'loaded') return 'home: no games';
     switch (action) {
       case 'left':
@@ -513,7 +525,131 @@
   /** D-030: the game being closed (X and A on it locked until it ends or 10 s pass). */
   let closingId = $state<string | null>(null);
   /** B-18: the close question (switching games, or X Close Software). */
-  let confirm = $state<{ kind: 'switch' | 'close' | 'front'; id: string; nextId?: string; title: string; text: string; yes: string; focus: 'yes' | 'no' } | null>(null);
+  let confirm = $state<{ kind: 'switch' | 'close' | 'front' | 'power-restart' | 'power-shutdown' | 'message'; id: string; nextId?: string; title: string; text: string; yes: string; focus: 'yes' | 'no'; single?: boolean } | null>(null);
+  /** L-13 / L-18 (T2.2): a message is the same dialog with one button (OK). */
+  function message(title: string, text: string) {
+    confirm = { kind: 'message', id: '', title, text, yes: 'OK', focus: 'no', single: true };
+    core?.log('info', `message: "${title}"${text ? `: ${text}` : ''}`);
+  }
+
+  // ---------- B-26: the Quick Menu (one interaction context while open) ----------
+  let qm = $state<{ row: number; power: number | null } | null>(null);
+  let qmTop = $state(150);
+  let qmBottom = $state(150);
+  /** AIONE's own volume and mute, as the Quick Menu shows and changes them (B-24's store). */
+  let uiVolume = $state(100);
+  let uiMuted = $state(false);
+  let qmRepeats = 0;
+  let volumeSave: ReturnType<typeof setTimeout> | null = null;
+  function openQm(why: string): string {
+    if (qm) return 'Quick Menu: already open';
+    // Flush with the header and the footer (measured, so it follows the Interface Scale).
+    const header = document.querySelector('header')?.getBoundingClientRect();
+    const footer = document.querySelector('footer')?.getBoundingClientRect();
+    qmTop = header ? Math.round(header.bottom) : 150;
+    qmBottom = footer ? Math.round(window.innerHeight - footer.top) : 150;
+    qm = { row: 0, power: null };
+    return `Quick Menu opened (${why}), ${play('optionsOpen')}`;
+  }
+  function closeQm(how: string): string {
+    qm = null;
+    return `Quick Menu closed (${how}), ${play('optionsClose')}`;
+  }
+  function setVolume(volume: number, muted: boolean): string {
+    uiVolume = Math.max(0, Math.min(100, Math.round(volume)));
+    uiMuted = muted;
+    sounds.setLevels(uiVolume / 100, uiMuted, GAINS_MENU());
+    BootPresenter.setLevel(uiVolume / 100, uiMuted);
+    if (volumeSave) clearTimeout(volumeSave);
+    volumeSave = setTimeout(() => void core?.changeSettings({ volume: uiVolume, muted: uiMuted }), 300);
+    return `Quick Menu: AIONE volume ${uiVolume} %, ${uiMuted ? 'muted' : 'unmuted'} (AIONE's own; Windows' untouched)`;
+  }
+  function GAINS_MENU(): number {
+    return sounds.levels().menu;
+  }
+  function powerItem(i: number, how: string): string {
+    const item = POWER_ITEMS[i];
+    switch (i) {
+      case 0: // Restart AIONE: the Boot Down, then a restart
+        qm = null;
+        if (core) void bootDown(core, 'restart');
+        return `Power: ${item} (${how})`;
+      case 1: // Close AIONE: the Boot Down, then exit
+        qm = null;
+        if (core) void bootDown(core, 'close');
+        return `Power: ${item} (${how})`;
+      case 2: // Sleep Mode: Windows' sleep and resume are T2.3
+        showMessage('Coming in a later stage');
+        return `Power: ${item}: coming in a later stage, ${play('error')}`;
+      case 3:
+      case 4: {
+        qm = null;
+        const restart = i === 3;
+        confirm = {
+          kind: restart ? 'power-restart' : 'power-shutdown',
+          id: '',
+          title: restart ? 'Restart the PC?' : 'Turn off the PC?',
+          text: 'Open programs, including games, may lose unsaved progress.',
+          yes: restart ? 'Restart' : 'Turn Off',
+          focus: 'no',
+        };
+        core?.log('info', `asked: ${restart ? 'restart' : 'turn off'} the PC?`);
+        return `Power: ${item} (${how}), ${play('confirm')}`;
+      }
+    }
+    return 'Power: nothing';
+  }
+  function qmAct(action: UiAction, kind: 'press' | 'repeat'): string {
+    const q = qm;
+    if (!q) return 'no Quick Menu';
+    if (action === 'guide') return closeQm('Guide');
+    if (action === 'menu') return 'Quick Menu: already open';
+    if (q.power !== null) {
+      if (action === 'up' || action === 'down') {
+        const next = q.power + (action === 'down' ? 1 : -1);
+        if (next < 0 || next >= POWER_ITEMS.length) return `Power: the ${next < 0 ? 'first' : 'last'} item, ${play('edgeBump')}`;
+        qm = { ...q, power: next };
+        return `Power: ${POWER_ITEMS[next]}, ${play('rowMove')}`;
+      }
+      if (action === 'confirm') return powerItem(q.power, 'A');
+      if (action === 'back') {
+        qm = { ...q, power: null };
+        return `Power: back to the Quick Menu, ${play('back')}`;
+      }
+      return 'Power: no action';
+    }
+    if (action === 'up' || action === 'down') {
+      const next = q.row + (action === 'down' ? 1 : -1);
+      if (next < 0 || next > 2) return `Quick Menu: the ${next < 0 ? 'first' : 'last'} row, ${play('edgeBump')}`;
+      qm = { ...q, row: next };
+      return `Quick Menu: ${['Volume', 'Theme', 'Power'][next]}, ${play('rowMove')}`;
+    }
+    if (action === 'back') return closeQm('B');
+    if (q.row === 0) {
+      // A8: left / right 1 %, accelerating while held; LT / RT 10 %; A mutes / unmutes.
+      qmRepeats = kind === 'repeat' ? qmRepeats + 1 : 0;
+      const step = qmRepeats < 6 ? 1 : qmRepeats < 16 ? 2 : 4;
+      if (action === 'left' || action === 'right') {
+        if ((action === 'left' && uiVolume === 0) || (action === 'right' && uiVolume === 100)) return `Quick Menu: volume at its end, ${play('edgeBump')}`;
+        return setVolume(uiVolume + (action === 'right' ? step : -step), uiMuted);
+      }
+      if (action === 'bigLeft' || action === 'bigRight') return setVolume(uiVolume + (action === 'bigRight' ? 10 : -10), uiMuted);
+      if (action === 'confirm') return setVolume(uiVolume, !uiMuted);
+      return 'Quick Menu: no action';
+    }
+    if (q.row === 1) {
+      if (action === 'confirm' || action === 'left' || action === 'right') {
+        showMessage('Coming in a later stage');
+        return `Quick Menu: Theme: coming in a later stage, ${play('error')}`;
+      }
+      return 'Quick Menu: no action';
+    }
+    if (action === 'confirm') {
+      qm = { ...q, power: 0 };
+      return `Quick Menu: Power, ${play('confirm')}`;
+    }
+    return 'Quick Menu: no action';
+  }
 
   /** B-11: the row's order: the running game first (B-18), then played games most recent first,
    *  then the never-played ones A-Z. */
@@ -614,7 +750,7 @@
         launchTimers.push(setTimeout(() => {
           veil = false;
           launching = 'none';
-          showMessage(`Couldn't start ${g.name}: ${reason}`);
+          message(`Couldn't start ${g.name}`, reason);
           play('error');
         }, Math.max(0, LAUNCH_STILL_MS + LAUNCH_FADE_MS - ms)));
       });
@@ -669,7 +805,7 @@
           const reason = e instanceof Error ? e.message : String(e);
           core?.log('warn', `back to "${name}" failed: ${reason}`);
           returnHome(`couldn't go back to "${name}"`);
-          showMessage(`Couldn't return to ${name}: ${reason}`);
+          message(`Couldn't return to ${name}`, reason);
           play('error');
         });
     };
@@ -683,8 +819,14 @@
     const q = confirm;
     if (!q) return 'no question';
     confirm = null;
+    if (q.kind === 'message') return `message: OK (${how}), ${play('back')}`;
     const running = games.find((x) => x.id === q.id);
     if (!yes) return `question: Cancel (${how}), ${play('back')}`;
+    if (q.kind === 'power-restart' || q.kind === 'power-shutdown') {
+      const action = q.kind === 'power-restart' ? 'restart' : 'shutdown';
+      core?.powerPc(action).catch((e: unknown) => message("Couldn't do that", e instanceof Error ? e.message : String(e)));
+      return `question: ${q.yes} (${how}): ${action} the PC, ${play('confirm')}`;
+    }
     // B-27: Windows refused the close: bring the game to the front to close it there.
     if (q.kind === 'front') {
       const i = games.findIndex((x) => x.id === q.id);
@@ -1011,12 +1153,12 @@
 
   /** A9 (Close AIONE): the Boot Down plays, then AIONE closes; the screen stays black until the
    *  Boot Down sound ends. Starts once, from any phase. */
-  async function bootDown(c: Core) {
+  async function bootDown(c: Core, then: 'close' | 'restart' = 'close') {
     if (phase === 'bootdown') return;
     phase = 'bootdown';
     perf.setScreen('Boot Down');
     perf.action('Boot Down');
-    c.log('info', 'Close AIONE: the Boot Down starts (input locked)');
+    c.log('info', `${then === 'restart' ? 'Restart AIONE' : 'Close AIONE'}: the Boot Down starts (input locked)`);
     const p = bootPresenter(c);
     p?.stop();
     const m = bootMedia;
@@ -1033,6 +1175,11 @@
         c.log('info', `Boot Down: default Window B (${info?.bootDefault ? '--boot=default for this run' : 'no custom video'})`);
         outcome = await p.playDefault('down', bootDownSound);
       }
+    }
+    if (then === 'restart') {
+      c.log('info', `Restart AIONE: Boot Down ${outcome}; restarting`);
+      await c.restart();
+      return;
     }
     await c.closeNow(`Boot Down ${outcome}`);
   }
@@ -1093,7 +1240,7 @@
         }),
       );
       // B-27: Windows' refusals as a plain message.
-      unlisteners.push(await c.onNotice((e) => showMessage(e.text, 8000)));
+      unlisteners.push(await c.onNotice((e) => message("AIONE can't do that", e.text)));
       // D-032: the launcher ended soon after the launch: black again, "Starting <game>…", input
       // locked, until the real game's window (the launch completes) or the end (Home).
       unlisteners.push(
@@ -1287,6 +1434,7 @@
     : launching === 'starting' && followingId ? 'launcher-wait'
     : launching === 'starting' ? 'launching'
     : confirm ? 'dialog'
+    : qm ? 'quick-menu'
     : 'none',
   );
   let lockSent = 'none';
@@ -1337,7 +1485,7 @@
     {games}
     state={home}
     mode={inputMode}
-    suspended={dialogOpen}
+    suspended={dialogOpen || !!confirm || !!qm}
     {loadState}
     {device}
     padConnected={pads.pads.length > 0}
@@ -1381,8 +1529,23 @@
       }}
     />
   {/if}
+  {#if qm}
+    <QuickMenu
+      row={qm.row}
+      power={qm.power}
+      volume={uiVolume}
+      muted={uiMuted}
+      theme="Switch"
+      {device}
+      top={qmTop}
+      bottom={qmBottom}
+      onRow={(r) => core?.log('info', `input click Quick Menu row ${r} -> ${qm ? ((qm = { ...qm, row: r }), qmAct('confirm', 'press')) : ''}`)}
+      onPower={(i) => core?.log('info', `input click Power ${i} -> ${powerItem(i, 'click')}`)}
+      onPrompt={(b) => core?.log('info', `input click Quick Menu footer "${b}" -> ${qmAct(b === 'back' ? 'back' : 'confirm', 'press')}`)}
+    />
+  {/if}
   {#if confirm}
-    <ConfirmDialog title={confirm.title} text={confirm.text} yes={confirm.yes} focus={confirm.focus} onAnswer={(y) => core?.log('info', `input click question -> ${answer(y, 'click')}`)} />
+    <ConfirmDialog title={confirm.title} text={confirm.text} yes={confirm.yes} focus={confirm.focus} single={confirm.single ?? false} onAnswer={(y) => core?.log('info', `input click question -> ${answer(y, 'click')}`)} />
   {/if}
   <!-- T1.3: the launch veil: Home fades to black (0.3 s, eased) after 0.55 s still. -->
   <div class="launch-veil" class:on={veil} data-testid="launch-veil" aria-hidden="true">

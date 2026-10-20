@@ -112,21 +112,26 @@ fn app_info(state: tauri::State<'_, AppState>) -> AppInfo {
 #[tauri::command]
 async fn boot_media(app: AppHandle) -> Result<boot::BootMedia, String> {
     let data = app.state::<AppState>().data_dir.clone();
-    let m = tauri::async_runtime::spawn_blocking(move || boot::prepare(&data))
+    let data2 = data.clone();
+    let mut m = tauri::async_runtime::spawn_blocking(move || boot::prepare(&data2))
         .await
         .map_err(|e| e.to_string())?;
+    // B-24 (alpha.30 QA-3): show and audio from AIONE 4's own settings.
+    let st = settings::load(&data);
+    m.settings.show_splash = st.boot_up;
+    m.settings.splash_audio = st.boot_up_audio;
     for n in &m.notes {
         logging::lifecycle(Level::Info, n);
     }
     logging::lifecycle(
         Level::Info,
         &format!(
-            "boot settings ({}): show {}, audio {}, play to end {}, duration {} ms",
-            m.settings.from,
+            "boot settings: show {}, audio {} (AIONE 4's settings: bootUp, bootUpAudio); play to end {}, duration {} ms (the custom media's own, from {})",
             m.settings.show_splash,
             m.settings.splash_audio,
             m.settings.play_to_end,
-            m.settings.duration_ms
+            m.settings.duration_ms,
+            m.settings.from
         ),
     );
     Ok(m)
@@ -205,7 +210,10 @@ async fn launch_game(app: AppHandle, id: String) -> Result<launch::Started, Stri
             Ok(s)
         }
         Err(e) => {
-            logging::lifecycle(Level::Warn, &format!("start \"{id}\" failed: {e}"));
+            let title = games::launch_fields(&data, &id)
+                .map(|f| f.name)
+                .unwrap_or_else(|_| id.clone());
+            logging::lifecycle(Level::Warn, &format!("start \"{title}\" failed: {e}"));
             Err(e)
         }
     }
@@ -340,6 +348,34 @@ fn lock_leave(kind: String, how: String) -> bool {
 #[tauri::command]
 fn held_now() -> Vec<String> {
     transit::with(|m| m.held())
+}
+
+/// T2.2: Restart PC / Turn Off PC (after the user's confirmation): Windows' own `shutdown`.
+#[tauri::command]
+fn power_pc(action: String) -> Result<(), String> {
+    let flag = match action.as_str() {
+        "restart" => "/r",
+        "shutdown" => "/s",
+        _ => return Err(format!("unknown power action: {action}")),
+    };
+    logging::lifecycle(
+        Level::Info,
+        &format!("power: {action} the PC (confirmed by the user): shutdown {flag} /t 0"),
+    );
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        std::process::Command::new("shutdown")
+            .args([flag, "/t", "0"])
+            .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| format!("couldn't ask Windows to {action}: {e}"))
+    }
+    #[cfg(not(windows))]
+    {
+        Err("power actions need Windows".into())
+    }
 }
 
 /// B-24: AIONE 4's settings.
@@ -848,6 +884,10 @@ pub fn run() {
     ) {
         logging::lifecycle(Level::Info, &line);
     }
+    // B-24 rev. aw: alpha.30's imported volume reset once to 100 % (if unchanged since).
+    if let Some(line) = settings::reset_imported_volume_once(&data_dir) {
+        logging::lifecycle(Level::Info, &line);
+    }
     // B-20: the pause's record; resume anything a previous AIONE left paused.
     pause::init(&data_dir);
     pause::resume_left_over();
@@ -942,6 +982,7 @@ pub fn run() {
             clear_keys,
             start_showing,
             get_settings,
+            power_pc,
             change_settings,
             return_to_game,
             running_game

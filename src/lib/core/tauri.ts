@@ -72,6 +72,9 @@ export function createTauriCore(): Core {
     heldNow: () => invoke<string[]>('held_now'),
     startShowing: (id) => invoke<string | null>('start_showing', { id }),
     onNotice: (handler) => listen<{ text: string }>(EVENTS.notice, (e) => handler(e.payload)),
+    powerPc: async (action) => {
+      await invoke('power_pc', { action });
+    },
     getSettings: () => invoke<Settings>('get_settings'),
     changeSettings: (patch) => invoke<Settings>('change_settings', { patch }),
     clearKeys: async () => {

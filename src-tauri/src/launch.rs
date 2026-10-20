@@ -373,6 +373,75 @@ pub fn consent_showing() -> bool {
     })
 }
 
+/// D-050: the start whose shell launch call is still blocking (Windows' prompt holds it), and
+/// whether Windows' permission prompt was seen meanwhile.
+static SHELL_BLOCKING: Mutex<Option<(String, Instant, bool)>> = Mutex::new(None);
+
+/// D-050: is Windows' permission prompt holding the start of `id`?
+fn prompt_holding(id: &str) -> bool {
+    SHELL_BLOCKING
+        .lock()
+        .ok()
+        .and_then(|g| g.clone())
+        .is_some_and(|(i, _, seen)| i == id && seen)
+}
+
+/// D-050: the shell's launch call, watched while it blocks (Windows' permission prompt holds it
+/// until it is answered); logs when the prompt appeared and how it ended.
+fn shell_open_watched(
+    id: &str,
+    name: &str,
+    target: &str,
+    params: Option<&str>,
+    folder: &std::path::Path,
+) -> Result<Option<u32>, String> {
+    if let Ok(mut g) = SHELL_BLOCKING.lock() {
+        *g = Some((id.to_string(), Instant::now(), false));
+    }
+    let (id2, name2) = (id.to_string(), name.to_string());
+    std::thread::spawn(move || loop {
+        std::thread::sleep(Duration::from_millis(150));
+        let Some((i, t0, seen)) = SHELL_BLOCKING.lock().ok().and_then(|g| g.clone()) else {
+            return;
+        };
+        if i != id2 {
+            return;
+        }
+        if !seen && t0.elapsed() > Duration::from_millis(300) && consent_showing() {
+            if let Ok(mut g) = SHELL_BLOCKING.lock() {
+                if let Some(x) = g.as_mut().filter(|x| x.0 == id2) {
+                    x.2 = true;
+                }
+            }
+            logging::lifecycle(Level::Info, &format!("start \"{name2}\": Windows is asking for permission (UAC): waiting for the answer"));
+        }
+    });
+    let result = shell_open(target, params, folder);
+    let state = SHELL_BLOCKING.lock().ok().and_then(|mut g| g.take());
+    let seen = state.as_ref().is_some_and(|s| s.2);
+    let ms = state.map(|s| s.1.elapsed().as_millis()).unwrap_or(0);
+    let cancelled = matches!(&result, Err(e) if e.to_ascii_lowercase().contains("cancel"));
+    if seen || cancelled {
+        logging::lifecycle(
+            Level::Info,
+            &format!(
+                "start \"{name}\": Windows' permission prompt: {} after {ms} ms",
+                if result.is_ok() {
+                    "allowed"
+                } else {
+                    "cancelled"
+                }
+            ),
+        );
+    }
+    if cancelled {
+        return Err(format!(
+            "{name} needs administrator permission; it wasn't given"
+        ));
+    }
+    result
+}
+
 /// B-27: whether a process (None: AIONE) runs with administrator rights (token elevation).
 pub fn elevated(pid: Option<u32>) -> Option<bool> {
     token_elevated(pid)
@@ -414,7 +483,7 @@ pub fn showing_label(
 /// D-046 rev. ar: during the start of `id`, is any window of the game, its launcher or Steam up?
 pub fn start_showing(id: &str) -> Option<String> {
     // B-27: Windows' permission prompt holds the start until it is answered.
-    if consent_showing() {
+    if prompt_holding(id) || consent_showing() {
         return Some(
             "Windows is asking for permission: answer it with the mouse or keyboard".into(),
         );
@@ -585,8 +654,8 @@ pub fn launch(
     logging::lifecycle(Level::Info, &format!("start \"{}\": opening {how}", f.name));
     // B-19 (rev. ad): an emulator's missing options are added at launch; the shortcut is only read.
     let pid = match emulator_launch(&f) {
-        Some((exe, params, dir)) => shell_open(&exe, Some(&params), &dir)?,
-        None => shell_open(&target, None, &f.folder)?,
+        Some((exe, params, dir)) => shell_open_watched(id, &f.name, &exe, Some(&params), &dir)?,
+        None => shell_open_watched(id, &f.name, &target, None, &f.folder)?,
     };
     // B-27: measured and logged at every launch.
     log_admin(&f.name, pid);
@@ -1649,11 +1718,19 @@ mod win {
         };
         let mut ok = unsafe { Process32FirstW(snap, &mut e) }.is_ok();
         while ok {
-            out.push((
-                e.th32ProcessID,
-                e.th32ParentProcessID,
-                full_path_of(e.th32ProcessID),
-            ));
+            // D-050: a process AIONE can't open (SYSTEM, e.g. consent.exe) still has the
+            // snapshot's own file name, which needs no access.
+            let name = {
+                let n = e
+                    .szExeFile
+                    .iter()
+                    .position(|&c| c == 0)
+                    .unwrap_or(e.szExeFile.len());
+                String::from_utf16_lossy(&e.szExeFile[..n])
+            };
+            let path = full_path_of(e.th32ProcessID)
+                .or_else(|| (!name.is_empty()).then(|| std::path::PathBuf::from(&name)));
+            out.push((e.th32ProcessID, e.th32ParentProcessID, path));
             ok = unsafe { Process32NextW(snap, &mut e) }.is_ok();
         }
         let _ = unsafe { CloseHandle(snap) };

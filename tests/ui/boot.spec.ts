@@ -197,4 +197,18 @@ test.describe('T1.2 Boot Up and Boot Down (mocked core)', () => {
     expect(Math.abs((r.top + r.bottom) / 2 - r.vh / 2)).toBeLessThan(r.vh * 0.03);
     await shot(page, 't12-boot-up-letters-4400ms');
   });
+
+  test("D-049: AIONE's Volume × Mute apply to the Boot Up sound and to a custom Boot Up video (invented values)", async ({ page }) => {
+    const logged = (t: string) => page.evaluate((x) => (window.__aioneMock?.logs ?? []).some((y) => y.includes(x)), t);
+    await page.goto(`./?${BASE}&boot=default&volume=40`);
+    await expect.poll(() => logged("boot sound: AIONE volume 40 %, unmuted (AIONE's own; Windows' volume and mute untouched)"), { timeout: 8000 }).toBe(true);
+    await page.goto(`./?${BASE}&boot=custom&volume=25&muted=1`);
+    await expect.poll(() => logged('custom Boot Up sound: AIONE volume 25 %, muted'), { timeout: 8000 }).toBe(true);
+    const v = await page.getByTestId('boot-up-video').evaluate((e) => ({ volume: (e as HTMLVideoElement).volume, muted: (e as HTMLVideoElement).muted })).catch(() => null);
+    if (v) {
+      expect(v.muted).toBe(true);
+      expect(v.volume).toBe(0);
+    }
+  });
 });
+

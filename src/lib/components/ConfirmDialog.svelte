@@ -9,6 +9,7 @@
     yes,
     no = 'Cancel',
     focus,
+    single = false,
     onAnswer,
   }: {
     title: string;
@@ -16,6 +17,8 @@
     yes: string;
     no?: string;
     focus: 'yes' | 'no';
+    /** L-13 / L-18 (T2.2): one component for every question and message; a message has one button. */
+    single?: boolean;
     onAnswer: (yes: boolean) => void;
   } = $props();
 </script>
@@ -25,8 +28,12 @@
   <h1 id="confirm-title">{title}</h1>
   <p data-testid="confirm-text">{text}</p>
   <div class="buttons">
-    <button class="focusable" class:focused={focus === 'yes'} data-testid="confirm-yes" onclick={() => onAnswer(true)}>{yes}</button>
-    <button class="focusable" class:focused={focus === 'no'} data-testid="confirm-no" onclick={() => onAnswer(false)}>{no}</button>
+    {#if single}
+      <button class="focusable focused" data-testid="confirm-ok" onclick={() => onAnswer(false)}>{yes}</button>
+    {:else}
+      <button class="focusable" class:focused={focus === 'yes'} data-testid="confirm-yes" onclick={() => onAnswer(true)}>{yes}</button>
+      <button class="focusable" class:focused={focus === 'no'} data-testid="confirm-no" onclick={() => onAnswer(false)}>{no}</button>
+    {/if}
   </div>
 </div>
 

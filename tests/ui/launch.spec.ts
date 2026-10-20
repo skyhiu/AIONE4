@@ -80,7 +80,9 @@ test.describe('T1.3 launching (mocked core)', () => {
     await pad(page, 'A');
     // 0.55 s still + 0.3 s fade in, then the 0.3 s fade back out (rev. ab), with room for a slow runner.
     await expect.poll(() => veil(page), { timeout: 3000 }).toBe(0);
-    await expect(page.getByTestId('toast')).toHaveText("Couldn't start Amber Lighthouse: its shortcut game.lnk is missing");
+    // T2.2: dialogs done once: a failed start is a one-button message.
+    await expect(page.getByTestId('confirm-dialog')).toContainText("Couldn't start Amber Lighthouse");
+    await expect(page.getByTestId('confirm-text')).toHaveText('its shortcut game.lnk is missing');
     await page.screenshot({ path: 'ui-screenshots/t19-launch-failed.png' });
     const l = await logs(page);
     expect(l.some((x) => x.includes('launch "Amber Lighthouse" failed: its shortcut game.lnk is missing'))).toBe(true);
