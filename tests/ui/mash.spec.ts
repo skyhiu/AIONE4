@@ -149,7 +149,14 @@ for (const seed of SEEDS) {
     counts.push(`slow start ${await mash(page, rnd, 2500)}`);
     await expectSane(page, 46_000 + 1000);
     await page.waitForTimeout(800);
-    if ((await state(page)).launching === 'none') await expect(page.getByTestId('playing-badge')).toHaveCount(0);
+    // D-046: a cancelled start never leaves a game running untracked. A game running now must come
+    // from a later, explicit start (the mashing's A on Home), never from the cancelled one.
+    if ((await state(page)).launching === 'none' && (await page.getByTestId('playing-badge').count()) > 0) {
+      const all = await page.evaluate(() => window.__aioneMock?.logs ?? []);
+      const cancelAt = all.map((x) => x.includes('the start was cancelled (B)')).lastIndexOf(true);
+      const startedAfter = all.slice(cancelAt + 1).some((x) => /-> action confirm, start "/.test(x));
+      expect(cancelAt < 0 || startedAfter).toBe(true);
+    }
 
     // 5. A lock, then the game ends: nothing survives.
     await startGame(page);
