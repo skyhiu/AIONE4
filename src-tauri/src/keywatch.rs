@@ -24,6 +24,11 @@ static ESC_DOWN: AtomicBool = AtomicBool::new(false);
 /// Windows' Magnifier uses Win + Esc (to close it): while it runs, the keys are left to Windows.
 static MAGNIFIER: AtomicBool = AtomicBool::new(false);
 
+/// D-053: is this Esc event Win + Esc's? (a Windows key held, or this Esc was already taken)
+pub fn esc_taken(win_held: bool, already_taken: bool) -> bool {
+    win_held || already_taken
+}
+
 /// lib: what Win + Esc does (the same as the pad's Guide): come forward; send the UI a Guide event.
 pub fn set_guide(
     guide: impl Fn() + Send + Sync + 'static,
@@ -95,6 +100,8 @@ fn esc_with_win(down: bool) {
             return; // a repeat
         }
         let background = !crate::foreground::aione_is_foreground();
+        // D-053: a Guide press for every Guide rule (D-037's window swap), recorded at the press.
+        crate::launch::note_guide();
         if let Ok(mut h) = HOLD.lock() {
             h.down(Instant::now(), background);
         }
@@ -160,7 +167,9 @@ pub fn start() {
                 let win = unsafe { GetAsyncKeyState(VK_LWIN.0 as i32) } < 0
                     || unsafe { GetAsyncKeyState(VK_RWIN.0 as i32) } < 0;
                 let down = w.0 as u32 == WM_KEYDOWN || w.0 as u32 == WM_SYSKEYDOWN;
-                if win || (!down && ESC_DOWN.load(Ordering::SeqCst)) {
+                // D-053 (rev. ay): once taken, the WHOLE Esc (press, repeats, release) is Win + Esc's,
+                // even if the Windows key is let go first; it never reaches AIONE as Esc (= B).
+                if esc_taken(win, ESC_DOWN.load(Ordering::SeqCst)) {
                     esc_with_win(down);
                     return LRESULT(1); // taken: never passed to the game or Windows
                 }
@@ -249,6 +258,14 @@ pub fn name(vk: u32) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    /// D-053: the Windows key let go before Esc: Esc's repeats and release are still taken.
+    #[test]
+    fn the_whole_esc_of_win_esc_is_taken() {
+        assert!(super::esc_taken(true, false)); // Win + Esc pressed
+        assert!(super::esc_taken(false, true)); // Win let go first: the repeat / release still taken
+        assert!(!super::esc_taken(false, false)); // a plain Esc: AIONE's B
+    }
+
     #[test]
     fn names_the_media_and_volume_keys() {
         assert_eq!(super::name(0xAE), "VolumeDown");

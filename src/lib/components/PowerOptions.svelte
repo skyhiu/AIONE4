@@ -4,8 +4,15 @@
   // choices ask first (App). The B3 ring on the focused item; B closes it.
   import { fade, scale } from 'svelte/transition';
   import { POWER_ITEMS } from './QuickMenu.svelte';
+  import Footer from '../frame/Footer.svelte';
+  import type { GlyphDevice, Prompt } from '../frame/glyphs';
 
-  let { focus, onPick }: { focus: number; onPick: (i: number) => void } = $props();
+  let { focus, device, onPick, onPrompt }: { focus: number; device: GlyphDevice; onPick: (i: number) => void; onPrompt: (b: Prompt['button']) => void } = $props();
+  // Rev. ay: its own footer hints while open.
+  const prompts: Prompt[] = [
+    { button: 'back', label: 'Back' },
+    { button: 'confirm', label: 'OK' },
+  ];
 </script>
 
 <div class="po-scrim" transition:fade={{ duration: 160 }}></div>
@@ -18,6 +25,7 @@
     </div>
   {/each}
 </div>
+<div class="po-footer" data-testid="po-footer"><Footer {prompts} {device} {onPrompt} /></div>
 
 <style>
   .po-scrim {
@@ -39,6 +47,16 @@
     z-index: 945;
     box-shadow: 0 calc(8 * var(--px, 1px)) calc(28 * var(--px, 1px)) rgb(0 0 0 / 0.25);
   }
+  .po-footer {
+    position: fixed;
+    inset: auto 0 0 0;
+    height: 100%;
+    z-index: 946;
+    pointer-events: none;
+  }
+  .po-footer :global(footer) {
+    pointer-events: auto;
+  }
   h1 {
     margin: 0 0 calc(16 * var(--px, 1px));
     font: 500 calc(32 * var(--px, 1px)) / 1.2 var(--font-ui);
@@ -48,7 +66,7 @@
     position: relative;
     padding: calc(20 * var(--px, 1px)) calc(22 * var(--px, 1px));
     border-top: calc(1 * var(--px, 1px)) solid rgb(128 128 128 / 0.35);
-    font: 400 calc(30 * var(--px, 1px)) / 1.2 var(--font-ui);
+    font: 400 var(--text-label) / 1.2 var(--font-ui);
     cursor: pointer;
   }
   .ring {

@@ -1,5 +1,14 @@
 # Changelog
 
+## 4.0.0-alpha.33 — completing T2.2: Win + Esc held, Switch-like sliders, the text size
+
+- **D-053:** the whole Esc of a Win + Esc is swallowed (also when the Windows key is let go first);
+  every Guide press recorded at the press (D-037's rule sees it).
+- **B-26 rev. ay:** one slider design like Switch's (6 px track, 44 px knob, #FF46A2), gliding on a
+  press and moving smoothly at 50 %/s while held; the Quick Menu's text at the footer's size.
+- **D-054:** brightness: one worker, one pending value; the final value logged.
+- **Power options:** its own footer hints.
+
 ## 4.0.0-alpha.32 — completing T2.2: the Quick Menu's look, brightness, Power options, the keyboard
 
 - **B-26 rev. ax:** the Quick Menu: full height, 40 %, the header and footer flowing into it; rows

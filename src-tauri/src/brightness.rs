@@ -105,41 +105,60 @@ pub fn probe() -> Brightness {
     b
 }
 
-/// Sets the brightness in the background; the last request wins. Logged.
+/// D-054: one worker at a time (two at once could finish out of order).
+static WORKER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Sets the brightness in the background (D-054): ONE pending value; when an apply finishes, the
+/// latest pending value is applied if it differs; the final value is logged.
 pub fn set(percent: u8) {
+    use std::sync::atomic::Ordering;
     let percent = percent.min(100);
-    let busy = PENDING
-        .lock()
-        .map(|mut p| p.replace(percent).is_some())
-        .unwrap_or(true);
+    if let Ok(mut p) = PENDING.lock() {
+        *p = Some(percent);
+    }
     if let Ok(mut g) = STATE.lock() {
         if let Some(b) = g.as_mut() {
             b.value = Some(percent);
         }
     }
-    if busy {
-        return; // a worker is running; it picks up the latest value
+    if WORKER.swap(true, Ordering::SeqCst) {
+        return; // the worker running picks up the latest value
     }
-    std::thread::spawn(|| loop {
-        std::thread::sleep(std::time::Duration::from_millis(120));
-        let Some(v) = PENDING.lock().ok().and_then(|mut p| p.take()) else {
-            return;
-        };
-        let method = current().method;
-        let ok = match method.as_str() {
-            "builtin" => builtin_set(v),
-            "ddc" => ddc_set(v),
-            _ => false,
-        };
-        logging::lifecycle(
-            if ok { Level::Info } else { Level::Warn },
-            &format!(
-                "brightness: {v} % ({method}){}",
-                if ok { "" } else { ": Windows didn't accept it" }
-            ),
-        );
-        if PENDING.lock().map(|p| p.is_none()).unwrap_or(true) {
-            return;
+    std::thread::spawn(|| {
+        let mut applied: Option<u8> = None;
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(60));
+            let next = PENDING.lock().ok().and_then(|mut p| p.take());
+            let Some(v) = next else {
+                WORKER.store(false, Ordering::SeqCst);
+                // A value set between the take and the store: pick it up (never left behind).
+                if PENDING.lock().map(|p| p.is_some()).unwrap_or(false)
+                    && !WORKER.swap(true, Ordering::SeqCst)
+                {
+                    continue;
+                }
+                if let Some(v) = applied {
+                    logging::lifecycle(Level::Info, &format!("brightness: final {v} %"));
+                }
+                return;
+            };
+            if applied == Some(v) {
+                continue;
+            }
+            let method = current().method;
+            let ok = match method.as_str() {
+                "builtin" => builtin_set(v),
+                "ddc" => ddc_set(v),
+                _ => false,
+            };
+            if ok {
+                applied = Some(v);
+            } else {
+                logging::lifecycle(
+                    Level::Warn,
+                    &format!("brightness: {v} % ({method}): Windows didn't accept it"),
+                );
+            }
         }
     });
 }

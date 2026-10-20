@@ -404,8 +404,9 @@ fn guide_from_background(guide_handle: &AppHandle) {
         Level::Info,
         "Guide pressed while AIONE is in the background: bringing AIONE to the front",
     );
-    show_and_focus(guide_handle, "Guide");
+    // D-053: the Guide press recorded BEFORE AIONE comes forward (D-037 asks at the focus).
     launch::note_guide();
+    show_and_focus(guide_handle, "Guide");
     // D-039 (rev. al): the pause is requested here and happens only after the
     // foreground step has succeeded (show_and_focus), with a 1 s watchdog.
     pause::request_pause();

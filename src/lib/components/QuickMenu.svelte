@@ -14,6 +14,7 @@
   import { fade, fly } from 'svelte/transition';
   import Footer from '../frame/Footer.svelte';
   import StatusHeader from '../frame/StatusHeader.svelte';
+  import Slider from './Slider.svelte';
   import type { GlyphDevice, Prompt } from '../frame/glyphs';
   import type { PcStatus } from '../core/types';
 
@@ -27,6 +28,7 @@
     padConnected,
     status,
     fixedTime = null,
+    glide = true,
     hour12 = undefined,
     onRow,
     onPrompt,
@@ -40,6 +42,8 @@
     padConnected: boolean;
     status: PcStatus | null;
     fixedTime?: Date | null;
+    /** Rev. ay: false while a held direction drives a slider frame by frame. */
+    glide?: boolean;
     hour12?: boolean;
     onRow: (row: number) => void;
     onPrompt: (button: Prompt['button']) => void;
@@ -64,7 +68,7 @@
         {:else if name === 'Brightness'}
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1" class="stroke" /></svg>
           {#if canBrightness}
-            <div class="slider" data-testid="qm-brightness-value" data-value={brightness.value}><div class="fill" style:width={`${brightness.value}%`}></div><div class="knob" style:left={`${brightness.value}%`}></div></div>
+            <Slider value={brightness.value ?? 0} {glide} testid="qm-brightness-value" label="Brightness" />
           {:else}
             <span class="note" data-testid="qm-brightness-note">{brightness.reason ?? "Brightness can't be changed for this display"}</span>
           {/if}
@@ -73,7 +77,8 @@
             <path d="M4 9v6h4l5 4V5L8 9H4z" />
             {#if muted}<path d="M16 9l5 6M21 9l-5 6" class="stroke" />{:else}<path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12" class="stroke" />{/if}
           </svg>
-          <div class="slider" data-testid="qm-volume-value" data-value={volume} data-muted={muted}><div class="fill" style:width={`${muted ? 0 : volume}%`}></div><div class="knob" style:left={`${muted ? 0 : volume}%`}></div></div>
+          <span class="mute-state" data-testid="qm-volume-muted" data-muted={muted} hidden></span>
+          <Slider value={muted ? 0 : volume} {glide} testid="qm-volume-value" label="Volume" />
         {:else}
           <span class="label">Theme</span><span class="value">{theme}</span>
         {/if}
@@ -116,10 +121,11 @@
     display: flex;
     align-items: center;
     gap: calc(22 * var(--px, 1px));
-    min-height: calc(92 * var(--px, 1px));
+    min-height: calc(84 * var(--px, 1px));
     padding: 0 calc(22 * var(--px, 1px));
     border-bottom: calc(1 * var(--px, 1px)) solid rgb(128 128 128 / 0.35);
-    font: 400 calc(30 * var(--px, 1px)) / 1.2 var(--font-ui);
+    /* Rev. ay: the footer's text size and weight, so at 100 % it matches the header and footer. */
+    font: 400 var(--text-label) / 1.2 var(--font-ui);
     cursor: pointer;
   }
   .item:first-child {
@@ -131,7 +137,7 @@
   }
   .note,
   .explain {
-    font-size: calc(23 * var(--px, 1px));
+    font-size: calc(var(--text-label) * 0.85);
     color: var(--color-text-muted, #5c5c5c);
   }
   .explain {
@@ -148,28 +154,6 @@
     stroke: currentColor;
     stroke-width: 2;
     stroke-linecap: round;
-  }
-  .slider {
-    position: relative;
-    flex: 1;
-    height: calc(8 * var(--px, 1px));
-    border-radius: calc(4 * var(--px, 1px));
-    background: rgb(128 128 128 / 0.35);
-  }
-  .fill {
-    height: 100%;
-    border-radius: inherit;
-    background: var(--color-accent, #fd007e);
-  }
-  .knob {
-    position: absolute;
-    top: 50%;
-    width: calc(30 * var(--px, 1px));
-    height: calc(30 * var(--px, 1px));
-    border-radius: 50%;
-    translate: -50% -50%;
-    background: var(--color-surface, #fff);
-    box-shadow: 0 0 0 calc(2 * var(--px, 1px)) rgb(128 128 128 / 0.55);
   }
   /* The B3 ring (the same markup and flash as Home's; app.css holds the keyframes). */
   .ring {

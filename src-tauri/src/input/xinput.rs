@@ -169,6 +169,8 @@ fn run(get_state: GetStateFn, emit: impl Fn(PadEvent), guide: impl Fn()) {
         if control == "Guide" {
             match e.kind {
                 Kind::Down => {
+                    // D-053: a Guide press for every Guide rule, recorded at the press.
+                    crate::launch::note_guide();
                     hold.borrow_mut().down(Instant::now(), !foreground);
                     logging::info(
                         "input",

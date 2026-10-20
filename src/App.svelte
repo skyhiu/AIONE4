@@ -569,7 +569,6 @@
   let uiMuted = $state(false);
   /** Rev. ax: the display's brightness (the core probes how; "none": the row says so). */
   let bright = $state<{ method: string; value: number | null; reason: string | null }>({ method: 'none', value: null, reason: 'Checking the display…' });
-  let qmRepeats = 0;
   let volumeSave: ReturnType<typeof setTimeout> | null = null;
   function openQm(why: string): string {
     if (qm) return 'Quick Menu: already open';
@@ -650,13 +649,49 @@
     }
     return 'Power options: no action';
   }
-  /** A8: left / right 1 %, faster while held; LT / RT 10 %. */
-  function sliderStep(action: UiAction, kind: 'press' | 'repeat'): number {
-    qmRepeats = kind === 'repeat' ? qmRepeats + 1 : 0;
+  // ---------- B-26 rev. ay: smooth sliders ----------
+  /** A press glides the knob (about 120 ms); while a direction is held it is driven frame by frame. */
+  let glide = $state(true);
+  let drive: { row: string; dir: number; last: number; t: number; v: number; raf: number } | null = null;
+  function stopDrive() {
+    if (!drive) return;
+    cancelAnimationFrame(drive.raf);
+    core?.log('info', `Quick Menu: ${drive.row} held: ${Math.round(drive.v)} %`);
+    drive = null;
+    glide = true;
+  }
+  /** A held direction: a steady 50 % per second, applied live, never in visible jumps. */
+  function driveSlider(row: string, dir: number): string {
+    const now = performance.now();
+    if (drive && drive.row === row && drive.dir === dir) {
+      drive.last = now;
+      return `Quick Menu: ${row} moving`;
+    }
+    stopDrive();
+    const start = row === 'Volume' ? uiVolume : (bright.value ?? 0);
+    drive = { row, dir, last: now, t: now, v: start, raf: 0 };
+    glide = false;
+    const tick = (t: number) => {
+      const d = drive;
+      if (!d) return;
+      if (t - d.last > 220 || !qm || QM_ROWS[qm.row] !== d.row) return stopDrive();
+      d.v = Math.max(0, Math.min(100, d.v + (d.dir * 50 * (t - d.t)) / 1000));
+      d.t = t;
+      const r = Math.round(d.v);
+      if (d.row === 'Volume' && r !== uiVolume) setVolume(r, uiMuted);
+      if (d.row === 'Brightness' && r !== bright.value) setBrightness(r);
+      d.raf = requestAnimationFrame(tick);
+    };
+    drive.raf = requestAnimationFrame(tick);
+    return `Quick Menu: ${row} held: moving`;
+  }
+  /** A press: one step (left / right 1 %, LT / RT 10 %), glided. */
+  function sliderStep(action: UiAction): number {
+    stopDrive();
+    glide = true;
     if (action === 'bigLeft') return -10;
     if (action === 'bigRight') return 10;
-    const step = qmRepeats < 6 ? 1 : qmRepeats < 16 ? 2 : 4;
-    return action === 'right' ? step : action === 'left' ? -step : 0;
+    return action === 'right' ? 1 : action === 'left' ? -1 : 0;
   }
   function qmAct(action: UiAction, kind: 'press' | 'repeat'): string {
     const q = qm;
@@ -675,15 +710,17 @@
       case 'Power':
         return action === 'confirm' ? openPo('the Quick Menu') : 'Quick Menu: no action';
       case 'Brightness':
+        if (slider && kind === 'repeat' && (action === 'left' || action === 'right')) return driveSlider('Brightness', action === 'right' ? 1 : -1);
         if (slider) {
-          const d = sliderStep(action, kind);
+          const d = sliderStep(action);
           if (bright.value !== null && ((d < 0 && bright.value === 0) || (d > 0 && bright.value === 100))) return `Quick Menu: brightness at its end, ${play('edgeBump')}`;
           return setBrightness((bright.value ?? 0) + d);
         }
         return 'Quick Menu: no action';
       case 'Volume':
+        if (slider && kind === 'repeat' && (action === 'left' || action === 'right')) return driveSlider('Volume', action === 'right' ? 1 : -1);
         if (slider) {
-          const d = sliderStep(action, kind);
+          const d = sliderStep(action);
           if ((d < 0 && uiVolume === 0) || (d > 0 && uiVolume === 100)) return `Quick Menu: volume at its end, ${play('edgeBump')}`;
           return setVolume(uiVolume + d, uiMuted);
         }
@@ -1612,13 +1649,19 @@
       padConnected={pads.pads.length > 0}
       {status}
       {fixedTime}
+      {glide}
       {...hour12 === undefined ? {} : { hour12 }}
       onRow={(r) => core?.log('info', `input click Quick Menu row ${r} -> ${qm ? ((qm = { row: r }), qmAct('confirm', 'press')) : ''}`)}
       onPrompt={(b) => core?.log('info', `input click Quick Menu footer "${b}" -> ${qmAct(b === 'back' ? 'back' : 'confirm', 'press')}`)}
     />
   {/if}
   {#if po !== null}
-    <PowerOptions focus={po} onPick={(i) => core?.log('info', `input click Power ${i} -> ${((po = i), powerItem(i, 'click'))}`)} />
+    <PowerOptions
+      focus={po}
+      {device}
+      onPick={(i) => core?.log('info', `input click Power ${i} -> ${((po = i), powerItem(i, 'click'))}`)}
+      onPrompt={(b) => core?.log('info', `input click Power options footer "${b}" -> ${poAct(b === 'back' ? 'back' : 'confirm')}`)}
+    />
   {/if}
   {#if confirm}
     <ConfirmDialog title={confirm.title} text={confirm.text} yes={confirm.yes} focus={confirm.focus} single={confirm.single ?? false} onAnswer={(y) => core?.log('info', `input click question -> ${answer(y, 'click')}`)} />

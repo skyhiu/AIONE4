@@ -295,3 +295,20 @@ test('B-27: a close Windows refuses (the game runs as administrator): said plain
   await press(page, 'A'); // Bring to front
   await expect.poll(async () => (await page.evaluate(() => window.__aioneMock?.returns ?? [])).length, { timeout: 3000 }).toBe(1);
 });
+
+test('D-053: a held Guide within 5 s of the game appearing: the Quick Menu opens and stays open (never a window swap)', async ({ page }) => {
+  test.setTimeout(60_000);
+  await openWith(page, 'guidems=100'); // the core: a Guide press 0.1 s ago (recorded at the press)
+  await press(page, 'A');
+  await page.waitForTimeout(1200); // the game appeared
+  // AIONE comes forward by the held Guide (within D-037's 5 s), then the held event.
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await page.evaluate(() => window.__aioneMock?.pad('Guide', 'down'));
+  await page.waitForTimeout(650);
+  await page.evaluate(() => window.__aioneMock?.pad('Guide', 'up'));
+  await expect(page.getByTestId('quick-menu')).toBeVisible({ timeout: 2000 });
+  await mash(page, lcg(53), 1500, ['DPadUp', 'DPadDown', 'DPadLeft', 'DPadRight']); // anything but B / Guide
+  await expect(page.getByTestId('quick-menu')).toBeVisible();
+  const l = await logs(page);
+  expect(l.some((x) => x.includes('the game swapped its window: front handed back'))).toBe(false);
+});

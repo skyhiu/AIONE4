@@ -544,3 +544,29 @@ footer's "Menu" shows the Guide button or the Home key, by mode.
 - **The verified end:** after ending a process, `verified: the process has exited after N ms`; if it
   survives, B-27's message and "bring it to the front".
 
+## Sliders and the Quick Menu's text, rev. ay (alpha.33)
+
+**One slider design (`Slider.svelte`), like Switch's** (measured from the user's photo at 1080p /
+100 %): a 6 px track; a round 44 px knob sitting on it (a soft shadow on the light preset, a soft
+light outline on the dark one); the filled part in #FF46A2, the rest a dim grey; the icon at the left;
+the B3 ring on the focused row. **Movement, by transform:** a press glides the knob (120 ms, eased);
+a held direction drives it frame by frame at a steady 50 % per second (no CSS transition then, so
+never a jump), applying each whole-percent change live; it stops when the repeats stop.
+**Text:** the Quick Menu's and Power options' labels and values use the footer's `--text-label`
+(regular), explanation lines 0.85× of it; all of it scales with Interface Scale. **Power options**
+shows its own footer hints ("B Back · A OK").
+
+## Win + Esc, rev. ay (alpha.33, D-053)
+
+Once Win + Esc is taken, **every** Esc event (press, repeats, release) belongs to it until Esc is up,
+even when the Windows key is let go first (`keywatch::esc_taken`): it never reaches AIONE as Esc (= B)
+or the held set. **Every Guide press (the pad's, Win + Esc) is recorded at the press**, before AIONE
+comes forward, so D-037's "Guide pressed in the last 1.5 s" sees it (it was recorded after, which
+made a held Guide in a game's first 5 s look like a window swap).
+
+## Brightness, D-054 (alpha.33)
+
+One worker and one pending value: a value set while an apply runs replaces the pending one; when an
+apply finishes, the latest pending value is applied if it differs; `brightness: final N %`. (Before,
+a second worker could start and the two applies finish out of order.)
+

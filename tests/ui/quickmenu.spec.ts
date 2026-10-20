@@ -44,7 +44,8 @@ test.describe('T2.2 the Quick Menu, Power and dialogs (mocked core)', () => {
     await pad(page, 'RT');
     await expect(page.getByTestId('qm-volume-value')).toHaveAttribute('data-value', '62');
     await pad(page, 'A'); // mute
-    await expect(page.getByTestId('qm-volume-value')).toHaveAttribute('data-muted', 'true');
+    await expect(page.getByTestId('qm-volume-muted')).toHaveAttribute('data-muted', 'true');
+    await expect(page.getByTestId('qm-volume-value')).toHaveAttribute('data-value', '0'); // the slider shows mute
     await page.waitForTimeout(500);
     l = await logs(page);
     expect(l.some((x) => x.includes('settings changed: {"volume":62,"muted":true}'))).toBe(true);
@@ -71,6 +72,9 @@ test.describe('T2.2 the Quick Menu, Power and dialogs (mocked core)', () => {
     await holdGuide(page);
     await pad(page, 'A'); // Power (the first row) → Power options, a short centered list
     await expect(page.getByTestId('power-options')).toBeVisible();
+    // Rev. ay: its own footer hints.
+    await expect(page.getByTestId('po-footer').getByTestId('prompt-back')).toHaveCount(1);
+    await expect(page.getByTestId('po-footer').getByTestId('prompt-confirm')).toContainText('OK');
     await page.screenshot({ path: 'ui-screenshots/t23-power-options.png' });
     const items = page.getByTestId('po-item');
     await expect(items).toHaveCount(5);
@@ -138,6 +142,28 @@ test.describe('T2.2 the Quick Menu, Power and dialogs (mocked core)', () => {
     await expect(page.getByTestId('quick-menu')).toHaveCount(0);
     const l = await logs(page);
     expect(l.some((x) => x.includes('Home held 500 ms: Quick Menu'))).toBe(true);
+  });
+
+  test('rev. ay: a held direction moves a slider smoothly (steady, no jumps) and applies live', async ({ page }) => {
+    await open(page, 'volume=20');
+    await holdGuide(page);
+    await pad(page, 'DPadDown');
+    await pad(page, 'DPadDown'); // Volume
+    await hold(page, 'DPadRight');
+    // The core repeats a held direction (XInput); the test sends those repeats, sampling the knob.
+    const seen: number[] = [];
+    for (let i = 0; i < 14; i++) {
+      await page.waitForTimeout(70);
+      await page.evaluate(() => window.__aioneMock?.pad('DPadRight', 'repeat'));
+      seen.push(Number(await page.getByTestId('qm-volume-value').getAttribute('data-value')));
+    }
+    await release(page, 'DPadRight');
+    // Steady: it rises, never by more than a few % between samples (no visible jumps).
+    const steps = seen.slice(1).map((v, i) => v - (seen[i] ?? 0));
+    expect(seen[seen.length - 1] ?? 0).toBeGreaterThan(seen[0] ?? 0);
+    expect(Math.max(...steps)).toBeLessThanOrEqual(8);
+    const l = await logs(page);
+    expect(l.some((x) => x.includes('Quick Menu: Volume held'))).toBe(true);
   });
 });
 
