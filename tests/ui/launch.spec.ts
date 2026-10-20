@@ -416,4 +416,22 @@ test.describe('T1.3 launching (mocked core)', () => {
     await page.keyboard.up('Alt');
     await page.keyboard.up('ArrowUp');
   });
+
+  test("the audio model: AIONE's own Volume / Mute / menu level from the settings; the live audio environment", async ({ page }) => {
+    await open(page, 'volume=12&menusound=70');
+    const levels = await page.evaluate(() => (window as unknown as { __aioneSoundLevels?: () => { volume: number; muted: boolean; menu: number; context: string } }).__aioneSoundLevels?.());
+    expect(levels?.volume).toBeCloseTo(0.12);
+    expect(levels?.menu).toBeCloseTo(0.7);
+    expect(levels?.muted).toBe(false);
+    let l = await logs(page);
+    expect(l.some((x) => x.includes("audio: AIONE volume 12 %, unmuted, menu sounds 70 % (AIONE's own; Windows' volume and mute untouched)"))).toBe(true);
+    // L-07: Windows' output devices change while AIONE runs: logged; the output keeps running.
+    await page.evaluate(() => navigator.mediaDevices?.dispatchEvent(new Event('devicechange')));
+    await page.waitForTimeout(300);
+    l = await logs(page);
+    expect(l.some((x) => x.includes("audio: Windows' output devices changed"))).toBe(true);
+    await pad(page, 'DPadRight'); // a sound still plays
+    l = await logs(page);
+    expect(l.some((x) => /sound (rowMove|scroll)/.test(x) || x.includes('sound rowMove'))).toBe(true);
+  });
 });

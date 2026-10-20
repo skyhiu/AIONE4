@@ -20,6 +20,29 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 static PAUSED: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+/// B-27: the last error Windows gave when it refused a thread (for the log).
+static REFUSAL: Mutex<Option<String>> = Mutex::new(None);
+/// B-27: the UI is told when Windows refuses (a plain message).
+#[allow(clippy::type_complexity)]
+static NOTICE: Mutex<Option<Box<dyn Fn(String) + Send>>> = Mutex::new(None);
+
+pub fn set_notice(f: impl Fn(String) + Send + 'static) {
+    if let Ok(mut n) = NOTICE.lock() {
+        *n = Some(Box::new(f));
+    }
+}
+
+fn notice(text: String) {
+    if let Ok(n) = NOTICE.lock() {
+        if let Some(f) = n.as_ref() {
+            f(text);
+        }
+    }
+}
+
+fn take_refusal() -> Option<String> {
+    REFUSAL.lock().ok().and_then(|mut r| r.take())
+}
 static DATA: Mutex<Option<PathBuf>> = Mutex::new(None);
 
 /// Where `paused.json` lives (set at start-up).
@@ -238,6 +261,26 @@ pub fn pause_running(why: &str) -> String {
             threads += n;
         }
     }
+    if done.is_empty() && !pids.is_empty() {
+        // B-27: Windows refused (typically: the game runs as administrator, AIONE doesn't).
+        let err = take_refusal().unwrap_or_else(|| "no error given".into());
+        let admin = crate::launch::elevated(Some(pid)) == Some(true)
+            && crate::launch::elevated(None) != Some(true);
+        let text = if admin {
+            format!("{} runs as administrator: AIONE can't pause it", g.name)
+        } else {
+            format!("Windows refused to pause {}", g.name)
+        };
+        logging::lifecycle(
+            Level::Warn,
+            &format!(
+                "pause \"{}\" ({why}): Windows refused ({err}): {text}; not paused, carrying on",
+                g.name
+            ),
+        );
+        notice(text.clone());
+        return text;
+    }
     if let Ok(mut paused) = PAUSED.lock() {
         *paused = done.clone();
     }
@@ -245,7 +288,7 @@ pub fn pause_running(why: &str) -> String {
     crate::transit::with(|m| m.clear("AIONE paused the game again", std::time::Instant::now()));
     save(&done);
     let m = format!(
-        "pause \"{}\" ({why}): paused {} process(es) {:?}, {threads} thread(s) (SuspendThread)",
+        "pause \"{}\" ({why}): paused {} process(es) {:?}, {threads} thread(s) (SuspendThread; Windows allowed it)",
         g.name,
         done.len(),
         done
@@ -265,6 +308,14 @@ pub fn resume_running(why: &str) -> String {
     }
     let threads: usize = pids.iter().map(|p| resume_process(*p)).sum();
     save(&[]);
+    if threads == 0 {
+        // B-27: Windows refused the resume (logged; never retried in a loop).
+        let err = take_refusal().unwrap_or_else(|| "no error given".into());
+        logging::lifecycle(
+            Level::Warn,
+            &format!("resume ({why}): Windows refused ({err})"),
+        );
+    }
     let m = format!(
         "resume ({why}): {} process(es) {:?}, {threads} thread(s) (ResumeThread)",
         pids.len(),
@@ -412,7 +463,17 @@ fn each_thread(pid: u32, f: impl Fn(windows::Win32::Foundation::HANDLE) -> bool)
     let mut ok = unsafe { Thread32First(snap, &mut e) }.is_ok();
     while ok {
         if e.th32OwnerProcessID == pid {
-            if let Ok(h) = unsafe { OpenThread(THREAD_SUSPEND_RESUME, false, e.th32ThreadID) } {
+            let opened = unsafe { OpenThread(THREAD_SUSPEND_RESUME, false, e.th32ThreadID) };
+            if let Err(err) = &opened {
+                if let Ok(mut r) = REFUSAL.lock() {
+                    *r = Some(format!(
+                        "OpenThread: {:#010x} {}",
+                        err.code().0,
+                        err.message().trim()
+                    ));
+                }
+            }
+            if let Ok(h) = opened {
                 if f(h) {
                     n += 1;
                 }

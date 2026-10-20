@@ -40,6 +40,7 @@ import type {
   PadEvent,
   PadEventKind,
   PadSlots,
+  Settings,
 } from './types';
 
 type Handler<T> = (value: T) => void;
@@ -301,6 +302,26 @@ export function createMock(search: string): { core: Core; control: MockControl }
   if (params.get('pad') === 'connected') emit('connected', '', 0);
 
   let running: string | null = null;
+  /** B-24: the mock's settings store. */
+  const settings: Settings = {
+    schema: 1,
+    volume: Number(params.get('volume') ?? 100),
+    muted: params.get('muted') === '1',
+    musicVolume: 100,
+    menuSoundVolume: Number(params.get('menusound') ?? 100),
+    menuSounds: true,
+    sortOrder: 'recent',
+    favoritesFirst: true,
+    showHiddenGames: false,
+    clock24h: false,
+    startWithWindows: false,
+    swapConfirmBack: false,
+    bootUp: true,
+    bootUpAudio: true,
+    theme: 'switch',
+    colorPreset: 'light',
+    importedFromWpf: null,
+  };
   /** D-046 rev. ar: when the current start began (the mock's windows are timed from it). */
   let launchAt = 0;
   /** B-22: the mirrored state machine, its held set and its limits (as transit.rs). */
@@ -573,6 +594,8 @@ export function createMock(search: string): { core: Core; control: MockControl }
       control.closes.push(id);
       if (running !== id) return Promise.reject(new Error("that game isn't running"));
       const g = SAMPLE_GAMES.find((x) => x.id === id)?.name ?? id;
+      // B-27: ?closeadmin=1: Windows refuses (the game runs as administrator).
+      if (params.has('closeadmin')) return new Promise((_, rej) => setTimeout(() => rej(new Error(`${g} runs as administrator: AIONE can't close it`)), 3200));
       // B-18 (rev. am): ?closewait=stuck: the game doesn't close itself; after about 3 s AIONE ends it.
       if (params.get('closewait') === 'stuck') {
         control.logs.push(`info: close "${g}": still running after 3 s: ended by AIONE (1 process(es))`);
@@ -621,8 +644,22 @@ export function createMock(search: string): { core: Core; control: MockControl }
     heldNow() {
       return Promise.resolve([...held]);
     },
+    // B-24: the settings store (defaults; ?volume= / ?muted=1 / ?menusound= for tests).
+    getSettings() {
+      return Promise.resolve({ ...settings });
+    },
+    changeSettings(patch) {
+      Object.assign(settings, patch);
+      control.logs.push(`info: settings changed: ${JSON.stringify(patch)}`);
+      return Promise.resolve({ ...settings });
+    },
     // D-046 rev. ar: ?showing=launcher|steam&showingms=N: that window is up for N ms from the start.
+    onNotice() {
+      return Promise.resolve(() => {});
+    },
     startShowing(id) {
+      // B-27: ?consent=N: Windows' permission prompt for N ms from the start.
+      if (params.has('consent') && Date.now() - launchAt < Number(params.get('consent'))) return Promise.resolve('Windows is asking for permission: answer it with the mouse or keyboard');
       const what = params.get('showing');
       const ms = Number(params.get('showingms') ?? 10000);
       if (running !== id || !what || Date.now() - launchAt > ms) return Promise.resolve(null);

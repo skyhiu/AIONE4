@@ -1,5 +1,16 @@
 # Changelog
 
+## 4.0.0-alpha.30 — T2.1: the settings store, the audio model, games as administrator
+
+- **B-24:** AIONE 4's own settings store (schema 1); the one-time import from the WPF copy
+  (`settings-import.md`: taken and left out, with reasons).
+- **The audio model:** AIONE's own Volume / Mute / menu level from the settings, never Windows';
+  **L-07:** device and state changes logged, the output resumed.
+- **alpha.29 QA-1:** a launcher hiding its window: the black launcher wait at once; Home never live.
+- **B-27:** administrator rights measured and logged at every launch; Windows' permission prompt
+  during a start; refusals said plainly (a refused close: bring the game to the front); the guide.
+- Eden: unverified (eden_cli.txt not attached). The administrator helper is T2.3.
+
 ## 4.0.0-alpha.29 — a window of the launcher or Steam during a start (B-22 revs aq and ar)
 
 - **D-046 rev. ar:** "B Cancel start" only while nothing is showing (no window of the game, its

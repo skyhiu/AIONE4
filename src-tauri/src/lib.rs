@@ -16,6 +16,7 @@ pub mod logging;
 pub mod migration;
 pub mod paths;
 pub mod pause;
+pub mod settings;
 pub mod status;
 pub mod tiles;
 pub mod transit;
@@ -43,6 +44,8 @@ pub const EVENT_GAME_FOLLOWING: &str = "aione://game-following";
 /// D-043: a foreground attempt is running.
 static FG_BUSY: AtomicBool = AtomicBool::new(false);
 
+/// B-27: a plain message for the user (e.g. Windows refused a pause): `{ text }`.
+pub const EVENT_NOTICE: &str = "aione://notice";
 /// B-22: an input-locking state reached its limit: `{ kind }`.
 pub const EVENT_LOCK_EXPIRED: &str = "aione://lock-expired";
 /// B-18 (rev. ae): the close's hint for the UI: `{ id, text }`.
@@ -339,6 +342,23 @@ fn held_now() -> Vec<String> {
     transit::with(|m| m.held())
 }
 
+/// B-24: AIONE 4's settings.
+#[tauri::command]
+fn get_settings(state: tauri::State<'_, AppState>) -> settings::Settings {
+    settings::load(&state.data_dir)
+}
+
+/// B-24: a change (a partial object of AIONE 4's keys), applied at once and saved.
+#[tauri::command]
+fn change_settings(
+    state: tauri::State<'_, AppState>,
+    patch: serde_json::Value,
+) -> Result<settings::Settings, String> {
+    let s = settings::change(&state.data_dir, &patch)?;
+    logging::lifecycle(Level::Info, &format!("settings changed: {patch}"));
+    Ok(s)
+}
+
 /// D-046 rev. ar: during a start, what is showing (a window of the game, its launcher, or Steam).
 #[tauri::command]
 fn start_showing(id: String) -> Option<String> {
@@ -603,6 +623,13 @@ fn migration_decide(app: AppHandle, accept: bool) -> Result<(), String> {
             {
                 logging::error("copy", &format!("could not write migration.json: {e}"));
             }
+            // B-24: the one-time settings import, from the copy just made.
+            if let Some(line) = settings::import_once(
+                &data,
+                &chrono::Local::now().format("%Y-%m-%d %H:%M").to_string(),
+            ) {
+                logging::lifecycle(Level::Info, &line);
+            }
             let _ = handle.emit(EVENT_COPY_DONE, &result);
             handle
                 .state::<AppState>()
@@ -814,6 +841,13 @@ pub fn run() {
         lifecycle::PreStart::Continue { .. } => {}
     }
 
+    // B-24: the one-time settings import, if the copy exists and it hasn't run yet.
+    if let Some(line) = settings::import_once(
+        &data_dir,
+        &chrono::Local::now().format("%Y-%m-%d %H:%M").to_string(),
+    ) {
+        logging::lifecycle(Level::Info, &line);
+    }
     // B-20: the pause's record; resume anything a previous AIONE left paused.
     pause::init(&data_dir);
     pause::resume_left_over();
@@ -907,10 +941,19 @@ pub fn run() {
             note_key,
             clear_keys,
             start_showing,
+            get_settings,
+            change_settings,
             return_to_game,
             running_game
         ])
         .setup(|app| {
+            // B-27: Windows' refusals reach the UI as a plain message.
+            {
+                let notice_app = app.handle().clone();
+                pause::set_notice(move |text| {
+                    let _ = notice_app.emit(EVENT_NOTICE, serde_json::json!({ "text": text }));
+                });
+            }
             // B-22: every 200 ms, a state past its limit ends ("timed out") and the UI is told.
             {
                 let tick_app = app.handle().clone();

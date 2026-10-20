@@ -218,3 +218,49 @@ test('D-046: nothing showing for 3 s, then B: the start is cancelled (as before)
   const l = await logs(page);
   expect(l.some((x) => x.includes('the start was cancelled (B)'))).toBe(true);
 });
+
+test('alpha.29 QA-1: a launcher hiding its window on Play: input locked at once; A mashed never acts on Home', async ({ page }) => {
+  test.setTimeout(60_000);
+  await openWith(page, 'launcher=play&guidems=999999&followat=2500');
+  await press(page, 'A');
+  await page.waitForTimeout(1500); // the launcher's window appeared (not the game)
+  const before = (await logs(page)).length;
+  await page.evaluate(() => window.dispatchEvent(new Event('focus'))); // the launcher hides its window on Play
+  await mash(page, lcg(29), 800, ['A', 'A', 'DPadRight', 'X']); // mashed right then
+  await expect.poll(async () => (await state(page)).launching, { timeout: 6000 }).toBe('ingame'); // the game followed
+  const l = (await logs(page)).slice(before);
+  expect(l.some((x) => /-> action confirm, start "/.test(x))).toBe(false); // nothing started from Home
+  expect(l.some((x) => x.includes('asked: '))).toBe(false); // no question
+  expect(l.some((x) => x.includes('Home again'))).toBe(false); // Home never live
+});
+
+test("B-27: Windows' permission prompt during a start: said on the black screen; B mashed does nothing", async ({ page }) => {
+  test.setTimeout(60_000);
+  await openWith(page, 'consent=6000&window=7000');
+  await press(page, 'A');
+  await page.waitForTimeout(1200);
+  await expect(page.getByTestId('veil-text')).toHaveText('Windows is asking for permission: answer it with the mouse or keyboard');
+  await mash(page, lcg(27), 3000, ['B', 'B', 'A', 'Guide']);
+  await expect(page.getByTestId('veil-text')).not.toContainText('B Cancel start');
+  const l = await logs(page);
+  expect(l.some((x) => x.includes('the start was cancelled (B)'))).toBe(false);
+  await expect.poll(async () => (await state(page)).launching, { timeout: 6000 }).toBe('ingame'); // the game, once answered
+});
+
+test('B-27: a close Windows refuses (the game runs as administrator): said plainly; bring it to the front to close it there', async ({ page }) => {
+  test.setTimeout(60_000);
+  await openWith(page, 'closeadmin=1');
+  await press(page, 'A');
+  await page.waitForTimeout(1100);
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await page.waitForTimeout(400);
+  await press(page, 'X');
+  await press(page, 'DPadLeft');
+  await press(page, 'A'); // Close
+  await expect(page.getByTestId('confirm-dialog')).toContainText('Bring Amber Lighthouse to the front to close it there?', { timeout: 6000 });
+  await expect(page.getByTestId('confirm-text')).toHaveText("Amber Lighthouse runs as administrator: AIONE can't close it");
+  await expect(page.getByTestId('confirm-no')).toHaveClass(/focused/);
+  await press(page, 'DPadLeft');
+  await press(page, 'A'); // Bring to front
+  await expect.poll(async () => (await page.evaluate(() => window.__aioneMock?.returns ?? [])).length, { timeout: 3000 }).toBe(1);
+});

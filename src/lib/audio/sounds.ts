@@ -68,6 +68,35 @@ export class MenuSounds {
 
   constructor(private readonly log: PlayLog = () => {}) {}
 
+  /** L-07: makes sure the output context runs (logged). */
+  async ensureRunning(why: string): Promise<void> {
+    const ctx = this.ctx;
+    if (!ctx || ctx.state === 'running' || ctx.state === 'closed') return;
+    try {
+      await ctx.resume();
+      this.log(`audio: output resumed (${why}): ${ctx.state}`);
+    } catch (err) {
+      this.log(`audio: output couldn't resume (${why}): ${String(err)}`);
+    }
+  }
+
+  /**
+   * B-24 / the audio model (reference, decided after 3.9.13.2): AIONE's own Volume and Mute and the
+   * menu sounds' level, applied live to AIONE's gain stages; never Windows' volume or mute.
+   */
+  setLevels(volume: number, muted: boolean, menu: number): void {
+    GAINS.volume = Math.max(0, Math.min(1, volume));
+    GAINS.muted = muted;
+    GAINS.menu = Math.max(0, Math.min(1, menu));
+    if (this.master) this.master.gain.value = GAINS.muted ? 0 : GAINS.volume;
+    if (this.menu) this.menu.gain.value = GAINS.menu;
+  }
+
+  /** For tests and the log: the gains now in effect. */
+  levels(): { volume: number; muted: boolean; menu: number; context: string } {
+    return { volume: GAINS.volume, muted: GAINS.muted, menu: GAINS.menu, context: this.ctx?.state ?? 'none' };
+  }
+
   /** Creates the context and decodes the three sounds (once), each on its own: one failing
    *  sound never silences the others (D-009). Logs the result, and for a failure the address
    *  and the reason. */
@@ -88,6 +117,18 @@ export class MenuSounds {
     this.menu.gain.value = GAINS.menu;
     this.menu.connect(this.master);
     this.master.connect(ctx.destination);
+    // L-07 (reference A10): the live audio environment. Windows' volume and mute apply on top of
+    // AIONE's output by themselves (AIONE never reads or writes them). When the output device
+    // changes, or the context is suspended (sleep, a device switch), AIONE logs it and resumes
+    // the context, so every player keeps working.
+    ctx.addEventListener('statechange', () => {
+      this.log(`audio: the output context is ${ctx.state}`);
+      if (ctx.state !== 'running' && ctx.state !== 'closed') void this.ensureRunning('its state changed');
+    });
+    navigator.mediaDevices?.addEventListener?.('devicechange', () => {
+      this.log('audio: Windows\' output devices changed');
+      void this.ensureRunning('the output devices changed');
+    });
     const names = Object.keys(SOUND_FILES) as SoundName[];
     const failures: string[] = [];
     await Promise.all(

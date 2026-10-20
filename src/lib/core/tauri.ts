@@ -12,6 +12,7 @@ import type {
   PadEvent,
   PadSlots,
   PcStatus,
+  Settings,
 } from './types';
 
 /** Event names emitted by the Rust core (src-tauri/src/events.rs). */
@@ -27,6 +28,7 @@ export const EVENTS = {
   closeHint: 'aione://close-hint',
   gameFollowing: 'aione://game-following',
   lockExpired: 'aione://lock-expired',
+  notice: 'aione://notice',
 } as const;
 
 /** The core's media protocol (`aione-media`); WebView2 reaches custom protocols as
@@ -69,6 +71,9 @@ export function createTauriCore(): Core {
     lockLeave: (kind, how) => invoke<boolean>('lock_leave', { kind, how }),
     heldNow: () => invoke<string[]>('held_now'),
     startShowing: (id) => invoke<string | null>('start_showing', { id }),
+    onNotice: (handler) => listen<{ text: string }>(EVENTS.notice, (e) => handler(e.payload)),
+    getSettings: () => invoke<Settings>('get_settings'),
+    changeSettings: (patch) => invoke<Settings>('change_settings', { patch }),
     clearKeys: async () => {
       await invoke('clear_keys');
     },

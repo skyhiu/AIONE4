@@ -267,6 +267,117 @@ pub fn end_is_launcher(
     exe.is_some_and(is_launcher) || since_launch < Duration::from_secs(30)
 }
 
+/// B-27: does a program's manifest ask for administrator rights? (`requireAdministrator`, or
+/// `highestAvailable`, which elevates for an administrator.) Returns the level found.
+pub fn manifest_level(bytes: &[u8]) -> Option<&'static str> {
+    let find = |n: &[u8]| bytes.windows(n.len()).any(|w| w == n);
+    if find(b"requireAdministrator") {
+        Some("requireAdministrator")
+    } else if find(b"highestAvailable") {
+        Some("highestAvailable")
+    } else {
+        None
+    }
+}
+
+/// B-27: Windows' compatibility setting (`AppCompatFlags\Layers`) says "Run as administrator".
+pub fn layers_run_as_admin(value: &str) -> bool {
+    value
+        .split_whitespace()
+        .any(|f| f.eq_ignore_ascii_case("RUNASADMIN"))
+}
+
+/// B-27: what the program asks for (its manifest, read in 1 MB chunks up to 256 MB; Windows'
+/// compatibility setting for it, for this user and for all users).
+pub fn asks_for_admin(exe: &std::path::Path) -> String {
+    use std::io::Read;
+    let mut manifest = None;
+    if let Ok(mut f) = std::fs::File::open(exe) {
+        let mut buf = vec![0u8; 1 << 20];
+        let mut carry: Vec<u8> = Vec::new();
+        let mut read = 0usize;
+        while read < 256 << 20 {
+            let n = f.read(&mut buf).unwrap_or(0);
+            if n == 0 {
+                break;
+            }
+            read += n;
+            let mut chunk = std::mem::take(&mut carry);
+            chunk.extend_from_slice(&buf[..n]);
+            if let Some(l) = manifest_level(&chunk) {
+                manifest = Some(l);
+                break;
+            }
+            carry = chunk[chunk.len().saturating_sub(32)..].to_vec();
+        }
+    }
+    let compat = compat_layers(exe).is_some_and(|v| layers_run_as_admin(&v));
+    format!(
+        "manifest {}; compatibility setting {}",
+        manifest.unwrap_or("asInvoker (none)"),
+        if compat {
+            "\"Run as administrator\""
+        } else {
+            "no"
+        }
+    )
+}
+
+/// B-27: measured and logged at every launch, and for the game once it is followed.
+pub fn log_admin(name: &str, pid: Option<u32>) {
+    let me = elevated(None)
+        .map(|b| b.to_string())
+        .unwrap_or_else(|| "unknown".into());
+    let (exe, it) = match pid {
+        Some(p) => (
+            full_path_of_pid(p),
+            elevated(Some(p))
+                .map(|b| b.to_string())
+                .unwrap_or_else(|| "unknown (Windows refused the query)".into()),
+        ),
+        None => (None, "unknown (no process)".into()),
+    };
+    let asks = exe
+        .as_deref()
+        .map(asks_for_admin)
+        .unwrap_or_else(|| "unknown (no program path)".into());
+    let prog = exe
+        .as_ref()
+        .and_then(|e| e.file_name())
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    logging::lifecycle(
+        Level::Info,
+        &format!("admin: \"{name}\": AIONE elevated {me}; the game's process ({prog}) elevated {it}; it asks for administrator rights: {asks}"),
+    );
+    if asks.contains("requireAdministrator") || asks.contains("Run as administrator") {
+        logging::lifecycle(
+            Level::Info,
+            &format!("guide: if \"{name}\" doesn't need administrator rights: right-click its program ({prog}) → Properties → Compatibility → untick \"Run this program as an administrator\" (also under \"Change settings for all users\"); a manifest that asks can't be changed this way"),
+        );
+    }
+}
+
+/// B-27: Windows' permission prompt (UAC, `consent.exe`) is showing.
+pub fn consent_showing() -> bool {
+    process_list().iter().any(|(_, _, p)| {
+        p.as_ref()
+            .map(|p| {
+                p.to_string_lossy()
+                    .rsplit(['\\', '/'])
+                    .next()
+                    .unwrap_or_default()
+                    .eq_ignore_ascii_case("consent.exe")
+            })
+            .unwrap_or(false)
+    })
+}
+
+/// B-27: whether a process (None: AIONE) runs with administrator rights (token elevation).
+pub fn elevated(pid: Option<u32>) -> Option<bool> {
+    token_elevated(pid)
+}
+
 /// D-048 (B-22 rev. aq): Steam's own window (any user's Steam: its client or its web helper).
 pub fn is_steam(exe: &str) -> bool {
     let e = exe.to_ascii_lowercase();
@@ -302,6 +413,12 @@ pub fn showing_label(
 
 /// D-046 rev. ar: during the start of `id`, is any window of the game, its launcher or Steam up?
 pub fn start_showing(id: &str) -> Option<String> {
+    // B-27: Windows' permission prompt holds the start until it is answered.
+    if consent_showing() {
+        return Some(
+            "Windows is asking for permission: answer it with the mouse or keyboard".into(),
+        );
+    }
     let r = RUNNING
         .lock()
         .ok()
@@ -471,6 +588,8 @@ pub fn launch(
         Some((exe, params, dir)) => shell_open(&exe, Some(&params), &dir)?,
         None => shell_open(&target, None, &f.folder)?,
     };
+    // B-27: measured and logged at every launch.
+    log_admin(&f.name, pid);
     logging::lifecycle(
         Level::Info,
         &format!(
@@ -931,6 +1050,8 @@ fn watch(gen: u64, report: impl Fn(Event)) {
                         id: r.id.clone(),
                         name: r.name.clone(),
                     });
+                    // B-27: the game itself (after a launcher, a different process).
+                    log_admin(&r.name, r.pid);
                     // B-22 rev. ap: the game is still loading until it has stayed put for 3 s.
                     let now = Instant::now();
                     r.loading = Some((now, now, (0, (0, 0, 0, 0), false)));
@@ -987,7 +1108,9 @@ fn watch(gen: u64, report: impl Fn(Event)) {
         if let Some((since_follow, launcher)) = following {
             let procs = process_list();
             // D-048 (B-22 rev. aq): Steam's window in front = Steam is asking something.
-            if !steam_seen && foreground_program().is_some_and(|(_, _, e)| is_steam(&e)) {
+            if !steam_seen
+                && (foreground_program().is_some_and(|(_, _, e)| is_steam(&e)) || consent_showing())
+            {
                 steam_seen = true;
                 logging::lifecycle(Level::Info, &format!("start \"{}\": Steam is showing a window during the start: waiting (up to the start's 45 s)", r.name));
                 crate::transit::with(|m| {
@@ -1231,7 +1354,18 @@ pub fn close_game(
             std::thread::sleep(Duration::from_millis(50));
         }
         if process_alive(pid) {
-            return Err(format!("{} couldn't be ended (Windows refused)", r.name));
+            // B-27: plainly; never retried in a loop.
+            let admin = elevated(Some(pid)) == Some(true) && elevated(None) != Some(true);
+            let m = if admin {
+                format!("{} runs as administrator: AIONE can't close it", r.name)
+            } else {
+                format!("{} couldn't be ended (Windows refused)", r.name)
+            };
+            logging::lifecycle(
+                Level::Warn,
+                &format!("close \"{}\": Windows refused to end it: {m}", r.name),
+            );
+            return Err(m);
         }
     }
     // The session, recorded once (the watcher then stops quietly).
@@ -1570,6 +1704,75 @@ mod win {
         ))
     }
 
+    /// B-27: a process's token elevation (None pid: AIONE itself).
+    pub fn token_elevated(pid: Option<u32>) -> Option<bool> {
+        use windows::Win32::Security::{
+            GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY,
+        };
+        use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+        let (process, owned) = match pid {
+            None => (unsafe { GetCurrentProcess() }, false),
+            Some(p) => (
+                unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, p) }.ok()?,
+                true,
+            ),
+        };
+        let mut token = windows::Win32::Foundation::HANDLE::default();
+        let opened = unsafe { OpenProcessToken(process, TOKEN_QUERY, &mut token) }.is_ok();
+        if owned {
+            let _ = unsafe { CloseHandle(process) };
+        }
+        if !opened {
+            return None;
+        }
+        let mut e = TOKEN_ELEVATION::default();
+        let mut len = 0u32;
+        let ok = unsafe {
+            GetTokenInformation(
+                token,
+                TokenElevation,
+                Some(&mut e as *mut TOKEN_ELEVATION as *mut core::ffi::c_void),
+                std::mem::size_of::<TOKEN_ELEVATION>() as u32,
+                &mut len,
+            )
+        }
+        .is_ok();
+        let _ = unsafe { CloseHandle(token) };
+        ok.then_some(e.TokenIsElevated != 0)
+    }
+
+    /// B-27: Windows' compatibility setting for a program (`AppCompatFlags\Layers`: this user,
+    /// then all users).
+    pub fn compat_layers(exe: &std::path::Path) -> Option<String> {
+        use windows::Win32::System::Registry::{
+            RegGetValueW, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ,
+        };
+        let key = HSTRING::from(
+            "Software\\Microsoft\\Windows NT\\CurrentVersion\\AppCompatFlags\\Layers",
+        );
+        let value = HSTRING::from(exe.as_os_str());
+        for root in [HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE] {
+            let mut buf = [0u16; 512];
+            let mut size = (buf.len() * 2) as u32;
+            let r = unsafe {
+                RegGetValueW(
+                    root,
+                    &key,
+                    &value,
+                    RRF_RT_REG_SZ,
+                    None,
+                    Some(buf.as_mut_ptr().cast()),
+                    Some(&mut size),
+                )
+            };
+            if r.is_ok() {
+                let n = buf.iter().position(|&c| c == 0).unwrap_or(0);
+                return Some(String::from_utf16_lossy(&buf[..n]));
+            }
+        }
+        None
+    }
+
     /// B-22 rev. ap: a window's rectangle (a move, resize or fullscreen switch changes it).
     pub fn window_rect(w: isize) -> (i32, i32, i32, i32) {
         let mut rc = RECT::default();
@@ -1613,9 +1816,9 @@ mod win {
 
 #[cfg(windows)]
 use win::{
-    active_popup, close_windows_of, exe_of, foreground_program, keys_program, main_window_of,
-    process_alive, process_list, shell_open, steam_root, step_aside, top_window_of, window_alive,
-    window_rect, window_state,
+    active_popup, close_windows_of, compat_layers, exe_of, foreground_program, keys_program,
+    main_window_of, process_alive, process_list, shell_open, steam_root, step_aside,
+    token_elevated, top_window_of, window_alive, window_rect, window_state,
 };
 
 #[cfg(not(windows))]
@@ -1645,6 +1848,22 @@ fn foreground_program() -> Option<(isize, u32, String)> {
 #[cfg(not(windows))]
 fn close_windows_of(_pid: u32) -> usize {
     0
+}
+#[cfg(not(windows))]
+fn token_elevated(_pid: Option<u32>) -> Option<bool> {
+    None
+}
+#[cfg(not(windows))]
+fn compat_layers(_exe: &std::path::Path) -> Option<String> {
+    None
+}
+#[cfg(not(windows))]
+fn full_path_of_pid(_pid: u32) -> Option<std::path::PathBuf> {
+    None
+}
+#[cfg(windows)]
+fn full_path_of_pid(pid: u32) -> Option<std::path::PathBuf> {
+    win::full_path_of(pid)
 }
 #[cfg(not(windows))]
 fn window_rect(_w: isize) -> (i32, i32, i32, i32) {
@@ -1865,5 +2084,24 @@ mod tests {
             Some("the game is showing a window")
         );
         assert_eq!(showing_label(false, false, false), None);
+    }
+
+    /// B-27: the manifest and Windows' compatibility setting, read the same for every user.
+    #[test]
+    fn what_a_game_asks_for() {
+        assert_eq!(
+            manifest_level(
+                b"<requestedExecutionLevel level=\"requireAdministrator\" uiAccess=\"false\"/>"
+            ),
+            Some("requireAdministrator")
+        );
+        assert_eq!(
+            manifest_level(b"level='highestAvailable'"),
+            Some("highestAvailable")
+        );
+        assert_eq!(manifest_level(b"level=\"asInvoker\""), None);
+        assert!(layers_run_as_admin("~ RUNASADMIN"));
+        assert!(layers_run_as_admin("~ WIN7RTM RUNASADMIN HIGHDPIAWARE"));
+        assert!(!layers_run_as_admin("~ HIGHDPIAWARE"));
     }
 }

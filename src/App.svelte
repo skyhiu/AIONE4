@@ -130,6 +130,17 @@
   const hour12 = params.get('h12') === null ? undefined : params.get('h12') === '1';
 
   const sounds = new MenuSounds((line) => core?.log('info', line));
+  /** B-24 / the audio model: AIONE's own Volume, Mute and menu level → its gain stages, live. */
+  async function loadSettings(c: Core) {
+    try {
+      const st = await c.getSettings();
+      sounds.setLevels(st.volume / 100, st.muted, st.menuSounds ? st.menuSoundVolume / 100 : 0);
+      c.log('info', `audio: AIONE volume ${st.volume} %, ${st.muted ? 'muted' : 'unmuted'}, menu sounds ${st.menuSounds ? `${st.menuSoundVolume} %` : 'off'} (AIONE's own; Windows' volume and mute untouched)`);
+    } catch (err) {
+      c.log('error', `settings: couldn't load (${String(err)}); defaults in effect`);
+    }
+    if ('__aioneMock' in window) (window as unknown as { __aioneSoundLevels: () => unknown }).__aioneSoundLevels = () => sounds.levels();
+  }
   const perf = new PerfLog((line) => core?.log('info', line));
   let firstKeyLogged = false;
   // D-006: AIONE times key repeats itself (400 / 90 ms); only navigation keys repeat.
@@ -502,7 +513,7 @@
   /** D-030: the game being closed (X and A on it locked until it ends or 10 s pass). */
   let closingId = $state<string | null>(null);
   /** B-18: the close question (switching games, or X Close Software). */
-  let confirm = $state<{ kind: 'switch' | 'close'; id: string; nextId?: string; title: string; text: string; yes: string; focus: 'yes' | 'no' } | null>(null);
+  let confirm = $state<{ kind: 'switch' | 'close' | 'front'; id: string; nextId?: string; title: string; text: string; yes: string; focus: 'yes' | 'no' } | null>(null);
 
   /** B-11: the row's order: the running game first (B-18), then played games most recent first,
    *  then the never-played ones A-Z. */
@@ -558,12 +569,15 @@
       void core?.startShowing(g.id).then((what) => {
         if (launching !== 'starting') return;
         showingNow = what;
-        launchBackOk = !what && !followingId;
-        veilText = `Starting ${g.name}…`;
+        const elapsed = performance.now() - startedAt;
+        launchBackOk = !what && !followingId && elapsed >= 3000;
+        // B-27: Windows' permission prompt: say so on the black screen (answer it there).
+        veilText = what?.startsWith('Windows is asking') ? what : elapsed >= 3000 || followingId ? `Starting ${g.name}…` : null;
         launchTimers.push(setTimeout(checkShowing, 500));
       });
     };
-    launchTimers.push(setTimeout(checkShowing, 3000));
+    const startedAt = performance.now();
+    launchTimers.push(setTimeout(checkShowing, 500));
     const t0 = performance.now();
     fadeEndAt = t0 + LAUNCH_STILL_MS + LAUNCH_FADE_MS;
     const s = play('launch');
@@ -671,6 +685,12 @@
     confirm = null;
     const running = games.find((x) => x.id === q.id);
     if (!yes) return `question: Cancel (${how}), ${play('back')}`;
+    // B-27: Windows refused the close: bring the game to the front to close it there.
+    if (q.kind === 'front') {
+      const i = games.findIndex((x) => x.id === q.id);
+      if (i >= 0) focusGame(q.id);
+      return `question: ${q.yes} (${how}): ${returnToGame(q.id, how)}`;
+    }
     // B-18 (rev. am): closing for sure. A "Closing <game>…" loading screen (black, a small progress
     // ring, input locked) until every process of the game has ended (the core asks it to close,
     // gives it about 3 s, then ends it); then Home, or the new game's launch.
@@ -710,6 +730,12 @@
         const reason = e instanceof Error ? e.message : String(e);
         core?.log('warn', `close "${name}" failed: ${reason}`);
         returnHome(`closing "${name}" failed`);
+        if (reason.includes('runs as administrator')) {
+          // B-27: plainly, and a way to close it there (Cancel focused).
+          confirm = { kind: 'front', id: q.id, title: `Bring ${name} to the front to close it there?`, text: reason, yes: 'Bring to front', focus: 'no' };
+          core?.log('info', `asked: bring "${name}" to the front to close it there?`);
+          return;
+        }
         showMessage(reason);
         play('error');
       });
@@ -1066,6 +1092,8 @@
           focusGame(id);
         }),
       );
+      // B-27: Windows' refusals as a plain message.
+      unlisteners.push(await c.onNotice((e) => showMessage(e.text, 8000)));
       // D-032: the launcher ended soon after the launch: black again, "Starting <game>…", input
       // locked, until the real game's window (the launch completes) or the end (Home).
       unlisteners.push(
@@ -1126,16 +1154,35 @@
         // Guide is the game swapping its window: hand the front back instead of showing Home.
         const id = runningId;
         if (id && performance.now() - appearedAt < 5000) {
+          // alpha.29 QA-1: input is locked AT ONCE (the black launcher wait), while the core is
+          // asked; Home is never live in between (it was for 39–119 ms).
+          launching = 'starting';
+          followingId = id;
+          pendingId = id;
+          veil = true;
+          veilText = null;
           void core?.msSinceGuide().then((ms) => {
-            if (ms < 1500 || launching !== 'ingame') return returnHome('AIONE is in front again');
+            if (launching !== 'starting' || followingId !== id) return;
+            if (ms < 1500) return returnHome('AIONE is in front again');
             core
               ?.handBack(id)
-              .then(() => core?.log('info', `the game swapped its window: front handed back (${ms >= 999999 ? 'no Guide' : `last Guide ${ms} ms ago`})`))
+              .then(() => {
+                core?.log('info', `the game swapped its window: front handed back (${ms >= 999999 ? 'no Guide' : `last Guide ${ms} ms ago`})`);
+                if (launching === 'starting' && followingId === id) {
+                  followingId = null;
+                  pendingId = null;
+                  launching = 'ingame';
+                }
+              })
               .catch((e: unknown) => {
                 const why = e instanceof Error ? e.message : String(e);
                 core?.log('info', `not handed back: ${why}`);
-                // A launcher hiding its window: stay black; its end and the wait come next.
-                if (!why.startsWith('not the game yet')) returnHome('AIONE is in front again');
+                if (why.startsWith('not the game yet')) {
+                  // A launcher hiding its window: the launcher wait (black, input locked) goes on;
+                  // the core follows the game, or the wait's limit returns Home.
+                  const g = games.find((x) => x.id === id);
+                  if (g) veilText = `Starting ${g.name}…`;
+                } else returnHome('AIONE is in front again');
               });
           });
           return;
@@ -1169,7 +1216,7 @@
           (err: unknown) => c.log('error', `boot_media failed: ${String(err)}`),
         ),
         reloadLibrary(c),
-        sounds.init(),
+        sounds.init().then(() => loadSettings(c)),
         loadFonts(c),
       ]);
       const hold = await Promise.race([work.then(() => 'done'), new Promise<string>((r) => setTimeout(() => r('timeout'), BLACK_HOLD_MAX_MS))]);

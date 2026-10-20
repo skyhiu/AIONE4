@@ -195,6 +195,12 @@ export interface Core {
   heldNow(): Promise<string[]>;
   /** B-22: a keyboard key down / up. */
   noteKey(key: string, down: boolean): Promise<void>;
+  /** B-27: a plain message for the user (e.g. Windows refused a pause). */
+  onNotice(handler: (e: { text: string }) => void): Promise<Unlisten>;
+  /** B-24: AIONE 4's settings (its own schema). */
+  getSettings(): Promise<Settings>;
+  /** B-24: change some settings (applied at once, saved). */
+  changeSettings(patch: Partial<Settings>): Promise<Settings>;
   /** D-046 rev. ar: during a start, what is showing (null: nothing; B Cancel start is offered). */
   startShowing(id: string): Promise<string | null>;
   /** D-045: AIONE gained or lost the front: clear the keyboard part of the held set. */
@@ -226,5 +232,26 @@ export interface LaunchResult {
   pid: number | null;
   alreadyRunning: boolean;
   foreground: string | null;
+}
+
+/** B-24: AIONE 4's settings store (src-tauri/src/settings.rs; docs/ARCHITECTURE.md lists each). */
+export interface Settings {
+  schema: number;
+  volume: number;
+  muted: boolean;
+  musicVolume: number;
+  menuSoundVolume: number;
+  menuSounds: boolean;
+  sortOrder: string;
+  favoritesFirst: boolean;
+  showHiddenGames: boolean;
+  clock24h: boolean;
+  startWithWindows: boolean;
+  swapConfirmBack: boolean;
+  bootUp: boolean;
+  bootUpAudio: boolean;
+  theme: string;
+  colorPreset: string;
+  importedFromWpf: { at: string; source: string; taken: number; leftOut: number } | null;
 }
 

@@ -416,3 +416,61 @@ random presses / releases each, over every state) and `tests/ui/mash.spec.ts` (3
 the mock's mirror of the machine: a launch, a return, A / Guide spam, a close, the launcher wait,
 and the game's end during a lock).
 
+## The settings store (alpha.30, B-24; `src-tauri/src/settings.rs`)
+
+AIONE 4's **own** schema (version 1, B-6), never a mirror of WPF's `Config`: `<data>\settings.json`,
+camelCase keys. Every key has a default; an unreadable file or an invalid value falls back to it.
+Changes are saved at once (`change_settings`, written to a temporary file and moved into place) and
+survive restarts. The screens are built in T3 (B-25: **Settings** and **Theme Settings** are two
+separate screens).
+
+| Setting | Type | Default | Applies | Screen (T3) |
+|---|---|---|---|---|
+| `volume` | 0–100 % | 100 | live (AIONE's own gain; never Windows') | Settings › Audio |
+| `muted` | bool | false | live | Settings › Audio |
+| `musicVolume` | 0–100 % (relative) | 100 | live (music, when built) | Settings › Audio |
+| `menuSoundVolume` | 0–100 % (relative) | 100 | live | Settings › Audio |
+| `menuSounds` | bool | true | live | Settings › Audio |
+| `sortOrder` | "recent" | "recent" | live | Settings › Library |
+| `favoritesFirst` | bool | true | live (when favorites are shown) | Settings › Library |
+| `showHiddenGames` | bool | false | live (when hiding is built) | Settings › Library |
+| `clock24h` | bool | false | live | Settings › System |
+| `startWithWindows` | bool | false | at the next sign-in | Settings › System |
+| `swapConfirmBack` | bool | false | live (when built) | Settings › Controls |
+| `bootUp` | bool | true | the next start | Settings › System |
+| `bootUpAudio` | bool | true | the next start | Settings › System |
+| `theme` | "switch" | "switch" | live | **Theme Settings** |
+| `colorPreset` | "light" / "dark" | "light" | live | **Theme Settings** |
+| `importedFromWpf` | record | none | (bookkeeping: the one-time import) | — |
+
+**The one-time import from WPF AIONE:** read from the copy T0 made
+(`<data>\Imported\AIONE-WPF\Config\settings.json`), never WPF's own folder; it runs once (after the
+copy exists; recorded in `importedFromWpf`) and later changes in AIONE 4 always win. Only values that
+clearly map and are valid are taken; everything else is left out and AIONE 4's default used.
+`<data>\settings-import.md` lists every value taken (from what, to what) and left out (and why).
+**WPF's `Config` format, as found:** `settings.json` (UTF-8, `SettingsVersion` 5): one flat object of
+global keys (audio as 0–1 fractions, display, header, controller, library, launch, power) plus
+`Theme` and `ThemeProfiles.<Theme>.*` (palette, accent, tiles, dimming, fonts, logo); beside it
+WPF's own bookkeeping (`migration.json`, `data-folder.json`, `session-journal.json`, `typing.json`),
+none of which maps to an AIONE 4 setting.
+
+## The audio model (alpha.30; reference A10, decided after 3.9.13.2)
+
+AIONE's Volume, Mute and menu-sound level are **its own**: they set AIONE's gain stages
+(`MenuSounds.setLevels`) and **never** read or write Windows' volume or mute, which apply on top as
+for any app. **The live audio environment (L-07):** a change of Windows' output devices
+(`devicechange`) or of the output context's state (sleep, a device switch) is logged and the context
+resumed, so every player keeps working.
+
+## Games that run as administrator (alpha.30, B-27)
+
+Measured, never assumed. At every launch, and again for the game after a launcher: `admin: "X":
+AIONE elevated …; the game's process (…) elevated …; it asks for administrator rights: manifest …;
+compatibility setting …` (token elevation via `OpenProcessToken` / `GetTokenInformation`; the
+manifest's `requestedExecutionLevel`; `AppCompatFlags\Layers` `RUNASADMIN`, this user and all users),
+with the guide line to untick "Run as administrator" when it asks. **Windows' permission prompt**
+(`consent.exe`) during a start: said on the black screen, the start not ended, the wait extended,
+no B. **Refusals:** a pause or a close Windows refuses is logged with its error and said plainly
+("<game> runs as administrator: AIONE can't pause it" / "… close it"); a refused close offers to
+bring the game to the front. Nothing hangs or retries in a loop. The administrator helper is T2.3.
+
