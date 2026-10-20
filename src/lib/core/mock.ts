@@ -302,6 +302,8 @@ export function createMock(search: string): { core: Core; control: MockControl }
   if (params.get('pad') === 'connected') emit('connected', '', 0);
 
   let running: string | null = null;
+  /** B-26 rev. ax: the mock's display brightness. */
+  let mockBrightness: number | null = null;
   /** B-26: the mock's Guide hold (as transit::GuideHold). */
   let guideAt = 0;
   let guideFired = false;
@@ -673,6 +675,17 @@ export function createMock(search: string): { core: Core; control: MockControl }
       return Promise.resolve([...held]);
     },
     // B-24: the settings store (defaults; ?volume= / ?muted=1 / ?menusound= for tests).
+    // B-26 rev. ax: ?brightness=none: no display control; otherwise a built-in screen at N %.
+    brightnessGet() {
+      const b = params.get('brightness');
+      if (b === 'none') return Promise.resolve({ method: 'none', value: null, reason: "Brightness can't be changed for this display" });
+      return Promise.resolve({ method: 'builtin', value: mockBrightness ?? Number(b ?? 70), reason: null });
+    },
+    brightnessSet(value) {
+      mockBrightness = value;
+      control.logs.push(`info: brightness: ${value} % (builtin)`);
+      return Promise.resolve();
+    },
     powerPc(action) {
       control.logs.push(`info: power: ${action} the PC (confirmed by the user)`);
       return Promise.resolve();

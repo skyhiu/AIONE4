@@ -425,6 +425,14 @@ pub fn reset_imported_volume_once(data: &Path) -> Option<String> {
         None => "settings: no imported volume to reset".to_string(),
     };
     save(data, &s).ok()?;
+    // Rev. ax: the import report says so too, so it matches settings.json.
+    let report = data.join("settings-import.md");
+    if let Ok(text) = std::fs::read_to_string(&report) {
+        if !text.contains("rev. aw") {
+            let note = format!("\n## Note (B-24 rev. aw)\n\nThe volume is no longer imported: WPF's master volume belonged to its older audio model (tied to Windows' volume), so its meaning changed. {line}.\n");
+            let _ = std::fs::write(&report, text + &note);
+        }
+    }
     Some(line)
 }
 
@@ -513,10 +521,14 @@ mod tests {
             left_out: 1,
         });
         save(data, &s).unwrap();
+        std::fs::write(data.join("settings-import.md"), "# report\n").unwrap();
         assert!(reset_imported_volume_once(data)
             .unwrap()
             .contains("reset once to 100 %"));
         assert_eq!(load(data).volume, 100);
+        assert!(std::fs::read_to_string(data.join("settings-import.md"))
+            .unwrap()
+            .contains("## Note (B-24 rev. aw)"));
         assert_eq!(reset_imported_volume_once(data), None); // once only
     }
 

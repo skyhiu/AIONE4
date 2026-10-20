@@ -39,6 +39,7 @@
     bump = null,
     wrapping = false,
     runningId = null,
+    startingId = null,
     scale = 1,
     extras = [],
 
@@ -77,6 +78,8 @@
     wrapping?: boolean;
     /** B-18: the running game (its tile shows "Playing"; its footer: Close Software, Continue). */
     runningId?: string | null;
+    /** D-051: a start being watched quietly (the tile shows "Starting…"). */
+    startingId?: string | null;
     /** Interface Scale as a factor (1 = 100 %), for the drawer's bump distance. */
     scale?: number;
     /** B-15 (rev. t): the extras on this run (all three by default; none with `--extras=none`). */
@@ -109,7 +112,8 @@
   const onEmpty = $derived(home.zone === 'row' && isEmptySlot(home, home.focus));
   // B-26 / A7: the Home / Guide hint, labeled "Menu", first in the footer wherever Home shows prompts.
   function withMenu(p: Prompt[]): Prompt[] {
-    return p.length && device === 'xbox' ? [{ button: 'menu', label: 'Menu' }, ...p] : p;
+    // B-28: the keyboard has its Guide now (Home inside AIONE), so "Menu" shows in both modes.
+    return p.length ? [{ button: 'menu', label: 'Menu' }, ...p] : p;
   }
   const basePrompts = $derived<Prompt[]>(
     loadState !== 'loaded' || suspended
@@ -356,6 +360,9 @@
               {#if g.id === runningId}
                 <!-- B-18: the running game's "Playing" badge (Switch adds the user's icon; AIONE has none). -->
                 <span class="playing" data-testid="playing-badge">Playing</span>
+              {:else if g.id === startingId}
+                <!-- D-051: a start past its 45 s, still watched: "Starting…", not "Playing". -->
+                <span class="playing" data-testid="starting-badge">Starting…</span>
               {/if}
             </div>
             <span class="hover-line" aria-hidden="true"></span>

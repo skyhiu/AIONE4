@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.0.0-alpha.32 — completing T2.2: the Quick Menu's look, brightness, Power options, the keyboard
+
+- **B-26 rev. ax:** the Quick Menu: full height, 40 %, the header and footer flowing into it; rows
+  Power, Brightness (new, universal), Volume with Mute, Theme; the B3 ring.
+- **Power options:** a short centered list (Quick Menu and drawer), replacing the side panel.
+- **B-28:** Win + Esc everywhere (short / held, like Guide; left to Magnifier while it runs); Home
+  inside AIONE; "Menu" shows the keyboard's key.
+- **D-051:** the quiet watch after 45 s ("Starting…"). **D-052:** the close counts what Windows
+  refused. The verified end; "can't pause it" once per session; the import report's volume note.
+
 ## 4.0.0-alpha.31 — T2.2: the Quick Menu, the Power menu, dialogs done once
 
 - **D-049:** AIONE's Volume × Mute on the Boot Up / Boot Down sound and custom videos.

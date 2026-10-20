@@ -436,4 +436,20 @@ test.describe('T1.3 launching (mocked core)', () => {
     l = await logs(page);
     expect(l.some((x) => /sound (rowMove|scroll)/.test(x) || x.includes('sound rowMove'))).toBe(true);
   });
+
+  test("D-051: past the start's limit, a quiet watch: 'Starting…' (not 'Playing'); A says so; a late window is followed", async ({ page }) => {
+    await open(page, 'window=never&starttimeout=1500');
+    await pad(page, 'A');
+    await expect(page.getByTestId('starting-badge')).toBeVisible({ timeout: 4000 });
+    await expect(page.getByTestId('playing-badge')).toHaveCount(0);
+    await pad(page, 'A'); // on the same tile
+    await expect(page.getByTestId('toast')).toHaveText('Amber Lighthouse is still starting');
+    let l = await logs(page);
+    expect(l.some((x) => x.includes("that game isn't running") || x.includes("its process isn't known"))).toBe(false);
+    await page.evaluate(() => window.__aioneMock?.gameWindow('Amber Lighthouse'));
+    await expect(page.getByTestId('playing-badge')).toHaveCount(1, { timeout: 3000 });
+    l = await logs(page);
+    expect(l.some((x) => x.includes('its window appeared late (after the 45 s); followed'))).toBe(true);
+  });
 });
+

@@ -98,6 +98,8 @@ const ACTIONS: Record<InputSource, Record<string, UiAction>> = {
     Space: 'confirm',
     Esc: 'back',
     Backspace: 'back',
+    // B-28: inside AIONE, Home is the keyboard's Guide (short; a hold is the Quick Menu).
+    Home: 'guide',
     // B-3 (rev. r): Tab is the keyboard's Options key (like the pad's ≡ / +); the Menu key too.
     Tab: 'options',
     ContextMenu: 'options',
@@ -115,7 +117,7 @@ const ACTIONS: Record<InputSource, Record<string, UiAction>> = {
 export function toAction(ev: InputEvent): UiAction | null {
   if (ev.kind === 'up') return null;
   // B-26: a held Guide (decided in the core) opens the Quick Menu.
-  if (ev.kind === 'held') return ev.control === 'Guide' ? 'menu' : null;
+  if (ev.kind === 'held') return ev.control === 'Guide' || ev.control === 'Home' ? 'menu' : null;
   const action = ACTIONS[ev.source][ev.control];
   if (!action) return null;
   // Confirm and back never repeat while held (one press, one action).

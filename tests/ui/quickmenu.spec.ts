@@ -30,9 +30,14 @@ test.describe('T2.2 the Quick Menu, Power and dialogs (mocked core)', () => {
     await page.screenshot({ path: 'ui-screenshots/t23-quick-menu.png' });
     let l = await logs(page);
     expect(l.some((x) => x.includes('Guide held 500 ms: Quick Menu'))).toBe(true);
-    await expect(page.getByTestId('qm-volume')).toHaveClass(/focused/);
+    // Rev. ax: Power, Brightness, Volume, Theme; Power first.
+    await expect(page.getByTestId('qm-power')).toHaveClass(/focused/);
     await pad(page, 'DPadUp'); // the first row: stays
-    await expect(page.getByTestId('qm-volume')).toHaveClass(/focused/);
+    await expect(page.getByTestId('qm-power')).toHaveClass(/focused/);
+    await pad(page, 'DPadDown'); // Brightness
+    await pad(page, 'DPadRight');
+    await expect(page.getByTestId('qm-brightness-value')).toHaveAttribute('data-value', '71');
+    await pad(page, 'DPadDown'); // Volume
     await pad(page, 'DPadRight');
     await pad(page, 'DPadRight');
     await expect(page.getByTestId('qm-volume-value')).toHaveAttribute('data-value', '52');
@@ -46,9 +51,8 @@ test.describe('T2.2 the Quick Menu, Power and dialogs (mocked core)', () => {
     await pad(page, 'DPadDown'); // Theme
     await pad(page, 'A');
     await expect(page.getByTestId('toast')).toHaveText('Coming in a later stage');
-    await pad(page, 'DPadDown'); // Power
     await pad(page, 'DPadDown'); // the last row: stays
-    await expect(page.getByTestId('qm-power')).toHaveClass(/focused/);
+    await expect(page.getByTestId('qm-theme')).toHaveClass(/focused/);
     await pad(page, 'B');
     await expect(page.getByTestId('quick-menu')).toHaveCount(0);
   });
@@ -62,18 +66,16 @@ test.describe('T2.2 the Quick Menu, Power and dialogs (mocked core)', () => {
     expect(l.some((x) => x.includes('Guide held'))).toBe(false);
   });
 
-  test('Power: Sleep Mode later; Restart PC asks (Cancel focused, B cancels); Turn Off PC confirmed; Close AIONE plays the Boot Down', async ({ page }) => {
+  test('Power options (a centered list): Sleep Mode later; Restart PC asks (Cancel focused, B cancels); Turn Off PC confirmed; Close AIONE plays the Boot Down', async ({ page }) => {
     await open(page);
     await holdGuide(page);
-    await pad(page, 'DPadDown');
-    await pad(page, 'DPadDown');
-    await pad(page, 'A'); // Power
-    const items = page.getByTestId('qm-power-item');
+    await pad(page, 'A'); // Power (the first row) → Power options, a short centered list
+    await expect(page.getByTestId('power-options')).toBeVisible();
+    await page.screenshot({ path: 'ui-screenshots/t23-power-options.png' });
+    const items = page.getByTestId('po-item');
     await expect(items).toHaveCount(5);
-    await expect(items.nth(0)).toHaveText('Restart AIONE');
-    await pad(page, 'DPadDown');
-    await pad(page, 'DPadDown'); // Sleep Mode
-    await pad(page, 'A');
+    await expect(items.nth(0)).toHaveText('Sleep Mode');
+    await pad(page, 'A'); // Sleep Mode
     await expect(page.getByTestId('toast')).toHaveText('Coming in a later stage');
     await pad(page, 'DPadDown'); // Restart PC
     await pad(page, 'A');
@@ -84,12 +86,11 @@ test.describe('T2.2 the Quick Menu, Power and dialogs (mocked core)', () => {
     await expect(page.getByTestId('confirm-dialog')).toHaveCount(0);
     let l = await logs(page);
     expect(l.some((x) => x.includes('power: restart the PC'))).toBe(false);
-    // Turn Off PC, confirmed.
+    // Turn Off PC, confirmed (from the drawer's Power button this time).
     await holdGuide(page);
-    await pad(page, 'DPadDown');
-    await pad(page, 'DPadDown');
     await pad(page, 'A');
-    for (let i = 0; i < 4; i++) await pad(page, 'DPadDown');
+    await pad(page, 'DPadDown');
+    await pad(page, 'DPadDown'); // Turn Off PC
     await pad(page, 'A');
     await expect(page.getByTestId('confirm-dialog')).toContainText('Turn off the PC?');
     await pad(page, 'DPadLeft');
@@ -98,10 +99,9 @@ test.describe('T2.2 the Quick Menu, Power and dialogs (mocked core)', () => {
     expect(l.some((x) => x.includes('power: shutdown the PC (confirmed by the user)'))).toBe(true);
     // Close AIONE: the Boot Down.
     await holdGuide(page);
-    await pad(page, 'DPadDown');
-    await pad(page, 'DPadDown');
     await pad(page, 'A');
-    await pad(page, 'DPadDown'); // Close AIONE
+    for (let i = 0; i < 4; i++) await pad(page, 'DPadDown'); // Close AIONE (the last)
+    await pad(page, 'DPadDown'); // stays on the last
     await pad(page, 'A');
     await expect(page.getByTestId('screen')).toHaveAttribute('data-phase', 'bootdown');
   });
@@ -115,4 +115,29 @@ test.describe('T2.2 the Quick Menu, Power and dialogs (mocked core)', () => {
     await pad(page, 'B');
     await expect(page.getByTestId('confirm-dialog')).toHaveCount(0);
   });
+
+  test("rev. ax: a display AIONE can't control says so on the Brightness row", async ({ page }) => {
+    await open(page, 'brightness=none');
+    await holdGuide(page);
+    await expect(page.getByTestId('qm-brightness-note')).toHaveText("Brightness can't be changed for this display");
+  });
+
+  test('B-28: the keyboard: Home held opens the Quick Menu, a short Home is Guide; "Menu" shows the Home key', async ({ page }) => {
+    await open(page);
+    await page.keyboard.press('ArrowRight'); // keyboard mode
+    await expect(page.getByTestId('footer-prompts').first()).toHaveAttribute('data-device', 'keyboard');
+    await expect(page.getByTestId('prompt-menu').locator('.glyph')).toHaveAttribute('data-glyph', 'keyboard_home.svg');
+    await page.keyboard.down('Home');
+    await page.waitForTimeout(650);
+    await page.keyboard.up('Home');
+    await expect(page.getByTestId('quick-menu')).toBeVisible();
+    await page.keyboard.press('Escape'); // B
+    await expect(page.getByTestId('quick-menu')).toHaveCount(0);
+    await page.keyboard.press('Home'); // short: Guide (no game: nothing)
+    await page.waitForTimeout(700);
+    await expect(page.getByTestId('quick-menu')).toHaveCount(0);
+    const l = await logs(page);
+    expect(l.some((x) => x.includes('Home held 500 ms: Quick Menu'))).toBe(true);
+  });
 });
+

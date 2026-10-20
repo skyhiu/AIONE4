@@ -1,134 +1,145 @@
 <script module lang="ts">
-  /** The reference's Power submenu, in its order. */
-  export const POWER_ITEMS = ['Restart AIONE', 'Close AIONE', 'Sleep Mode', 'Restart PC', 'Turn Off PC'] as const;
+  /** Rev. ax: Power options, Switch's order (a short centered list, PowerOptions.svelte). */
+  export const POWER_ITEMS = ['Sleep Mode', 'Restart PC', 'Turn Off PC', 'Restart AIONE', 'Close AIONE'] as const;
+  /** Rev. ax: the Quick Menu's rows, in this order. */
+  export const QM_ROWS = ['Power', 'Brightness', 'Volume', 'Theme'] as const;
 </script>
 
 <script lang="ts">
-  // B-26 and the reference's Quick Menu: opens with a held Guide, slides in from the right, flush
-  // with the header and footer; the whole screen (header included) dims under it (no band, L-13).
-  // It owns input while open (one interaction context; App routes to it) and restores Home's focus
-  // on close. Rows: Volume (AIONE's own: left / right, LT / RT, A mutes), Theme, Power (a submenu).
+  // B-26 (rev. ax; the user's Switch Quick Settings photo): a full-height panel from the right
+  // edge, about 40 % wide. The status items sit on its top and its own footer at its bottom, so
+  // the header and footer flow into it; its colours follow the preset; the rest is dimmed. Rows
+  // separated by thin lines; sliders with their icon; a short line under a setting where useful;
+  // the B3 ring on the focused row. It owns input while open (App routes to it).
   import { fade, fly } from 'svelte/transition';
   import Footer from '../frame/Footer.svelte';
+  import StatusHeader from '../frame/StatusHeader.svelte';
   import type { GlyphDevice, Prompt } from '../frame/glyphs';
+  import type { PcStatus } from '../core/types';
 
   let {
     row,
-    power,
+    brightness,
     volume,
     muted,
     theme,
     device,
-    top,
-    bottom,
+    padConnected,
+    status,
+    fixedTime = null,
+    hour12 = undefined,
     onRow,
-    onPower,
     onPrompt,
   }: {
     row: number;
-    power: number | null;
+    brightness: { method: string; value: number | null; reason: string | null };
     volume: number;
     muted: boolean;
     theme: string;
     device: GlyphDevice;
-    top: number;
-    bottom: number;
+    padConnected: boolean;
+    status: PcStatus | null;
+    fixedTime?: Date | null;
+    hour12?: boolean;
     onRow: (row: number) => void;
-    onPower: (item: number) => void;
     onPrompt: (button: Prompt['button']) => void;
   } = $props();
 
-  const prompts = $derived<Prompt[]>(
-    power === null && row === 0
-      ? [{ button: 'back', label: 'Back' }, { button: 'confirm', label: muted ? 'Unmute' : 'Mute' }]
-      : [{ button: 'back', label: 'Back' }, { button: 'confirm', label: 'Select' }],
-  );
+  const prompts: Prompt[] = [
+    { button: 'back', label: 'Back' },
+    { button: 'confirm', label: 'OK' },
+  ];
+  const canBrightness = $derived(brightness.method !== 'none' && brightness.value !== null);
 </script>
 
 <div class="qm-scrim" data-testid="qm-scrim" transition:fade={{ duration: 180 }}></div>
-<div
-  class="qm"
-  role="menu"
-  aria-label="Quick Menu"
-  data-testid="quick-menu"
-  style:top={`${top}px`}
-  style:bottom={`${bottom}px`}
-  transition:fly={{ x: 480, duration: 220, opacity: 1 }}
->
-  {#if power === null}
-    <div class="row volume focusable" class:focused={row === 0} data-testid="qm-volume" role="menuitem" tabindex="-1" onclick={() => onRow(0)} onkeydown={() => {}}>
-      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M4 9v6h4l5 4V5L8 9H4z" />
-        {#if muted}<path d="M16 9l5 6M21 9l-5 6" class="stroke" />{:else}<path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12" class="stroke" />{/if}
-      </svg>
-      <div class="slider" aria-label="Volume" data-testid="qm-volume-value" data-value={volume} data-muted={muted}>
-        <div class="fill" style:width={`${muted ? 0 : volume}%`}></div>
+<div class="qm" role="menu" aria-label="Quick Menu" data-testid="quick-menu" transition:fly={{ x: 600, duration: 220, opacity: 1 }}>
+  <StatusHeader {padConnected} {status} {fixedTime} {...hour12 === undefined ? {} : { hour12 }} />
+  <div class="rows">
+    {#each QM_ROWS as name, i (name)}
+      <div class="item" class:focused={row === i} data-testid={`qm-${name.toLowerCase()}`} role="menuitem" tabindex="-1" onclick={() => onRow(i)} onkeydown={() => {}}>
+        {#if name === 'Power'}
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v9" class="stroke" /><path d="M6.3 6.8a8 8 0 1 0 11.4 0" class="stroke" /></svg>
+          <span class="label">Power</span>
+        {:else if name === 'Brightness'}
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1" class="stroke" /></svg>
+          {#if canBrightness}
+            <div class="slider" data-testid="qm-brightness-value" data-value={brightness.value}><div class="fill" style:width={`${brightness.value}%`}></div><div class="knob" style:left={`${brightness.value}%`}></div></div>
+          {:else}
+            <span class="note" data-testid="qm-brightness-note">{brightness.reason ?? "Brightness can't be changed for this display"}</span>
+          {/if}
+        {:else if name === 'Volume'}
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 9v6h4l5 4V5L8 9H4z" />
+            {#if muted}<path d="M16 9l5 6M21 9l-5 6" class="stroke" />{:else}<path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12" class="stroke" />{/if}
+          </svg>
+          <div class="slider" data-testid="qm-volume-value" data-value={volume} data-muted={muted}><div class="fill" style:width={`${muted ? 0 : volume}%`}></div><div class="knob" style:left={`${muted ? 0 : volume}%`}></div></div>
+        {:else}
+          <span class="label">Theme</span><span class="value">{theme}</span>
+        {/if}
+        <span class="ring" aria-hidden="true"><span class="ring-halo"></span><span class="ring-line"></span><span class="ring-line ring-alt"></span></span>
       </div>
-    </div>
-    <div class="row focusable" class:focused={row === 1} data-testid="qm-theme" role="menuitem" tabindex="-1" onclick={() => onRow(1)} onkeydown={() => {}}>
-      <span class="label">Theme</span><span class="value">{theme}</span>
-    </div>
-    <div class="row focusable" class:focused={row === 2} data-testid="qm-power" role="menuitem" tabindex="-1" onclick={() => onRow(2)} onkeydown={() => {}}>
-      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v9" class="stroke" /><path d="M6.3 6.8a8 8 0 1 0 11.4 0" class="stroke" /></svg>
-      <span class="label">Power</span>
-    </div>
-  {:else}
-    <h2 class="title">Power</h2>
-    {#each POWER_ITEMS as item, i (item)}
-      <div class="row focusable" class:focused={power === i} data-testid="qm-power-item" role="menuitem" tabindex="-1" onclick={() => onPower(i)} onkeydown={() => {}}>
-        <span class="label">{item}</span>
-      </div>
+      {#if name === 'Volume' && row === i}
+        <p class="explain" data-testid="qm-explain">AIONE's own volume; Windows' volume isn't changed. A mutes.</p>
+      {/if}
     {/each}
-  {/if}
+  </div>
+  <Footer {prompts} {device} {onPrompt} />
 </div>
-<div class="qm-footer" data-testid="qm-footer"><Footer {prompts} {device} {onPrompt} /></div>
 
 <style>
   .qm-scrim {
     position: fixed;
     inset: 0;
-    background: rgb(0 0 0 / 0.55);
+    background: rgb(0 0 0 / 0.5);
     z-index: 900;
   }
   .qm {
     position: fixed;
+    top: 0;
     right: 0;
-    width: calc(520 * var(--px, 1px));
-    background: var(--color-surface, #ebebeb);
+    bottom: 0;
+    width: 40vw;
+    background: var(--color-surface, #ffffff);
     color: var(--color-text, #2d2d2d);
     z-index: 910;
-    padding: calc(24 * var(--px, 1px)) 0;
-    display: flex;
-    flex-direction: column;
-    gap: calc(6 * var(--px, 1px));
-    box-shadow: calc(-4 * var(--px, 1px)) 0 calc(16 * var(--px, 1px)) rgb(0 0 0 / 0.18);
   }
-  .title {
-    margin: 0 calc(32 * var(--px, 1px)) calc(10 * var(--px, 1px));
-    font: 500 calc(31 * var(--px, 1px)) / 1.2 var(--font-ui);
+  .rows {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(170 * var(--px, 1px));
+    padding: 0 calc(36 * var(--px, 1px));
   }
-  .row {
+  .item {
+    position: relative;
     display: flex;
     align-items: center;
-    gap: calc(18 * var(--px, 1px));
-    margin: 0 calc(16 * var(--px, 1px));
-    padding: calc(18 * var(--px, 1px)) calc(16 * var(--px, 1px));
-    font: 400 calc(29 * var(--px, 1px)) / 1.2 var(--font-ui);
-    border-radius: calc(6 * var(--px, 1px));
+    gap: calc(22 * var(--px, 1px));
+    min-height: calc(92 * var(--px, 1px));
+    padding: 0 calc(22 * var(--px, 1px));
+    border-bottom: calc(1 * var(--px, 1px)) solid rgb(128 128 128 / 0.35);
+    font: 400 calc(30 * var(--px, 1px)) / 1.2 var(--font-ui);
     cursor: pointer;
   }
-  /* The shared focus look (A6): the theme's accent, as on the dialog buttons. */
-  .row.focused {
-    box-shadow: inset 0 0 0 calc(4 * var(--px, 1px)) var(--color-accent, #fd007e);
-    background: var(--color-surface-raised, #f6f6f6);
+  .item:first-child {
+    border-top: calc(1 * var(--px, 1px)) solid rgb(128 128 128 / 0.35);
   }
   .value {
     margin-left: auto;
-    opacity: 0.75;
+    color: var(--color-accent, #fd007e);
+  }
+  .note,
+  .explain {
+    font-size: calc(23 * var(--px, 1px));
+    color: var(--color-text-muted, #5c5c5c);
+  }
+  .explain {
+    margin: calc(10 * var(--px, 1px)) calc(22 * var(--px, 1px)) calc(6 * var(--px, 1px));
   }
   .icon {
-    width: calc(36 * var(--px, 1px));
-    height: calc(36 * var(--px, 1px));
+    width: calc(38 * var(--px, 1px));
+    height: calc(38 * var(--px, 1px));
     flex: none;
     fill: currentColor;
   }
@@ -139,21 +150,59 @@
     stroke-linecap: round;
   }
   .slider {
+    position: relative;
     flex: 1;
     height: calc(8 * var(--px, 1px));
     border-radius: calc(4 * var(--px, 1px));
     background: rgb(128 128 128 / 0.35);
-    overflow: hidden;
   }
   .fill {
     height: 100%;
-    background: var(--color-accent, #00c3e3);
+    border-radius: inherit;
+    background: var(--color-accent, #fd007e);
   }
-  .qm-footer {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 920;
+  .knob {
+    position: absolute;
+    top: 50%;
+    width: calc(30 * var(--px, 1px));
+    height: calc(30 * var(--px, 1px));
+    border-radius: 50%;
+    translate: -50% -50%;
+    background: var(--color-surface, #fff);
+    box-shadow: 0 0 0 calc(2 * var(--px, 1px)) rgb(128 128 128 / 0.55);
+  }
+  /* The B3 ring (the same markup and flash as Home's; app.css holds the keyframes). */
+  .ring {
+    position: absolute;
+    inset: calc(-4 * var(--px, 1px));
+    border-radius: calc(8 * var(--px, 1px));
+    opacity: 0;
+    pointer-events: none;
+  }
+  .ring-line {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    border: calc(5 * var(--px, 1px)) solid var(--color-ring);
+    box-shadow: inset 0 0 0 calc(1 * var(--px, 1px)) var(--color-ring-edge);
+  }
+  .ring-halo {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: 0 0 calc(4 * var(--px, 1px)) 0 var(--color-ring-peak);
+    opacity: 0;
+  }
+  .ring-alt {
+    border-color: var(--color-ring-peak);
+    box-shadow: none;
+    opacity: 0;
+  }
+  .item.focused .ring {
+    opacity: 1;
+  }
+  .item.focused .ring-alt,
+  .item.focused .ring-halo {
+    animation: aione-ring-flash 1000ms linear infinite;
   }
 </style>

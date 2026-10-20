@@ -502,3 +502,45 @@ suspended under it (no focus visuals, L-18). Every question and message uses it:
 switch questions, the Power confirmations, start failures, the administrator messages. *Not moved:*
 T0's copy dialog, a multi-step screen (offer, progress, result) with its own verified flow.
 
+## The Quick Menu, rev. ax (alpha.32; the user's Switch Quick Settings photo)
+
+**Look:** a full-height panel from the right edge, 40 % wide, in the preset's colours (light panel
+on light, dark on dark); the same status header (time, Wi-Fi, battery, controller) on its top and
+the same footer ("B Back · A OK", with the divider) at its bottom, at Home's positions, so both flow
+into it; the rest of the screen dimmed. Rows separated by thin lines, sliders with their icon, a
+short explanation line under Volume, the B3 ring (Home's markup and flash) on the focused row.
+**Rows, in order:** Power (opens Power options), **Brightness**, Volume (AIONE's own) with Mute,
+Theme (its value; switching later).
+
+**Brightness (`brightness.rs`, universal):** a built-in screen through Windows (WMI
+`WmiMonitorBrightness` / `WmiSetBrightness`, via PowerShell); an external monitor through DDC/CI
+(`Dxva2`); otherwise "Brightness can't be changed for this display". Probed once at start-up in the
+background (logged); changes live, applied in the background (the last one wins), logged.
+
+**Power options:** a short centered list, Switch's order (Sleep Mode, Restart PC, Turn Off PC,
+Restart AIONE, Close AIONE), from the Quick Menu's Power row and the drawer's Power button.
+Destructive choices ask first, Cancel focused. A B-22 dialog state while open.
+
+## The keyboard as a full alternative (alpha.32, B-28)
+
+**Win + Esc, everywhere** (a low-level keyboard hook, `keywatch.rs`): Esc with a Windows key held is
+taken (never passed on) and decided by the same `transit::GuideHold` as the pad: short = a short
+Guide (from the background: AIONE comes forward, the game pauses; in front: Guide), held 0.5 s = the
+Quick Menu; ignored during transitions and while a game loads (B-22). One unassigned key (0xE8) is
+sent so the Windows key's release doesn't open the Start menu (AIONE's synthetic input, logged,
+D-047). **While Windows' Magnifier runs** (it closes with Win + Esc), the keys are left to Windows.
+**Inside AIONE**, Home does the same (decided in the UI, through the same input path and locks). The
+footer's "Menu" shows the Guide button or the Home key, by mode.
+
+## Starts and closes, rev. ax (alpha.32)
+
+- **D-051:** at 45 s with no window, the start becomes a **quiet watch** (up to about 3 min in the
+  core): the tile shows "Starting…", A on it says "<game> is still starting", a late window is
+  followed, another start ends it; it isn't the running game, so Continue / Close never act on it.
+- **D-052:** the close sends WM_CLOSE to every visible top-level window of the game (a minimized one
+  is visible to Windows); it counts the windows found and the messages Windows let through, and logs
+  a refusal (UIPI: the game runs as administrator, AIONE doesn't), which is what "asked 0 windows"
+  was on the user's PC.
+- **The verified end:** after ending a process, `verified: the process has exited after N ms`; if it
+  survives, B-27's message and "bring it to the front".
+

@@ -22,6 +22,16 @@ use std::sync::Mutex;
 static PAUSED: Mutex<Vec<u32>> = Mutex::new(Vec::new());
 /// B-27: the last error Windows gave when it refused a thread (for the log).
 static REFUSAL: Mutex<Option<String>> = Mutex::new(None);
+/// Rev. ax: the game whose "can't pause it" message was already shown this session.
+static NOTICED: Mutex<Option<String>> = Mutex::new(None);
+
+/// A new game session: the message may show again.
+pub fn new_session() {
+    if let Ok(mut n) = NOTICED.lock() {
+        *n = None;
+    }
+}
+
 /// B-27: the UI is told when Windows refuses (a plain message).
 #[allow(clippy::type_complexity)]
 static NOTICE: Mutex<Option<Box<dyn Fn(String) + Send>>> = Mutex::new(None);
@@ -278,7 +288,18 @@ pub fn pause_running(why: &str) -> String {
                 g.name
             ),
         );
-        notice(text.clone());
+        // Rev. ax: the message once per game session (logged every time).
+        let first = NOTICED
+            .lock()
+            .map(|mut n| {
+                let fresh = n.as_deref() != Some(g.name.as_str());
+                *n = Some(g.name.clone());
+                fresh
+            })
+            .unwrap_or(true);
+        if first {
+            notice(text.clone());
+        }
         return text;
     }
     if let Ok(mut paused) = PAUSED.lock() {

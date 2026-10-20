@@ -15,6 +15,7 @@ import xboxMenu from '../../../assets/glyphs/kenney-input-prompts/xbox-series/xb
 import xboxX from '../../../assets/glyphs/kenney-input-prompts/xbox-series/xbox_button_x.svg?url';
 import xboxGuide from '../../../assets/glyphs/kenney-input-prompts/xbox-series/xbox_guide.svg?url';
 import keyDelete from '../../../assets/glyphs/kenney-input-prompts/keyboard-mouse/keyboard_delete.svg?url';
+import keyHome from '../../../assets/glyphs/kenney-input-prompts/keyboard-mouse/keyboard_home.svg?url';
 
 export type GlyphDevice = 'xbox' | 'keyboard';
 export type PromptButton = 'confirm' | 'back' | 'options' | 'close' | 'menu';
@@ -34,6 +35,8 @@ export const GLYPHS: Record<GlyphDevice, Record<'confirm' | 'back', Glyph> & Par
     back: { url: keyEscape, file: 'keyboard_escape.svg' },
     options: { url: keyTab, file: 'keyboard_tab.svg' },
     close: { url: keyDelete, file: 'keyboard_delete.svg' },
+    // B-28: inside AIONE, Home is the keyboard's Guide (Win + Esc everywhere).
+    menu: { url: keyHome, file: 'keyboard_home.svg' },
   },
 };
 

@@ -121,6 +121,22 @@ for (const seed of SEEDS) {
       counts.push('media key + Alt, then a fast return');
     }
 
+    // 2d. B-28: the keyboard's Guide (Home: short and held), Esc and the arrows, mashed.
+    {
+      let keys = 0;
+      const until = Date.now() + 1800;
+      while (Date.now() < until) {
+        const r = rnd();
+        const key = r < 0.4 ? 'Home' : r < 0.6 ? 'Escape' : r < 0.8 ? 'ArrowRight' : 'ArrowDown';
+        await page.keyboard.down(key);
+        await page.waitForTimeout(key === 'Home' && rnd() < 0.5 ? 560 : 40);
+        await page.keyboard.up(key);
+        keys++;
+      }
+      await expectSane(page, 3000 + 1000);
+      counts.push(`keyboard ${keys} keys`);
+    }
+
     // 3. A close (X, Close), mashed until the game has ended (limit 7 s).
     await homeAgain(page);
     await press(page, 'X');

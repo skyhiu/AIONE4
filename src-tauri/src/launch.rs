@@ -358,6 +358,18 @@ pub fn log_admin(name: &str, pid: Option<u32>) {
     }
 }
 
+/// B-28: the running programs' file names (for the Magnifier check).
+pub fn process_names() -> Vec<String> {
+    process_list()
+        .iter()
+        .filter_map(|(_, _, p)| {
+            p.as_ref()
+                .and_then(|p| p.file_name())
+                .map(|n| n.to_string_lossy().into_owned())
+        })
+        .collect()
+}
+
 /// B-27: Windows' permission prompt (UAC, `consent.exe`) is showing.
 pub fn consent_showing() -> bool {
     process_list().iter().any(|(_, _, p)| {
@@ -677,6 +689,8 @@ pub fn launch(
             m.clear("a new launch", Instant::now())
         }
     });
+    // Rev. ax: a new game session (the "can't pause it" message may show once again).
+    crate::pause::new_session();
     // D-032: where the real game runs from (to recognize it after a launcher).
     let install_dir = steam_app_id_of(&f)
         .and_then(|app| steam_root().and_then(|root| steam_install_dir(&root, &app)))
@@ -1031,6 +1045,26 @@ fn watch(gen: u64, report: impl Fn(Event)) {
             } else {
                 r.loading = Some((t0, changed, sample));
             }
+        }
+        // D-051 (rev. ax): a start with no window by about 3 min (watched quietly since the UI's
+        // 45 s) ends quietly; nothing was counted.
+        if !r.cancelled
+            && r.window.is_none()
+            && r.counted_at.is_none()
+            && following.is_none()
+            && since > Duration::from_secs(180)
+        {
+            if take_if(gen) {
+                logging::lifecycle(Level::Info, &format!("start \"{}\": no window after about 3 min: the quiet watch ends (nothing counted)", r.name));
+                report(Event::Ended {
+                    id: r.id.clone(),
+                    name: r.name.clone(),
+                    minutes: 0.0,
+                    counted: false,
+                    behind: None,
+                });
+            }
+            return;
         }
         // D-046: a cancelled start that showed nothing by the start's limit ends quietly.
         if r.cancelled && r.window.is_none() && since > Duration::from_secs(46) {
@@ -1422,6 +1456,16 @@ pub fn close_game(
         while t1.elapsed() < Duration::from_secs(3) && process_alive(pid) {
             std::thread::sleep(Duration::from_millis(50));
         }
+        if !process_alive(pid) {
+            logging::lifecycle(
+                Level::Info,
+                &format!(
+                    "close \"{}\": verified: the process has exited after {} ms",
+                    r.name,
+                    t1.elapsed().as_millis()
+                ),
+            );
+        }
         if process_alive(pid) {
             // B-27: plainly; never retried in a loop.
             let admin = elevated(Some(pid)) == Some(true) && elevated(None) != Some(true);
@@ -1680,25 +1724,36 @@ mod win {
     struct Closer {
         pid: u32,
         sent: usize,
+        found: usize,
     }
 
     unsafe extern "system" fn close_each(h: HWND, l: LPARAM) -> BOOL {
         let c = unsafe { &mut *(l.0 as *mut Closer) };
         let mut pid = 0u32;
         unsafe { GetWindowThreadProcessId(h, Some(&mut pid)) };
-        if pid == c.pid
-            && unsafe { IsWindowVisible(h) }.as_bool()
-            && unsafe { PostMessageW(Some(h), WM_CLOSE, WPARAM(0), LPARAM(0)) }.is_ok()
-        {
-            c.sent += 1;
+        // D-052 (rev. ax): every top-level window of the game, minimized ones too (a minimized
+        // window is still visible to Windows). Windows may refuse the message (UIPI: the game runs
+        // as administrator and AIONE doesn't): counted apart, for the log.
+        if pid == c.pid && unsafe { IsWindowVisible(h) }.as_bool() {
+            c.found += 1;
+            if unsafe { PostMessageW(Some(h), WM_CLOSE, WPARAM(0), LPARAM(0)) }.is_ok() {
+                c.sent += 1;
+            }
         }
         BOOL(1)
     }
 
     /// WM_CLOSE to every visible top-level window of the process (as its ✕ would).
     pub fn close_windows_of(pid: u32) -> usize {
-        let mut c = Closer { pid, sent: 0 };
+        let mut c = Closer {
+            pid,
+            sent: 0,
+            found: 0,
+        };
         let _ = unsafe { EnumWindows(Some(close_each), LPARAM(&mut c as *mut Closer as isize)) };
+        if c.found > c.sent {
+            crate::logging::lifecycle(crate::logging::Level::Warn, &format!("close: found {} window(s); Windows refused the close message for {} (UIPI: the game runs as administrator)", c.found, c.found - c.sent));
+        }
         c.sent
     }
 

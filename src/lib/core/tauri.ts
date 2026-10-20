@@ -72,6 +72,10 @@ export function createTauriCore(): Core {
     heldNow: () => invoke<string[]>('held_now'),
     startShowing: (id) => invoke<string | null>('start_showing', { id }),
     onNotice: (handler) => listen<{ text: string }>(EVENTS.notice, (e) => handler(e.payload)),
+    brightnessGet: () => invoke<{ method: string; value: number | null; reason: string | null }>('brightness_get'),
+    brightnessSet: async (value) => {
+      await invoke('brightness_set', { value });
+    },
     powerPc: async (action) => {
       await invoke('power_pc', { action });
     },

@@ -4,6 +4,7 @@
 //! See docs/ARCHITECTURE.md.
 
 pub mod boot;
+pub mod brightness;
 pub mod emulators;
 pub mod foreground;
 pub mod games;
@@ -350,6 +351,18 @@ fn held_now() -> Vec<String> {
     transit::with(|m| m.held())
 }
 
+/// B-26 rev. ax: the Brightness row (the cached state; the probe runs at start-up).
+#[tauri::command]
+fn brightness_get() -> brightness::Brightness {
+    brightness::current()
+}
+
+/// B-26 rev. ax: set the brightness (in the background; the last request wins).
+#[tauri::command]
+fn brightness_set(value: u8) {
+    brightness::set(value);
+}
+
 /// T2.2: Restart PC / Turn Off PC (after the user's confirmation): Windows' own `shutdown`.
 #[tauri::command]
 fn power_pc(action: String) -> Result<(), String> {
@@ -376,6 +389,32 @@ fn power_pc(action: String) -> Result<(), String> {
     {
         Err("power actions need Windows".into())
     }
+}
+
+/// B-7 / B-28: Guide (the pad's, or Win + Esc) while AIONE is in the background: AIONE comes forward.
+fn guide_from_background(guide_handle: &AppHandle) {
+    // B-22 (D-042): during a launch, a launcher wait, a return or a close, Guide does
+    // nothing in the core, and AIONE never takes the front.
+    let (kind, _, _) = transit::current();
+    if !transit::guide_allowed(kind) {
+        logging::lifecycle(Level::Info, &format!("Guide ignored ({})", kind.name()));
+        return;
+    }
+    logging::lifecycle(
+        Level::Info,
+        "Guide pressed while AIONE is in the background: bringing AIONE to the front",
+    );
+    show_and_focus(guide_handle, "Guide");
+    launch::note_guide();
+    // D-039 (rev. al): the pause is requested here and happens only after the
+    // foreground step has succeeded (show_and_focus), with a 1 s watchdog.
+    pause::request_pause();
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_millis(1000));
+        if let Some(h) = launch::guide_hint() {
+            logging::lifecycle(Level::Warn, &h);
+        }
+    });
 }
 
 /// B-24: AIONE 4's settings.
@@ -895,6 +934,10 @@ pub fn run() {
     pause::start_watch();
     // D-047: a read-only diagnostic: where the media / volume keys come from (never AIONE).
     keywatch::start();
+    // B-26 rev. ax: probe the display's brightness control once, in the background.
+    std::thread::spawn(|| {
+        brightness::probe();
+    });
 
     // B-19 part 1: the one-time emulator check report (read only), in the background; written
     // again with `--check-emulators`.
@@ -983,6 +1026,8 @@ pub fn run() {
             start_showing,
             get_settings,
             power_pc,
+            brightness_get,
+            brightness_set,
             change_settings,
             return_to_game,
             running_game
@@ -1001,7 +1046,8 @@ pub fn run() {
                 std::thread::spawn(move || loop {
                     std::thread::sleep(std::time::Duration::from_millis(200));
                     if let Some(k) = transit::with(|m| m.tick(std::time::Instant::now())) {
-                        let _ = tick_app.emit(EVENT_LOCK_EXPIRED, serde_json::json!({ "kind": k.name() }));
+                        let _ = tick_app
+                            .emit(EVENT_LOCK_EXPIRED, serde_json::json!({ "kind": k.name() }));
                     }
                 });
             }
@@ -1029,31 +1075,29 @@ pub fn run() {
                     let _ = handle.emit(EVENT_PAD, ev);
                 },
                 // B-7: Guide in the background brings AIONE to the front.
-                move || {
-                    // B-22 (D-042): during a launch, a launcher wait, a return or a close, Guide does
-                    // nothing in the core, and AIONE never takes the front.
-                    let (kind, _, _) = transit::current();
-                    if !transit::guide_allowed(kind) {
-                        logging::lifecycle(Level::Info, &format!("Guide ignored ({})", kind.name()));
-                        return;
-                    }
-                    logging::lifecycle(
-                        Level::Info,
-                        "Guide pressed while AIONE is in the background: bringing AIONE to the front",
-                    );
-                    show_and_focus(&guide_handle, "Guide");
-                    launch::note_guide();
-                    // D-039 (rev. al): the pause is requested here and happens only after the
-                    // foreground step has succeeded (show_and_focus), with a 1 s watchdog.
-                    pause::request_pause();
-                    std::thread::spawn(|| {
-                        std::thread::sleep(std::time::Duration::from_millis(1000));
-                        if let Some(h) = launch::guide_hint() {
-                            logging::lifecycle(Level::Warn, &h);
-                        }
-                    });
-                },
+                move || guide_from_background(&guide_handle),
             );
+            // B-28 (rev. ax): Win + Esc, everywhere: the same Guide (short / held) as the pad.
+            {
+                let kw_app = app.handle().clone();
+                let kw_emit = app.handle().clone();
+                keywatch::set_guide(
+                    move || guide_from_background(&kw_app),
+                    move |kind: &'static str| {
+                        if kind == "down" {
+                            launch::note_guide();
+                        }
+                        let ev = input::PadEvent {
+                            kind,
+                            control: "Guide",
+                            pad: 0,
+                            seq: input::next_seq(),
+                            at_ms: input::now_ms(),
+                        };
+                        let _ = kw_emit.emit(EVENT_PAD, ev);
+                    },
+                );
+            }
             let status_handle = app.handle().clone();
             status::start(move |s| {
                 let _ = status_handle.emit(EVENT_STATUS, s);
@@ -1086,7 +1130,10 @@ pub fn run() {
                     let handle = window.app_handle().clone();
                     std::thread::spawn(move || {
                         std::thread::sleep(CLOSE_SAFETY);
-                        logging::lifecycle(Level::Warn, "the Boot Down did not finish within 8 s; closing anyway");
+                        logging::lifecycle(
+                            Level::Warn,
+                            "the Boot Down did not finish within 8 s; closing anyway",
+                        );
                         handle.exit(0);
                     });
                 }

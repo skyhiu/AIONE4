@@ -197,6 +197,10 @@ export interface Core {
   noteKey(key: string, down: boolean): Promise<void>;
   /** B-27: a plain message for the user (e.g. Windows refused a pause). */
   onNotice(handler: (e: { text: string }) => void): Promise<Unlisten>;
+  /** B-26 rev. ax: the Brightness row (how, and the value; "none": the row says why). */
+  brightnessGet(): Promise<{ method: string; value: number | null; reason: string | null }>;
+  /** B-26 rev. ax: set the brightness (live; the last request wins). */
+  brightnessSet(value: number): Promise<void>;
   /** T2.2: Restart PC / Turn Off PC (after the user's confirmation). */
   powerPc(action: 'restart' | 'shutdown'): Promise<void>;
   /** B-24: AIONE 4's settings (its own schema). */
