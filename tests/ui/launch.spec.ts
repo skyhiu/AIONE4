@@ -418,13 +418,13 @@ test.describe('T1.3 launching (mocked core)', () => {
   });
 
   test("the audio model: AIONE's own Volume / Mute / menu level from the settings; the live audio environment", async ({ page }) => {
-    await open(page, 'volume=12&menusound=70');
+    await open(page, 'volume=35&menusound=55'); // invented values
     const levels = await page.evaluate(() => (window as unknown as { __aioneSoundLevels?: () => { volume: number; muted: boolean; menu: number; context: string } }).__aioneSoundLevels?.());
-    expect(levels?.volume).toBeCloseTo(0.12);
-    expect(levels?.menu).toBeCloseTo(0.7);
+    expect(levels?.volume).toBeCloseTo(0.35);
+    expect(levels?.menu).toBeCloseTo(0.55);
     expect(levels?.muted).toBe(false);
     let l = await logs(page);
-    expect(l.some((x) => x.includes("audio: AIONE volume 12 %, unmuted, menu sounds 70 % (AIONE's own; Windows' volume and mute untouched)"))).toBe(true);
+    expect(l.some((x) => x.includes("audio: AIONE volume 35 %, unmuted, menu sounds 55 % (AIONE's own; Windows' volume and mute untouched)"))).toBe(true);
     // L-07: Windows' output devices change while AIONE runs: logged; the output keeps running.
     await page.evaluate(() => navigator.mediaDevices?.dispatchEvent(new Event('devicechange')));
     await page.waitForTimeout(300);
