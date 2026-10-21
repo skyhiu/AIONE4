@@ -372,7 +372,7 @@ fn sleep_pc() -> Result<(), String> {
         std::thread::spawn(|| {
             // SetSuspendState(hibernate: false, force: false, wake events: allowed).
             let ok = unsafe { windows::Win32::System::Power::SetSuspendState(false, false, false) };
-            if !ok.as_bool() {
+            if !ok {
                 logging::lifecycle(
                     Level::Warn,
                     "sleep: Windows didn't sleep (refused or not supported)",
