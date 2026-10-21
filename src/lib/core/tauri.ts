@@ -29,6 +29,7 @@ export const EVENTS = {
   gameFollowing: 'aione://game-following',
   lockExpired: 'aione://lock-expired',
   notice: 'aione://notice',
+  resumed: 'aione://resumed',
 } as const;
 
 /** The core's media protocol (`aione-media`); WebView2 reaches custom protocols as
@@ -72,6 +73,11 @@ export function createTauriCore(): Core {
     heldNow: () => invoke<string[]>('held_now'),
     startShowing: (id) => invoke<string | null>('start_showing', { id }),
     onNotice: (handler) => listen<{ text: string }>(EVENTS.notice, (e) => handler(e.payload)),
+    sleepPc: async () => {
+      await invoke('sleep_pc');
+    },
+    onResumed: (handler) => listen<{ asleepS: number; fromAione: boolean }>(EVENTS.resumed, (e) => handler(e.payload)),
+    mediaKey: (name) => invoke<string | null>('media_key', { name }),
     brightnessGet: () => invoke<{ method: string; value: number | null; reason: string | null }>('brightness_get'),
     brightnessSet: async (value) => {
       await invoke('brightness_set', { value });

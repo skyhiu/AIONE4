@@ -100,6 +100,8 @@ const ACTIONS: Record<InputSource, Record<string, UiAction>> = {
     Backspace: 'back',
     // B-28: inside AIONE, Home is the keyboard's Guide (short; a hold is the Quick Menu).
     Home: 'guide',
+    // D-056: Alt + ` caught by the page (when the core's hook didn't take it): a short Guide.
+    'Alt+`': 'guide',
     // B-3 (rev. r): Tab is the keyboard's Options key (like the pad's ≡ / +); the Menu key too.
     Tab: 'options',
     ContextMenu: 'options',

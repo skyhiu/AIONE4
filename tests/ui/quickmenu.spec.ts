@@ -79,8 +79,16 @@ test.describe('T2.2 the Quick Menu, Power and dialogs (mocked core)', () => {
     const items = page.getByTestId('po-item');
     await expect(items).toHaveCount(5);
     await expect(items.nth(0)).toHaveText('Sleep Mode');
-    await pad(page, 'A'); // Sleep Mode
-    await expect(page.getByTestId('toast')).toHaveText('Coming in a later stage');
+    await pad(page, 'A'); // Sleep Mode (T2.3): its Boot Down, Windows sleeps, AIONE comes back
+    await expect(page.getByTestId('screen')).toHaveAttribute('data-phase', 'bootdown');
+    await expect(page.getByTestId('screen')).toHaveAttribute('data-phase', 'home', { timeout: 15000 });
+    const sl = await logs(page);
+    expect(sl.some((x) => x.includes('Sleep Mode: the Boot Down starts (input locked)'))).toBe(true);
+    expect(sl.some((x) => x.includes('asking Windows to sleep (AIONE stays)'))).toBe(true);
+    expect(sl.some((x) => x.includes('resume (Windows woke after about 2 s): back to Home'))).toBe(true);
+    // Power options again for the rest of the test.
+    await holdGuide(page);
+    await pad(page, 'A');
     await pad(page, 'DPadDown'); // Restart PC
     await pad(page, 'A');
     await expect(page.getByTestId('confirm-dialog')).toContainText('Restart the PC?');

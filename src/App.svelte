@@ -623,9 +623,10 @@
   function powerItem(i: number, how: string): string {
     const item = POWER_ITEMS[i];
     switch (i) {
-      case 0: // Sleep Mode: Windows' sleep and resume are T2.3
-        showMessage('Coming in a later stage');
-        return `Power: ${item}: coming in a later stage, ${play('error')}`;
+      case 0: // Sleep Mode (T2.3): its Boot Down, then Windows sleeps; AIONE stays
+        po = null;
+        if (core) void bootDown(core, 'sleep');
+        return `Power: ${item} (${how})`;
       case 1:
       case 2: {
         po = null;
@@ -1045,6 +1046,16 @@
     }, extrasOn ? 200 : 90);
   }
 
+  /** T2.3: AIONE asked Windows to sleep and waits (locked) for the wake. */
+  let sleeping = false;
+  /** T2.3: the resume transition: back to Home, its focus and any paused game as they were. */
+  function wake(why: string) {
+    if (!sleeping) return;
+    sleeping = false;
+    phase = 'home';
+    perf.setScreen('Home');
+    core?.log('info', `resume (${why}): back to Home; the focus and any paused game as they were`);
+  }
   /** Rev. ba: `--show-copy-question`: the question as a preview; nothing decided, copied or recorded. */
   let previewCopy = false;
   function applyEffect(effect: FlowEffect) {
@@ -1290,12 +1301,12 @@
 
   /** A9 (Close AIONE): the Boot Down plays, then AIONE closes; the screen stays black until the
    *  Boot Down sound ends. Starts once, from any phase. */
-  async function bootDown(c: Core, then: 'close' | 'restart' = 'close') {
+  async function bootDown(c: Core, then: 'close' | 'restart' | 'sleep' = 'close') {
     if (phase === 'bootdown') return;
     phase = 'bootdown';
     perf.setScreen('Boot Down');
     perf.action('Boot Down');
-    c.log('info', `${then === 'restart' ? 'Restart AIONE' : 'Close AIONE'}: the Boot Down starts (input locked)`);
+    c.log('info', `${then === 'restart' ? 'Restart AIONE' : then === 'sleep' ? 'Sleep Mode' : 'Close AIONE'}: the Boot Down starts (input locked)`);
     const p = bootPresenter(c);
     p?.stop();
     const m = bootMedia;
@@ -1312,6 +1323,16 @@
         c.log('info', `Boot Down: default Window B (${info?.bootDefault ? '--boot=default for this run' : 'no custom video'})`);
         outcome = await p.playDefault('down', bootDownSound);
       }
+    }
+    if (then === 'sleep') {
+      // T2.3: Windows sleeps; AIONE stays, locked in its Boot Down state until it wakes.
+      sleeping = true;
+      c.log('info', `Sleep Mode: Boot Down ${outcome}; Windows sleeps`);
+      await c.sleepPc().catch((e: unknown) => {
+        c.log('warn', `Sleep Mode: ${String(e)}; back to Home`);
+        wake('sleep failed');
+      });
+      return;
     }
     if (then === 'restart') {
       c.log('info', `Restart AIONE: Boot Down ${outcome}; restarting`);
@@ -1378,7 +1399,9 @@
         }),
       );
       // B-27: Windows' refusals as a plain message.
-      unlisteners.push(await c.onNotice((e) => message("AIONE can't do that", e.text)));
+      // B-27's refusals as a message; D-047's hint (from the hook) as a plain toast.
+      unlisteners.push(await c.onResumed((e) => wake(`Windows woke after about ${e.asleepS} s`)));
+      unlisteners.push(await c.onNotice((e) => (e.text.startsWith('Another program') ? showMessage(e.text, 9000) : message("AIONE can't do that", e.text))));
       // D-032: the launcher ended soon after the launch: black again, "Starting <game>…", input
       // locked, until the real game's window (the launch completes) or the end (Home).
       unlisteners.push(
@@ -1484,6 +1507,29 @@
         returnHome('AIONE is in front again');
       };
       window.addEventListener('focus', onFocus);
+      // D-056 (rev. bb): Alt + ` (the key under Esc, by position) caught by the page when the core's
+      // hook didn't take it: a short Guide (back to the running game), through the same locks.
+      // D-047: media / volume keys reaching the page go to the core's diagnostic (and its hint).
+      const onKeyCapture = (e: KeyboardEvent) => {
+        if (e.code === 'Backquote' && (e.altKey || e.type === 'keyup')) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          if (e.type === 'keydown' && !e.repeat) {
+            core?.log('info', "Alt + ` reached AIONE's page (the core's hook didn't take it): Guide");
+            handleInput({ source: 'keyboard', kind: 'down', control: 'Alt+`' });
+          }
+          return;
+        }
+        if (e.type === 'keydown' && (e.key.startsWith('Media') || e.key.startsWith('AudioVolume'))) {
+          void core?.mediaKey(e.key).then((hint) => hint && showMessage(hint, 9000));
+        }
+      };
+      window.addEventListener('keydown', onKeyCapture, { capture: true });
+      window.addEventListener('keyup', onKeyCapture, { capture: true });
+      unlisteners.push(() => {
+        window.removeEventListener('keydown', onKeyCapture, { capture: true });
+        window.removeEventListener('keyup', onKeyCapture, { capture: true });
+      });
       // D-045: a key's release can't be seen from another window: clear the keyboard part of the
       // held set whenever AIONE gains or loses the front.
       const onFrontChange = () => void core?.clearKeys();

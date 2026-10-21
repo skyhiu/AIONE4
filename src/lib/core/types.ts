@@ -199,6 +199,12 @@ export interface Core {
   noteKey(key: string, down: boolean): Promise<void>;
   /** B-27: a plain message for the user (e.g. Windows refused a pause). */
   onNotice(handler: (e: { text: string }) => void): Promise<Unlisten>;
+  /** T2.3: Sleep Mode: Windows sleeps (after the Boot Down); AIONE stays. */
+  sleepPc(): Promise<void>;
+  /** T2.3: Windows woke from sleep. */
+  onResumed(handler: (e: { asleepS: number; fromAione: boolean }) => void): Promise<Unlisten>;
+  /** D-047 (rev. bb): a media / volume key that reached AIONE's page; the hint when it's due. */
+  mediaKey(name: string): Promise<string | null>;
   /** B-26 rev. ax: the Brightness row (how, and the value; "none": the row says why). */
   brightnessGet(): Promise<{ method: string; value: number | null; reason: string | null }>;
   /** B-26 rev. ax: set the brightness (live; the last request wins). */

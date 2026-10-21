@@ -1,5 +1,16 @@
 # Changelog
 
+## 4.0.0-alpha.35 — T2.3 begins: Sleep Mode, plus the carried fixes
+
+- **D-056:** Alt + ` both ways (the hook reinstalled every 30 s; caught by the page too); ignored
+  during B-22's states.
+- **D-055:** a launcher's whole process chain followed (Minecraft's LL.exe → javaw.exe).
+- **D-047:** media keys logged again (the hook and the page); the Guide-chord hint, once.
+- **Sleep Mode:** its Boot Down, Windows sleeps, AIONE comes back on waking.
+- **The administrator helper:** its security design documented; built in alpha.36 after the
+  user's decision (a security question in the specified flow).
+- Moved to alpha.36 (A13): the helper, notifications, the right-stick pointer, foreground polish.
+
 ## 4.0.0-alpha.34 — completing T2.2: the edge bump everywhere, Alt + `, the copy question
 
 - **B-29:** the edge bump built once in the shared focus system: the Quick Menu, the sliders' knob,

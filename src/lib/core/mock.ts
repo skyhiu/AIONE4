@@ -302,6 +302,10 @@ export function createMock(search: string): { core: Core; control: MockControl }
   if (params.get('pad') === 'connected') emit('connected', '', 0);
 
   let running: string | null = null;
+  /** T2.3: who hears the wake. */
+  const resumedHandlers: Array<(e: { asleepS: number; fromAione: boolean }) => void> = [];
+  /** D-047: the hint shown once. */
+  let mediaHinted = false;
   /** B-26 rev. ax: the mock's display brightness. */
   let mockBrightness: number | null = null;
   /** B-26: the mock's Guide hold (as transit::GuideHold). */
@@ -676,6 +680,28 @@ export function createMock(search: string): { core: Core; control: MockControl }
       return Promise.resolve([...held]);
     },
     // B-24: the settings store (defaults; ?volume= / ?muted=1 / ?menusound= for tests).
+    // T2.3: Sleep Mode: the mock "wakes" after ?sleepms (default 1500 ms).
+    sleepPc() {
+      control.logs.push('info: sleep: the Boot Down ended; asking Windows to sleep (AIONE stays)');
+      setTimeout(() => {
+        control.logs.push('info: Windows woke (about 2 s asleep); AIONE comes back (it slept from Sleep Mode)');
+        resumedHandlers.forEach((h) => h({ asleepS: 2, fromAione: true }));
+      }, Number(params.get('sleepms') ?? 1500));
+      return Promise.resolve();
+    },
+    onResumed(handler) {
+      resumedHandlers.push(handler);
+      return Promise.resolve(() => {});
+    },
+    // D-047 (rev. bb), as the core: the hint once, when a media key comes while Guide is held.
+    mediaKey(name) {
+      control.logs.push(`info: media / volume key ${name}: it reached AIONE's page (not from AIONE)`);
+      if (held.has('pad:Guide') && !mediaHinted) {
+        mediaHinted = true;
+        return Promise.resolve("Another program turns Guide + the stick into media keys (for example Steam Input's Guide Button Chord), which opens Windows' volume pop-up. Turn that chord off in its settings.");
+      }
+      return Promise.resolve(null);
+    },
     // B-26 rev. ax: ?brightness=none: no display control; otherwise a built-in screen at N %.
     brightnessGet() {
       const b = params.get('brightness');

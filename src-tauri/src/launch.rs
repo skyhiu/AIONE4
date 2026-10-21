@@ -468,7 +468,18 @@ pub fn is_steam(exe: &str) -> bool {
 /// D-048: does the launcher wait give up now? With Steam's window seen during it ("Steam is asking
 /// something"), only at the start's 45 s limit; otherwise after the usual wait.
 pub fn follow_gives_up(since_follow: Duration, since_launch: Duration, steam_seen: bool) -> bool {
-    if steam_seen {
+    follow_gives_up_chain(since_follow, since_launch, steam_seen, false)
+}
+
+/// D-055: with any process of the launcher's chain alive, the wait lasts to the start's 45 s; the
+/// 5 s wait ends a start only when no process of the chain is alive.
+pub fn follow_gives_up_chain(
+    since_follow: Duration,
+    since_launch: Duration,
+    steam_seen: bool,
+    chain_alive: bool,
+) -> bool {
+    if steam_seen || chain_alive {
         since_launch > Duration::from_secs(45)
     } else {
         since_follow > FOLLOW_WAIT
@@ -517,6 +528,54 @@ pub fn is_launcher(exe: &str) -> bool {
     e.contains("launcher") || e == "start.exe" || e == "setup_launcher.exe"
 }
 
+/// D-055 (rev. bb): a launcher's whole process chain: the root and every descendant by parent
+/// process (children, grandchildren, …), the alive ones, sorted. Windows keeps a dead parent's id on
+/// its children, so the chain survives the launcher exiting.
+pub fn chain_of(procs: &[(u32, u32, Option<std::path::PathBuf>)], root: u32) -> Vec<u32> {
+    let mut known = std::collections::HashSet::from([root]);
+    loop {
+        let before = known.len();
+        for (pid, parent, _) in procs {
+            if known.contains(parent) && *pid != 0 && *pid != *parent {
+                known.insert(*pid);
+            }
+        }
+        if known.len() == before {
+            break;
+        }
+    }
+    let mut alive: Vec<u32> = procs
+        .iter()
+        .map(|(p, _, _)| *p)
+        .filter(|p| known.contains(p))
+        .collect();
+    alive.sort_unstable();
+    alive.dedup();
+    alive
+}
+
+/// The program names of some processes (for the log).
+fn names_of(procs: &[(u32, u32, Option<std::path::PathBuf>)], pids: &[u32]) -> String {
+    pids.iter()
+        .map(|p| {
+            let n = procs
+                .iter()
+                .find(|(x, _, _)| x == p)
+                .and_then(|(_, _, path)| path.as_ref())
+                .map(|path| {
+                    path.to_string_lossy()
+                        .rsplit(['\\', '/'])
+                        .next()
+                        .unwrap_or_default()
+                        .to_string()
+                })
+                .unwrap_or_else(|| "?".into());
+            format!("{n} ({p})")
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// D-032: the real game after a launcher: among running processes `(pid, parent, full path)`,
 /// one with a window that is a child of the launcher, or runs from the game's install folder.
 pub fn pick_game(
@@ -545,9 +604,11 @@ pub fn pick_game(
         });
         pid != launcher && has_window(pid) && !name.is_some_and(|n| is_not_the_game(&n))
     };
+    // D-055: any process of the launcher's chain (children, grandchildren, …), not only children.
+    let chain = chain_of(procs, launcher);
     if let Some((pid, _, _)) = procs
         .iter()
-        .find(|(pid, parent, path)| *parent == launcher && ok(*pid, path))
+        .find(|(pid, _, path)| chain.contains(pid) && ok(*pid, path))
     {
         return Some((*pid, "started by the launcher"));
     }
@@ -1019,6 +1080,9 @@ fn watch(gen: u64, report: impl Fn(Event)) {
     let mut following: Option<(Instant, u32)> = None;
     // D-048: Steam's window was seen in front during the launcher wait.
     let mut steam_seen = false;
+    // D-055: the launcher's process chain being watched (logged when it changes).
+    let mut watched: Vec<u32> = Vec::new();
+    let mut chain_root: Option<u32> = None;
     loop {
         std::thread::sleep(Duration::from_millis(250));
         let Some(mut r) = RUNNING
@@ -1175,20 +1239,68 @@ fn watch(gen: u64, report: impl Fn(Event)) {
                 }
                 let _ = hand_over(&r, "its window appeared:");
             }
-            // A launcher that closed without starting a game counts as ended (B-18); so does a
-            // start that never shows a window within 2 minutes.
-            let launcher_gone =
-                r.pid.is_some_and(|p| !process_alive(p)) && since > Duration::from_secs(10);
-            if r.window.is_none() && (launcher_gone || since > Duration::from_secs(120)) {
+            // D-055 (rev. bb): a window-less start (a launcher like Minecraft's LL.exe) follows the
+            // launcher's WHOLE process chain while any of it is alive; the first process of it to show
+            // a window is followed as the game. It ends only when no process of the chain is alive.
+            let mut chain_alive = false;
+            if r.window.is_none() {
+                if chain_root.is_none() {
+                    chain_root = r.pid; // the process the start began with (the launcher)
+                }
+                if let Some(root) = chain_root {
+                    let procs = process_list();
+                    let chain = chain_of(&procs, root);
+                    chain_alive = !chain.is_empty();
+                    if chain != watched {
+                        if !chain.is_empty() {
+                            logging::lifecycle(
+                                Level::Info,
+                                &format!(
+                                    "start \"{}\": watching the launcher's processes: {}",
+                                    r.name,
+                                    names_of(&procs, &chain)
+                                ),
+                            );
+                        }
+                        watched = chain.clone();
+                    }
+                    if let Some(&p) = chain
+                        .iter()
+                        .find(|&&p| Some(p) != r.pid && main_window_of(p).is_some())
+                    {
+                        let exe = names_of(&procs, &[p]);
+                        logging::lifecycle(Level::Info, &format!("start \"{}\": {exe} (from the launcher's chain) shows a window: following it", r.name));
+                        r.pid = Some(p);
+                        r.exe = procs
+                            .iter()
+                            .find(|(x, _, _)| *x == p)
+                            .and_then(|(_, _, path)| path.as_ref())
+                            .and_then(|path| path.file_name())
+                            .map(|n| n.to_string_lossy().into_owned());
+                        if let Ok(mut g) = RUNNING.lock() {
+                            if let Some(x) = g.as_mut().filter(|x| x.gen == gen) {
+                                x.pid = r.pid;
+                                x.exe = r.exe.clone();
+                            }
+                        }
+                    }
+                }
+            }
+            // A launcher whose whole chain closed without a game window counts as ended (B-18); so
+            // does a start that never shows a window within the quiet watch (D-051, 3 min).
+            let launcher_gone = !chain_alive
+                && r.pid.is_some_and(|p| !process_alive(p))
+                && since > Duration::from_secs(10);
+            if r.window.is_none() && (launcher_gone || since > Duration::from_secs(180)) {
                 logging::lifecycle(
                     Level::Warn,
                     &format!(
                         "start \"{}\": no game window ({}); counted as ended",
                         r.name,
                         if launcher_gone {
-                            "its launcher closed"
+                            "its launcher and every process it started closed"
                         } else {
-                            "2 minutes passed"
+                            "3 minutes passed"
                         }
                     ),
                 );
@@ -1225,7 +1337,10 @@ fn watch(gen: u64, report: impl Fn(Event)) {
                     )
                 });
             }
-            let gives_up = follow_gives_up(since_follow.elapsed(), since, steam_seen);
+            // D-055: the launcher's chain still alive (its children, grandchildren, …) keeps the wait.
+            let chain_alive = chain_of(&procs, launcher).iter().any(|p| *p != launcher);
+            let gives_up =
+                follow_gives_up_chain(since_follow.elapsed(), since, steam_seen, chain_alive);
             if let Some((pid, why)) = pick_game(&procs, launcher, r.install_dir.as_deref(), &|p| {
                 main_window_of(p).is_some()
             }) {
@@ -2235,5 +2350,35 @@ mod tests {
         assert!(layers_run_as_admin("~ RUNASADMIN"));
         assert!(layers_run_as_admin("~ WIN7RTM RUNASADMIN HIGHDPIAWARE"));
         assert!(!layers_run_as_admin("~ HIGHDPIAWARE"));
+    }
+
+    /// D-055: a launcher's whole chain, whatever the launcher (Minecraft: LL.exe → javaw.exe).
+    #[test]
+    fn the_whole_launcher_chain_is_followed() {
+        use std::path::PathBuf;
+        let p = |pid: u32, parent: u32, name: &str| {
+            (pid, parent, Some(PathBuf::from(format!("C:\\x\\{name}"))))
+        };
+        // LL.exe (100) has exited; its child (200) and grandchild javaw.exe (300) live on.
+        let procs = vec![
+            p(4, 0, "System"),
+            p(200, 100, "launcherhelper.exe"),
+            p(300, 200, "javaw.exe"),
+            p(999, 4, "explorer.exe"),
+        ];
+        assert_eq!(chain_of(&procs, 100), vec![200, 300]);
+        // The grandchild with a window is the game (not only direct children).
+        let has_window = |pid: u32| pid == 300;
+        assert_eq!(
+            pick_game(&procs, 100, None, &has_window).map(|g| g.0),
+            Some(300)
+        );
+        // The wait: the chain alive keeps it to the start's 45 s; nothing alive: the usual 5 s.
+        let s = Duration::from_secs;
+        assert!(!follow_gives_up_chain(s(20), s(25), false, true)); // a window coming at 20 s: still waiting
+        assert!(follow_gives_up_chain(s(20), s(46), false, true));
+        assert!(follow_gives_up_chain(s(6), s(10), false, false));
+        // Nothing of the chain alive: empty.
+        assert!(chain_of(&procs, 555).is_empty());
     }
 }

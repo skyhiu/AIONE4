@@ -31,6 +31,27 @@ pub fn backtick_taken(scan: u32, alt_held: bool, already_taken: bool) -> bool {
     scan == BACKTICK_SCAN && (alt_held || already_taken)
 }
 
+/// D-047 (rev. bb): a media / volume key seen (by the hook, or by AIONE's page): logged with its
+/// source; while the pad's Guide is held, the hint (once per session) that another program turns
+/// Guide + the stick into media keys. Returns the hint when it's due.
+pub fn media_key(name: &str, source: &str) -> Option<String> {
+    crate::logging::lifecycle(
+        crate::logging::Level::Info,
+        &format!("media / volume key {name}: {source} (not from AIONE)"),
+    );
+    let guide_held = crate::transit::with(|m| m.held().iter().any(|k| k == "pad:Guide"));
+    if guide_held && !HINTED.swap(true, Ordering::SeqCst) {
+        let hint = "Another program turns Guide + the stick into media keys (for example Steam Input's Guide Button Chord), which opens Windows' volume pop-up. Turn that chord off in its settings.";
+        crate::logging::lifecycle(
+            crate::logging::Level::Info,
+            &format!("hint (once this session): {hint}"),
+        );
+        return Some(hint.into());
+    }
+    None
+}
+static HINTED: AtomicBool = AtomicBool::new(false);
+
 /// lib: what Alt + ` does (a short Guide): come forward; or send the UI a Guide (back to the game).
 pub fn set_guide(
     guide: impl Fn() + Send + Sync + 'static,
@@ -44,6 +65,12 @@ pub fn set_guide(
 /// The press: a short Guide (no hold, rev. ba). From the background AIONE comes forward (the game
 /// paused); in front, the UI's Guide (back to the running game).
 fn shortcut_pressed() {
+    // QA-4 / D-056: during B-22's states (a launch, loading, a return, a close) ignored, like Guide.
+    let (kind, _, _) = crate::transit::current();
+    if !crate::transit::guide_allowed(kind) {
+        crate::logging::info("input", &format!("Alt + ` ignored ({})", kind.name()));
+        return;
+    }
     let background = !crate::foreground::aione_is_foreground();
     // A Guide press for every Guide rule (D-037), recorded at the press.
     crate::launch::note_guide();
@@ -105,15 +132,17 @@ pub fn start() {
                 std::thread::spawn(move || {
                     let front =
                         crate::launch::foreground_name().unwrap_or_else(|| "unknown".into());
-                    crate::logging::lifecycle(
-                        crate::logging::Level::Info,
-                        &format!(
-                            "media / volume key {} ({:#04x}): {} while {front} was in front (not from AIONE)",
-                            name(vk),
-                            vk,
-                            if injected { "synthesized by a program" } else { "a physical key" }
-                        ),
+                    let source = format!(
+                        "{} ({vk:#04x}) while {front} was in front",
+                        if injected {
+                            "synthesized by a program"
+                        } else {
+                            "a physical key"
+                        }
                     );
+                    if let Some(hint) = media_key(name(vk), &source) {
+                        crate::pause::notify(hint);
+                    }
                 });
             }
         }
@@ -134,8 +163,27 @@ pub fn start() {
             );
             return;
         }
+        // D-056 / QA-1 (rev. bb): Windows silently drops a low-level hook it finds slow; the hook is
+        // reinstalled every 30 s so it never stays gone (a failed reinstall is logged).
+        let _ = unsafe { windows::Win32::UI::WindowsAndMessaging::SetTimer(None, 0, 30_000, None) };
+        let mut current = h.ok();
         let mut msg = MSG::default();
         while unsafe { GetMessageW(&mut msg, None, 0, 0) }.0 > 0 {
+            if msg.message == windows::Win32::UI::WindowsAndMessaging::WM_TIMER {
+                if let Some(old) = current.take() {
+                    let _ = unsafe {
+                        windows::Win32::UI::WindowsAndMessaging::UnhookWindowsHookEx(old)
+                    };
+                }
+                match unsafe { SetWindowsHookExW(WH_KEYBOARD_LL, Some(hook), None, 0) } {
+                    Ok(n) => current = Some(n),
+                    Err(e) => crate::logging::lifecycle(
+                        crate::logging::Level::Warn,
+                        &format!("keywatch: the keyboard hook couldn't be reinstalled: {e}"),
+                    ),
+                }
+                continue;
+            }
             unsafe {
                 let _ = TranslateMessage(&msg);
                 DispatchMessageW(&msg);

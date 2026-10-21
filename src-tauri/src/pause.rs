@@ -42,6 +42,11 @@ pub fn set_notice(f: impl Fn(String) + Send + 'static) {
     }
 }
 
+/// B-27 / D-047: a plain message for the UI (also used by the keyboard hook's hint).
+pub fn notify(text: String) {
+    notice(text);
+}
+
 fn notice(text: String) {
     if let Ok(n) = NOTICE.lock() {
         if let Some(f) = n.as_ref() {

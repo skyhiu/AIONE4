@@ -451,5 +451,30 @@ test.describe('T1.3 launching (mocked core)', () => {
     l = await logs(page);
     expect(l.some((x) => x.includes('its window appeared late (after the 45 s); followed'))).toBe(true);
   });
+
+  test('D-056: Alt + ` in AIONE goes back to the running game (a short Guide)', async ({ page }) => {
+    await open(page);
+    await pad(page, 'A');
+    await page.waitForTimeout(1100);
+    await page.evaluate(() => window.dispatchEvent(new Event('focus'))); // AIONE in front, the game paused
+    await page.waitForTimeout(400);
+    await page.keyboard.down('Alt');
+    await page.keyboard.press('Backquote');
+    await page.keyboard.up('Alt');
+    await expect.poll(async () => (await page.evaluate(() => window.__aioneMock?.returns ?? [])).length, { timeout: 3000 }).toBe(1);
+    const l = await logs(page);
+    expect(l.some((x) => x.includes("Alt + ` reached AIONE's page"))).toBe(true);
+  });
+
+  test('D-047: a media key while Guide is held shows the hint, once', async ({ page }) => {
+    await open(page);
+    await page.evaluate(() => window.__aioneMock?.pad('Guide', 'down'));
+    await page.keyboard.press('MediaTrackNext');
+    await expect(page.getByTestId('toast')).toContainText('Another program turns Guide + the stick into media keys');
+    await page.keyboard.press('MediaTrackPrevious');
+    await page.evaluate(() => window.__aioneMock?.pad('Guide', 'up'));
+    const l = await logs(page);
+    expect(l.filter((x) => x.includes('media / volume key')).length).toBe(2);
+  });
 });
 

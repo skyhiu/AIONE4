@@ -45,6 +45,8 @@ pub const EVENT_GAME_FOLLOWING: &str = "aione://game-following";
 /// D-043: a foreground attempt is running.
 static FG_BUSY: AtomicBool = AtomicBool::new(false);
 
+/// T2.3: Windows woke from sleep: `{ asleepS, fromAione }`.
+pub const EVENT_RESUMED: &str = "aione://resumed";
 /// B-27: a plain message for the user (e.g. Windows refused a pause): `{ text }`.
 pub const EVENT_NOTICE: &str = "aione://notice";
 /// B-22: an input-locking state reached its limit: `{ kind }`.
@@ -354,6 +356,41 @@ fn lock_leave(kind: String, how: String) -> bool {
 #[tauri::command]
 fn held_now() -> Vec<String> {
     transit::with(|m| m.held())
+}
+
+/// T2.3: Sleep Mode (after its Boot Down): Windows sleeps; AIONE stays (never closes).
+static SLEEP_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+#[tauri::command]
+fn sleep_pc() -> Result<(), String> {
+    SLEEP_REQUESTED.store(true, Ordering::SeqCst);
+    logging::lifecycle(
+        Level::Info,
+        "sleep: the Boot Down ended; asking Windows to sleep (AIONE stays)",
+    );
+    #[cfg(windows)]
+    {
+        std::thread::spawn(|| {
+            // SetSuspendState(hibernate: false, force: false, wake events: allowed).
+            let ok = unsafe { windows::Win32::System::Power::SetSuspendState(false, false, false) };
+            if !ok.as_bool() {
+                logging::lifecycle(
+                    Level::Warn,
+                    "sleep: Windows didn't sleep (refused or not supported)",
+                );
+            }
+        });
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        Err("sleep needs Windows".into())
+    }
+}
+
+/// D-047 (rev. bb): a media / volume key that reached AIONE's page; returns the hint when due.
+#[tauri::command]
+fn media_key(name: String) -> Option<String> {
+    keywatch::media_key(&name, "it reached AIONE's page")
 }
 
 /// B-26 rev. ax: the Brightness row (the cached state; the probe runs at start-up).
@@ -1038,12 +1075,49 @@ pub fn run() {
             get_settings,
             power_pc,
             brightness_get,
+            media_key,
+            sleep_pc,
             brightness_set,
             change_settings,
             return_to_game,
             running_game
         ])
         .setup(|app| {
+            // T2.3: waking from sleep, noticed universally: a jump in the wall clock between two
+            // 2-second ticks (a sleeping PC runs no threads). AIONE comes forward if it slept.
+            {
+                let wake_app = app.handle().clone();
+                std::thread::spawn(move || {
+                    let mut last = std::time::SystemTime::now();
+                    loop {
+                        std::thread::sleep(std::time::Duration::from_secs(2));
+                        let now = std::time::SystemTime::now();
+                        let gap = now.duration_since(last).unwrap_or_default().as_secs();
+                        last = now;
+                        if gap >= 10 {
+                            let from_aione = SLEEP_REQUESTED.swap(false, Ordering::SeqCst);
+                            logging::lifecycle(
+                                Level::Info,
+                                &format!(
+                                    "Windows woke (about {gap} s asleep){}",
+                                    if from_aione {
+                                        "; AIONE comes back (it slept from Sleep Mode)"
+                                    } else {
+                                        ""
+                                    }
+                                ),
+                            );
+                            let _ = wake_app.emit(
+                                EVENT_RESUMED,
+                                serde_json::json!({ "asleepS": gap, "fromAione": from_aione }),
+                            );
+                            if from_aione {
+                                show_and_focus(&wake_app, "woke from sleep");
+                            }
+                        }
+                    }
+                });
+            }
             // B-27: Windows' refusals reach the UI as a plain message.
             {
                 let notice_app = app.handle().clone();

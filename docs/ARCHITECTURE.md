@@ -601,3 +601,69 @@ with B-29's bump; its answers are unchanged (Copy and Don't copy final, B = Not 
 progress and result steps keep their screen. **`--show-copy-question`** shows the question once as
 a **preview**: every answer is logged and nothing is copied or recorded.
 
+## Following a launcher's whole process chain (alpha.35, D-055)
+
+Whatever the launcher (Java ones like Minecraft's `LL.exe` → `javaw.exe` included), AIONE follows its
+**whole chain**: the started process and every descendant by parent process (`launch::chain_of`;
+Windows keeps a dead parent's id on its children, so the chain survives the launcher exiting).
+**Window-less starts:** while any process of the chain is alive the start continues; the first of
+them to show a window is followed as the game (`… (from the launcher's chain) shows a window:
+following it`); it ends only when no process of the chain is alive (or at the 3 min quiet watch,
+D-051). **After a launcher with a window:** `pick_game` accepts any process of the chain, and while
+the chain is alive the 5 s wait doesn't end the start (it lasts to the start's 45 s). Each change of
+the chain is logged (`watching the launcher's processes: LL.exe (100), javaw.exe (300)`).
+
+## The keyboard hook, rev. bb (alpha.35, D-056, D-047)
+
+The hook is **reinstalled every 30 s** (a timer on its own message loop): Windows silently drops a
+low-level hook it judges slow, and alpha.34 showed both of its jobs stopping at once on the user's
+PC. **Alt + `** works both ways: taken by the hook, or, if it reaches AIONE's page, caught there by
+position (`Backquote`) as a short Guide; during B-22's states it's ignored and logged so. **Media /
+volume keys** are logged with their source (the hook's, or AIONE's page's); while the pad's Guide is
+held, the hint "Another program turns Guide + the stick into media keys …" is shown once per session.
+
+## Sleep Mode and resume (alpha.35, T2.3; reference: PC Sleep and resume)
+
+Power options → **Sleep Mode**: exactly one Boot Down (the same presentation as Close AIONE, its time
+limits included), then `SetSuspendState` (Windows sleeps; AIONE never closes). AIONE stays locked in
+its Boot Down state until it wakes. **Waking** is noticed universally, as a jump of 10 s or more in
+the wall clock between two 2-second ticks (a sleeping PC runs no threads): logged `Windows woke
+(about N s asleep)`; if AIONE slept from Sleep Mode it comes forward and returns to Home (the resume
+transition), the focus and any paused game as they were. Input is locked during the Boot Down and
+the resume transition (the reference's input lock).
+
+## The administrator helper: security design (B-27 rev. av), **awaiting the user's decision**
+
+**What it would do.** Windows' permission prompt can't be shown or answered inside AIONE, so an
+optional helper, a scheduled task with administrator rights installed once (with Windows' prompt),
+starts, pauses, resumes and closes games that need administrator rights, without the prompt.
+
+**The parts that are sound in any variant:**
+- **Off by default;** installed by a one-run command (until T3's Settings switch), with Windows'
+  prompt once; **removable completely** (the task, its files and its list).
+- **Its program and its list live where only administrators can write** (`%ProgramData%\AIONE4\
+  AdminHelper\`, its own copy of the program): a program running as the user can't replace what
+  the task runs, or edit the list.
+- **It acts only on allowed games, checked by exact path and SHA-256 hash**; if the file changes, the
+  game must be allowed again. It pauses, resumes and closes only processes it started itself. It
+  does nothing else, and logs every request.
+
+**The problem in the specified flow.** B-27 asks for both (1) allowing a game by **AIONE's own
+controller question**, with no Windows prompt, and (2) a helper that **accepts requests only from
+AIONE**. AIONE runs as the user, without administrator rights, so anything AIONE can do to ask the
+helper "allow this program", **any other program running as the user can do too**: write the same
+request, or add a "game" to AIONE's library. Windows gives the helper no way to tell AIONE's request
+from another program's. With the controller question as the only gate, **any program on the PC could
+gain administrator rights silently** by asking the helper to allow and start it.
+
+**The two variants:**
+- **(a) As specified:** allowing by the controller question only. Convenient; the risk above (a
+  silent bypass of Windows' prompt for anything already running as the user).
+- **(b) The safe variant (recommended):** allowing a game = AIONE's controller question, then
+  **Windows' prompt once for that game** (the allow step itself runs elevated, so the list can only be
+  changed with administrator approval). From then on, starting, pausing and closing it needs no
+  prompt. Another program could at most start a game the user already allowed, unchanged. This
+  matches B-27's own "if the file changes, Windows' own prompt comes back once".
+
+Not built in alpha.35: it waits for the user's choice and is built in alpha.36.
+
