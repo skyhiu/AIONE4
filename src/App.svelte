@@ -2,7 +2,7 @@
   // AIONE 4 (T1.1): Home with the copy dialog over it when needed. This component owns input
   // (A6): every controller, keyboard and mouse event arrives here once, becomes one action, and
   // goes to the active context only: the dialog when it is open, else Home.
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { loadCore } from './lib/core';
   import type { AppInfo, Core, GameView, LibraryLoad, PcStatus, Unlisten } from './lib/core/types';
   import {
@@ -17,7 +17,8 @@
     type UiAction,
   } from './lib/input/events';
   import { applyPadConnection, applyPadSlots, initialPads } from './lib/input/pads';
-  import { choose, flowAction, flowDone, flowProgress, initialFlow, type FlowEffect, type FlowState } from './lib/migrationFlow';
+  import { BUTTON_COPY, BUTTON_SKIP, choose, describeCounts, describeSkipped, flowAction, flowDone, flowProgress, initialFlow, type FlowEffect, type FlowState } from './lib/migrationFlow';
+  import { formatBytes, plural } from './lib/format';
   import { isBlockedBrowserKey, isRestartShortcut } from './lib/input/shortcuts';
   import { KeyRepeater, type ReleaseInfo } from './lib/input/keyRepeat';
   import { MenuSounds, type SoundRequest } from './lib/audio/sounds';
@@ -42,6 +43,7 @@
   } from './lib/home/model';
   import Home from './lib/home/Home.svelte';
   import { BootPresenter, type Outcome } from './lib/boot/presenter';
+  import { playBump } from './lib/focus/bump';
   import QuickMenu, { POWER_ITEMS, QM_ROWS } from './lib/components/QuickMenu.svelte';
   import PowerOptions from './lib/components/PowerOptions.svelte';
   import bootUpSound from '../assets/sounds/boot/aione_boot_up.wav?url';
@@ -164,18 +166,26 @@
   /** B-14 (rev. q): a blocked move. The focus ring springs toward the pressed direction and back
    *  (the tile or button stays still), with the edge-bump sound. A held direction bumps once:
    *  its repeats at the same edge do nothing. */
-  let bump = $state<{ dir: 'left' | 'right' | 'up' | 'down'; n: number; zone: 'row' | 'drawer' } | null>(null);
+  let bump = $state<{ dir: 'left' | 'right' | 'up' | 'down'; n: number; zone: string } | null>(null);
   /** D-019: the directions that already bumped in their current hold (one memory per
    *  direction, cleared when that direction is released). */
   const bumpedHolds: Record<string, boolean> = {};
   /** B-14 (rev. q / s / u): a blocked move bumps the ring only, with the edge-bump sound (instead
    *  of the click, never with it); once per held direction. */
-  function edge(dir: 'left' | 'right' | 'up' | 'down', kind: 'press' | 'repeat', what: string): string {
+  function edge(dir: 'left' | 'right' | 'up' | 'down', kind: 'press' | 'repeat', what: string, zone: string = home.zone): string {
     if (kind === 'repeat' && bumpedHolds[dir]) return `${what}, held: no bump`;
     bumpedHolds[dir] = true;
-    bump = { dir, n: (bump?.n ?? 0) + 1, zone: home.zone };
-    return `${what}, bump ${dir}, ${play('edgeBump')}`;
+    bump = { dir, n: (bump?.n ?? 0) + 1, zone };
+    // Home's own zones keep their verified wording; the others name themselves.
+    const where = zone === 'row' || zone === 'drawer' ? '' : ` (${zone})`;
+    return `${what}, bump ${dir}${where}, ${play('edgeBump')}`;
   }
+  // B-29: every zone but Home's own (row, drawer: B-14 in Home) is played by the shared module.
+  $effect(() => {
+    const b = bump;
+    if (!b || b.zone === 'row' || b.zone === 'drawer') return;
+    untrack(() => playBump(b.zone, b.dir, b.n));
+  });
   /** The row whips to its other end in 200 ms (its normal slide is 170 ms). */
   let wrapping = $state(false);
   let wrapTimer: ReturnType<typeof setTimeout> | null = null;
@@ -334,11 +344,14 @@
     if (confirm) {
       if (confirm.single) {
         if (action === 'confirm' || action === 'back') return answer(false, action === 'confirm' ? 'A' : 'B');
+        // B-29: one button: every direction is an edge.
+        if (action === 'left' || action === 'right' || action === 'up' || action === 'down') return edge(action, kind, 'message: one button', 'dialog');
         return 'message: no action';
       }
+      if (action === 'up' || action === 'down') return edge(action, kind, 'question: one row of buttons', 'dialog');
       if (action === 'left' || action === 'right') {
         const f = action === 'left' ? 'yes' : 'no';
-        if (confirm.focus === f) return 'question: already there';
+        if (confirm.focus === f) return edge(action, kind, `question: the ${action === 'left' ? 'first' : 'last'} button`, 'dialog');
         confirm = { ...confirm, focus: f };
         return `question: focus ${f === 'yes' ? confirm.yes : 'Cancel'}, ${play('drawerMove')}`;
       }
@@ -347,6 +360,12 @@
       return 'question: no action';
     }
     if (dialogOpen) {
+      // B-29: the copy question's buttons bump at their ends (it's a shared dialog now, rev. ba).
+      if (flow.phase === 'ask') {
+        if (action === 'up' || action === 'down') return edge(action, kind, 'copy question: one row of buttons', 'dialog');
+        if (action === 'left' && flow.focus === BUTTON_COPY) return edge('left', kind, 'copy question: the first button', 'dialog');
+        if (action === 'right' && flow.focus === BUTTON_SKIP) return edge('right', kind, 'copy question: the last button', 'dialog');
+      }
       const before = flow;
       const [next, effect] = flowAction(flow, action);
       flow = next;
@@ -358,7 +377,7 @@
       return moved ? `dialog focus moved, ${play('rowMove')}` : 'dialog: nothing to do';
     }
     // B-26: the Quick Menu owns input while it is open (one interaction context).
-    if (po !== null) return poAct(action);
+    if (po !== null) return poAct(action, kind);
     if (qm) return qmAct(action, kind);
     if (action === 'menu') return openQm('a held Guide');
     if (action === 'bigLeft' || action === 'bigRight') return 'no action';
@@ -633,12 +652,12 @@
     }
     return 'Power: nothing';
   }
-  function poAct(action: UiAction): string {
+  function poAct(action: UiAction, kind: 'press' | 'repeat' = 'press'): string {
     const f = po;
     if (f === null) return 'no Power options';
     if (action === 'up' || action === 'down') {
       const next = f + (action === 'down' ? 1 : -1);
-      if (next < 0 || next >= POWER_ITEMS.length) return `Power options: the ${next < 0 ? 'first' : 'last'} item, ${play('edgeBump')}`;
+      if (next < 0 || next >= POWER_ITEMS.length) return edge(action, kind, `Power options: the ${next < 0 ? 'first' : 'last'} item`, 'po');
       po = next;
       return `Power options: ${POWER_ITEMS[next]}, ${play('rowMove')}`;
     }
@@ -663,6 +682,11 @@
   /** A held direction: a steady 50 % per second, applied live, never in visible jumps. */
   function driveSlider(row: string, dir: number): string {
     const now = performance.now();
+    const at = row === 'Volume' ? uiVolume : (bright.value ?? 0);
+    if ((dir < 0 && at === 0) || (dir > 0 && at === 100)) {
+      stopDrive();
+      return edge(dir < 0 ? 'left' : 'right', 'repeat', `Quick Menu: ${row} at its end`, row === 'Volume' ? 'slider-volume' : 'slider-brightness');
+    }
     if (drive && drive.row === row && drive.dir === dir) {
       drive.last = now;
       return `Quick Menu: ${row} moving`;
@@ -676,6 +700,14 @@
       if (!d) return;
       if (t - d.last > 220 || !qm || QM_ROWS[qm.row] !== d.row) return stopDrive();
       d.v = Math.max(0, Math.min(100, d.v + (d.dir * 50 * (t - d.t)) / 1000));
+      if (d.v === 0 || d.v === 100) {
+        // B-29: driven into an end: the knob bumps once for this hold.
+        const end = Math.round(d.v);
+        if (d.row === 'Volume') setVolume(end, uiMuted);
+        else setBrightness(end);
+        core?.log('info', edge(d.dir < 0 ? 'left' : 'right', 'press', `Quick Menu: ${d.row} held into its end`, d.row === 'Volume' ? 'slider-volume' : 'slider-brightness'));
+        return stopDrive();
+      }
       d.t = t;
       const r = Math.round(d.v);
       if (d.row === 'Volume' && r !== uiVolume) setVolume(r, uiMuted);
@@ -700,7 +732,7 @@
     if (action === 'menu') return 'Quick Menu: already open';
     if (action === 'up' || action === 'down') {
       const next = q.row + (action === 'down' ? 1 : -1);
-      if (next < 0 || next >= QM_ROWS.length) return `Quick Menu: the ${next < 0 ? 'first' : 'last'} row, ${play('edgeBump')}`;
+      if (next < 0 || next >= QM_ROWS.length) return edge(action, kind, `Quick Menu: the ${next < 0 ? 'first' : 'last'} row`, 'qm');
       qm = { row: next };
       return `Quick Menu: ${QM_ROWS[next]}, ${play('rowMove')}`;
     }
@@ -713,7 +745,7 @@
         if (slider && kind === 'repeat' && (action === 'left' || action === 'right')) return driveSlider('Brightness', action === 'right' ? 1 : -1);
         if (slider) {
           const d = sliderStep(action);
-          if (bright.value !== null && ((d < 0 && bright.value === 0) || (d > 0 && bright.value === 100))) return `Quick Menu: brightness at its end, ${play('edgeBump')}`;
+          if (bright.value !== null && ((d < 0 && bright.value === 0) || (d > 0 && bright.value === 100))) return edge(d < 0 ? 'left' : 'right', kind, 'Quick Menu: brightness at its end', 'slider-brightness');
           return setBrightness((bright.value ?? 0) + d);
         }
         return 'Quick Menu: no action';
@@ -721,7 +753,7 @@
         if (slider && kind === 'repeat' && (action === 'left' || action === 'right')) return driveSlider('Volume', action === 'right' ? 1 : -1);
         if (slider) {
           const d = sliderStep(action);
-          if ((d < 0 && uiVolume === 0) || (d > 0 && uiVolume === 100)) return `Quick Menu: volume at its end, ${play('edgeBump')}`;
+          if ((d < 0 && uiVolume === 0) || (d > 0 && uiVolume === 100)) return edge(d < 0 ? 'left' : 'right', kind, 'Quick Menu: volume at its end', 'slider-volume');
           return setVolume(uiVolume + d, uiMuted);
         }
         if (action === 'confirm') return setVolume(uiVolume, !uiMuted);
@@ -1013,7 +1045,15 @@
     }, extrasOn ? 200 : 90);
   }
 
+  /** Rev. ba: `--show-copy-question`: the question as a preview; nothing decided, copied or recorded. */
+  let previewCopy = false;
   function applyEffect(effect: FlowEffect) {
+    if (previewCopy && (effect.type === 'decide' || effect.type === 'notNow')) {
+      previewCopy = false;
+      flow = { phase: 'hidden' };
+      core?.log('info', `copy question (preview, --show-copy-question): ${effect.type === 'notNow' ? 'Not now' : effect.accept ? 'Copy' : "Don't copy"}: nothing copied or recorded`);
+      return;
+    }
     if (effect.type === 'decide') decide(effect.accept);
     if (effect.type === 'notNow') core?.log('info', 'copy offer: user chose Not now (nothing recorded; asked again at the next start)');
   }
@@ -1515,7 +1555,18 @@
         if (pendingTiles.length) c.log('info', `tile pictures: ${pendingTiles.length} copies made during the Boot Up are swapped in now`);
         pendingTiles.splice(0).forEach((t) => swapTile(c, t));
         try {
-          flow = initialFlow(await c.migrationStatus());
+          const ms = await c.migrationStatus();
+          flow = initialFlow(ms);
+          // Rev. ba: the copy question once as a preview (the real offer if there is one).
+          if (info?.showCopyQuestion && flow.phase !== 'ask') {
+            previewCopy = true;
+            const library = { games: 0, hidden: 0, favorites: 0, folders: 0, ignored: [], sources: [] };
+            const offer = { state: 'offer' as const, source: '(a preview: nothing is copied)', files: 0, bytes: 0, library, notice: 'A preview (--show-copy-question): nothing is copied or recorded.' };
+            flow = { phase: 'ask', offer, focus: BUTTON_COPY };
+            c.log('info', 'copy question shown as a preview (--show-copy-question): nothing will be copied or recorded');
+          } else if (info?.showCopyQuestion) {
+            previewCopy = true;
+          }
         } catch (err) {
           c.log('error', `migration_status failed: ${String(err)}`);
         }
@@ -1608,7 +1659,7 @@
     {onDrawerHover}
     {onDrawerClick}
     {drawerPressed}
-    {bump}
+    bump={bump && (bump.zone === 'row' || bump.zone === 'drawer') ? (bump as { dir: 'left' | 'right' | 'up' | 'down'; n: number; zone: 'row' | 'drawer' }) : null}
     {wrapping}
     {runningId}
     {startingId}
@@ -1628,7 +1679,30 @@
     <div class="toast" role="status" data-testid="toast">{toast}</div>
   {/if}
 
-  {#if flow.phase !== 'hidden'}
+  {#if flow.phase === 'ask'}
+    <!-- Rev. ba: T0's copy question on the shared dialog (the same design as every question). -->
+    <ConfirmDialog
+      title="Copy your AIONE data?"
+      text={`AIONE 4 found the data of your previous AIONE: ${plural(flow.offer.files, 'file', 'files')}, ${formatBytes(flow.offer.bytes)}.`}
+      details={[
+        ...(flow.offer.notice ? [{ text: flow.offer.notice, testid: 'copy-notice', tone: 'warn' as const }] : []),
+        { text: describeCounts(flow.offer.library), testid: 'copy-offer-counts' },
+        { text: "It can copy everything into AIONE 4's own folder. Your previous AIONE folder is only read and stays exactly as it is. Not now (B) asks again at the next start; Copy and Don't copy are final." },
+        ...describeSkipped(flow.offer.library.ignored).map((t) => ({ text: t, tone: 'muted' as const })),
+        { text: flow.offer.source, tone: 'path' as const },
+      ]}
+      yes="Copy"
+      no="Don't copy"
+      focus={flow.focus === BUTTON_COPY ? 'yes' : 'no'}
+      testid="copy-dialog"
+      phase="ask"
+      yesTestid="copy-accept"
+      noTestid="copy-decline"
+      hints={{ text: 'A Select · B Not now', testid: 'copy-hints' }}
+      outMs={0}
+      onAnswer={(y) => onChoose(y)}
+    />
+  {:else if flow.phase !== 'hidden'}
     <CopyDialog
       {flow}
       {onChoose}

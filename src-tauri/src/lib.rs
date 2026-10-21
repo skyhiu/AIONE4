@@ -74,6 +74,8 @@ struct AppState {
     interface_scale: u32,
     from_autostart: bool,
     boot_default: bool,
+    /// Rev. ba: `--show-copy-question` (a preview of T0's copy question; nothing copied).
+    show_copy_question: bool,
     extras: Vec<String>,
 }
 
@@ -90,6 +92,8 @@ struct AppInfo {
     from_autostart: bool,
     /// `--boot=default`: show Window B even when a custom video exists (this run only).
     boot_default: bool,
+    /// Rev. ba: `--show-copy-question` (a preview of T0's copy question; nothing copied).
+    show_copy_question: bool,
     /// B-15: `--extras=…` for this run.
     extras: Vec<String>,
 }
@@ -105,6 +109,7 @@ fn app_info(state: tauri::State<'_, AppState>) -> AppInfo {
         interface_scale: state.interface_scale,
         from_autostart: state.from_autostart,
         boot_default: state.boot_default,
+        show_copy_question: state.show_copy_question,
         extras: state.extras.clone(),
     }
 }
@@ -928,6 +933,10 @@ pub fn run() {
     if let Some(line) = settings::reset_imported_volume_once(&data_dir) {
         logging::lifecycle(Level::Info, &line);
     }
+    // alpha.33 QA-3: the import report's note, whenever the reset is done and the note is missing.
+    if let Some(line) = settings::ensure_import_note(&data_dir) {
+        logging::lifecycle(Level::Info, &line);
+    }
     // B-20: the pause's record; resume anything a previous AIONE left paused.
     pause::init(&data_dir);
     pause::resume_left_over();
@@ -968,6 +977,7 @@ pub fn run() {
         interface_scale: args.interface_scale.unwrap_or(100),
         from_autostart: args.from_autostart,
         boot_default: args.boot_default,
+        show_copy_question: args.show_copy_question,
         extras: args.extras.clone(),
     };
 
@@ -1078,7 +1088,7 @@ pub fn run() {
                 // B-7: Guide in the background brings AIONE to the front.
                 move || guide_from_background(&guide_handle),
             );
-            // B-28 (rev. ax): Win + Esc, everywhere: the same Guide (short / held) as the pad.
+            // B-28 (rev. ba): Alt + `, everywhere: a short Guide (come to AIONE, or back to the game).
             {
                 let kw_app = app.handle().clone();
                 let kw_emit = app.handle().clone();

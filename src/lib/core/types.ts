@@ -12,6 +12,8 @@ export interface AppInfo {
   fromAutostart: boolean;
   /** `--boot=default`: this run shows Window B even when a custom boot video exists. */
   bootDefault: boolean;
+  /** Rev. ba: `--show-copy-question`: T0's copy question as a preview (nothing copied). */
+  showCopyQuestion: boolean;
   /** B-15 (rev. t): `--extras=none` turns the extras off for this run (['none']). */
   extras: string[];
 

@@ -45,6 +45,8 @@ pub struct Args {
     pub unknown: Vec<String>,
     /// B-19 (alpha.21 QA-3): `--check-emulators` rewrites the emulator check report.
     pub check_emulators: bool,
+    /// Rev. ba: `--show-copy-question` shows T0's copy question once, as a preview (nothing copied).
+    pub show_copy_question: bool,
 }
 
 pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Args {
@@ -53,6 +55,8 @@ pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Args {
     while let Some(a) = it.next() {
         if a.eq_ignore_ascii_case("--check-emulators") {
             out.check_emulators = true;
+        } else if a.eq_ignore_ascii_case("--show-copy-question") {
+            out.show_copy_question = true;
         } else if a == "--wait-for-pid" {
             match it.next().and_then(|v| v.parse().ok()) {
                 Some(pid) => out.wait_for_pid = Some(pid),

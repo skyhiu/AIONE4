@@ -109,8 +109,9 @@ test.describe('T0 copy offer (mocked core)', () => {
     await page.mouse.move(10, 10);
     await page.mouse.move(40, 40, { steps: 4 }); // deliberate movement (A7)
     await expect(page.getByTestId('screen')).toHaveAttribute('data-input', 'mouse');
-    const outline = await page.getByTestId('copy-accept').evaluate((el) => getComputedStyle(el).outlineColor);
-    expect(outline).toBe('rgba(0, 0, 0, 0)');
+    // Rev. ba (the shared dialog): the focus is the button's ring; in mouse mode it isn't drawn.
+    const ring = await page.getByTestId('copy-accept').locator('.ring').evaluate((el) => getComputedStyle(el).borderTopColor);
+    expect(ring).toBe('rgba(0, 0, 0, 0)');
     await shot(page, 't0-copy-offer-mouse-mode');
     await page.getByTestId('copy-decline').click();
     await expect(page.getByTestId('copy-dialog')).toHaveCount(0);

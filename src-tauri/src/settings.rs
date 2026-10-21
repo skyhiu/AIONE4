@@ -425,15 +425,30 @@ pub fn reset_imported_volume_once(data: &Path) -> Option<String> {
         None => "settings: no imported volume to reset".to_string(),
     };
     save(data, &s).ok()?;
-    // Rev. ax: the import report says so too, so it matches settings.json.
-    let report = data.join("settings-import.md");
-    if let Ok(text) = std::fs::read_to_string(&report) {
-        if !text.contains("rev. aw") {
-            let note = format!("\n## Note (B-24 rev. aw)\n\nThe volume is no longer imported: WPF's master volume belonged to its older audio model (tied to Windows' volume), so its meaning changed. {line}.\n");
-            let _ = std::fs::write(&report, text + &note);
-        }
-    }
     Some(line)
+}
+
+/// alpha.33 QA-3 (rev. ba): whenever the volume reset is recorded as done and the import report
+/// lacks its note, the note is added (once). Returns a line for the log.
+pub fn ensure_import_note(data: &Path) -> Option<String> {
+    let s = load(data);
+    if !s.volume_reset_done {
+        return None;
+    }
+    let report = data.join("settings-import.md");
+    let text = std::fs::read_to_string(&report).ok()?;
+    if text.contains("rev. aw") {
+        return None;
+    }
+    let note = format!(
+        "\n## Note (B-24 rev. aw)\n\nThe volume is no longer imported: WPF's master volume belonged to its older audio model (tied to Windows' volume), so its meaning changed. The volume imported earlier was reset once to 100 %; AIONE 4's volume is now {} % (settings.json).\n",
+        s.volume
+    );
+    std::fs::write(&report, text + &note).ok()?;
+    Some(
+        "settings: the import report's note about the volume reset was added (settings-import.md)"
+            .into(),
+    )
 }
 
 #[cfg(test)]
@@ -526,10 +541,13 @@ mod tests {
             .unwrap()
             .contains("reset once to 100 %"));
         assert_eq!(load(data).volume, 100);
+        assert_eq!(reset_imported_volume_once(data), None); // once only
+                                                            // alpha.33 QA-3: the note is its own step, whenever the reset is done and it's missing.
+        assert!(ensure_import_note(data).unwrap().contains("note"));
         assert!(std::fs::read_to_string(data.join("settings-import.md"))
             .unwrap()
             .contains("## Note (B-24 rev. aw)"));
-        assert_eq!(reset_imported_volume_once(data), None); // once only
+        assert_eq!(ensure_import_note(data), None); // once
     }
 
     #[test]

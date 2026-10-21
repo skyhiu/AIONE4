@@ -152,18 +152,107 @@ test.describe('T2.2 the Quick Menu, Power and dialogs (mocked core)', () => {
     await hold(page, 'DPadRight');
     // The core repeats a held direction (XInput); the test sends those repeats, sampling the knob.
     const seen: number[] = [];
+    const at: number[] = [];
     for (let i = 0; i < 14; i++) {
       await page.waitForTimeout(70);
       await page.evaluate(() => window.__aioneMock?.pad('DPadRight', 'repeat'));
-      seen.push(Number(await page.getByTestId('qm-volume-value').getAttribute('data-value')));
+      const v = await page.evaluate(() => ({ v: Number(document.querySelector('[data-testid="qm-volume-value"]')?.getAttribute('data-value')), t: performance.now() }));
+      seen.push(v.v);
+      at.push(v.t);
     }
     await release(page, 'DPadRight');
     // Steady: it rises, never by more than a few % between samples (no visible jumps).
-    const steps = seen.slice(1).map((v, i) => v - (seen[i] ?? 0));
     expect(seen[seen.length - 1] ?? 0).toBeGreaterThan(seen[0] ?? 0);
-    expect(Math.max(...steps)).toBeLessThanOrEqual(8);
+    // The movement is time-based (50 % per second): no step larger than the steady speed allows for
+    // the real time between two samples.
+    const val = (i: number) => seen[i] ?? 0;
+    const time = (i: number) => at[i] ?? 0;
+    for (let i = 1; i < seen.length; i++) {
+      // The sample's clock and the animation frames drift by a frame or so on a busy machine.
+      const allowed = ((time(i) - time(i - 1)) / 1000) * 50 + 6;
+      expect(val(i) - val(i - 1)).toBeLessThanOrEqual(allowed);
+    }
+    // The steady speed over the whole hold: about 50 % per second.
+    const rate = (val(seen.length - 1) - val(0)) / ((time(seen.length - 1) - time(0)) / 1000);
+    expect(rate).toBeGreaterThan(30);
+    expect(rate).toBeLessThan(70);
     const l = await logs(page);
     expect(l.some((x) => x.includes('Quick Menu: Volume held'))).toBe(true);
+  });
+
+  test("B-29: the edge bump everywhere (one walk through every focusable screen's edges)", async ({ page }) => {
+    await open(page, 'volume=97&brightness=3');
+    const bumped = async (sel: string, dir: string) => {
+      const el = page.locator(sel).first();
+      await expect(el).toHaveAttribute('data-bump-dir', dir);
+    };
+    const lastLog = async (zone: string, dir: string) => {
+      const l = await logs(page);
+      expect(l.some((x) => x.includes(`bump ${dir} (${zone})`) && x.includes('sound edgeBump'))).toBe(true);
+    };
+    await holdGuide(page);
+    // The Quick Menu: top and bottom.
+    await pad(page, 'DPadUp');
+    await bumped('[data-testid="quick-menu"] .item.focused .ring', 'up');
+    await lastLog('qm', 'up');
+    for (let i = 0; i < 3; i++) await pad(page, 'DPadDown');
+    await pad(page, 'DPadDown');
+    await bumped('[data-testid="quick-menu"] .item.focused .ring', 'down');
+    // The sliders: Brightness at 0 %, Volume at 100 % (the knob bumps toward the press).
+    await pad(page, 'DPadUp');
+    await pad(page, 'DPadUp'); // Brightness (3 %)
+    for (let i = 0; i < 4; i++) await pad(page, 'DPadLeft'); // 3 → 0, then the edge
+    await bumped('[data-testid="qm-brightness-value"] .knob', 'left');
+    await lastLog('slider-brightness', 'left');
+    await pad(page, 'DPadDown'); // Volume (97 %)
+    for (let i = 0; i < 4; i++) await pad(page, 'DPadRight');
+    await bumped('[data-testid="qm-volume-value"] .knob', 'right');
+    // D-019: a repeat held at the same edge: no second bump.
+    await page.evaluate(() => window.__aioneMock?.pad('DPadRight', 'down'));
+    await page.evaluate(() => window.__aioneMock?.pad('DPadRight', 'repeat'));
+    await page.evaluate(() => window.__aioneMock?.pad('DPadRight', 'repeat'));
+    await page.evaluate(() => window.__aioneMock?.pad('DPadRight', 'up'));
+    const l = await logs(page);
+    expect(l.some((x) => x.includes('held: no bump'))).toBe(true);
+    // Power options: first and last.
+    await pad(page, 'DPadUp');
+    await pad(page, 'DPadUp'); // Power
+    await pad(page, 'A');
+    await pad(page, 'DPadUp');
+    await bumped('[data-testid="power-options"] .item.focused .ring', 'up');
+    for (let i = 0; i < 4; i++) await pad(page, 'DPadDown');
+    await pad(page, 'DPadDown');
+    await bumped('[data-testid="power-options"] .item.focused .ring', 'down');
+    await lastLog('po', 'down');
+    // A question's buttons: Cancel is focused (the right end); right, then left past Restart; up.
+    for (let i = 0; i < 3; i++) await pad(page, 'DPadUp'); // Restart PC
+    await pad(page, 'A');
+    await expect(page.getByTestId('confirm-dialog')).toContainText('Restart the PC?');
+    await pad(page, 'DPadRight');
+    await bumped('[data-testid="confirm-dialog"] button.focused .ring', 'right');
+    await pad(page, 'DPadLeft'); // to Restart
+    await pad(page, 'DPadLeft');
+    await bumped('[data-testid="confirm-dialog"] button.focused .ring', 'left');
+    await pad(page, 'DPadUp');
+    await bumped('[data-testid="confirm-dialog"] button.focused .ring', 'up');
+    await lastLog('dialog', 'up');
+    await pad(page, 'B'); // Cancel: nothing done
+  });
+
+  test("rev. ba: T0's copy question on the shared dialog; --show-copy-question previews it (nothing copied)", async ({ page }) => {
+    await open(page, 'copyquestion=1');
+    const d = page.getByTestId('copy-dialog');
+    await expect(d).toBeVisible({ timeout: 4000 });
+    await expect(d).toHaveAttribute('role', 'alertdialog'); // the shared dialog
+    await expect(d).toContainText('Copy your AIONE data?');
+    await expect(page.getByTestId('copy-accept')).toHaveClass(/focused/);
+    await pad(page, 'DPadLeft'); // already the first button: B-29's bump
+    await expect(page.locator('[role="alertdialog"] button.focused .ring')).toHaveAttribute('data-bump-dir', 'left');
+    await pad(page, 'B'); // Not now: in the preview, nothing is recorded
+    await expect(d).toHaveCount(0);
+    const l = await logs(page);
+    expect(l.some((x) => x.includes('copy question (preview, --show-copy-question): Not now: nothing copied or recorded'))).toBe(true);
+    expect(await page.evaluate(() => window.__aioneMock?.decisions ?? [])).toEqual([]);
   });
 });
 

@@ -447,6 +447,7 @@ export function createMock(search: string): { core: Core; control: MockControl }
         interfaceScale: Number(params.get('scale') ?? '100'),
         fromAutostart: false,
         bootDefault: params.get('boot') === 'default-switch',
+        showCopyQuestion: params.get('copyquestion') === '1',
         extras: (params.get('extras') ?? '').split(',').filter(Boolean),
       }),
     uiReady() {

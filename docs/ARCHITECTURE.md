@@ -521,7 +521,7 @@ background (logged); changes live, applied in the background (the last one wins)
 Restart AIONE, Close AIONE), from the Quick Menu's Power row and the drawer's Power button.
 Destructive choices ask first, Cancel focused. A B-22 dialog state while open.
 
-## The keyboard as a full alternative (alpha.32, B-28)
+## The keyboard as a full alternative (alpha.32, B-28) — *its Win + Esc superseded by rev. ba (below)*
 
 **Win + Esc, everywhere** (a low-level keyboard hook, `keywatch.rs`): Esc with a Windows key held is
 taken (never passed on) and decided by the same `transit::GuideHold` as the pad: short = a short
@@ -556,7 +556,7 @@ never a jump), applying each whole-percent change live; it stops when the repeat
 (regular), explanation lines 0.85× of it; all of it scales with Interface Scale. **Power options**
 shows its own footer hints ("B Back · A OK").
 
-## Win + Esc, rev. ay (alpha.33, D-053)
+## Win + Esc, rev. ay (alpha.33, D-053) — *superseded by rev. ba (below)*
 
 Once Win + Esc is taken, **every** Esc event (press, repeats, release) belongs to it until Esc is up,
 even when the Windows key is let go first (`keywatch::esc_taken`): it never reaches AIONE as Esc (= B)
@@ -569,4 +569,35 @@ made a held Guide in a game's first 5 s look like a window swap).
 One worker and one pending value: a value set while an apply runs replaces the pending one; when an
 apply finishes, the latest pending value is applied if it differs; `brightness: final N %`. (Before,
 a second worker could start and the two applies finish out of order.)
+
+## The edge bump everywhere (alpha.34, B-29)
+
+**Built once.** Every screen whose focus can't move further calls `App.edge(dir, kind, what, zone)`:
+D-019's rules (once per hold, per direction) and the edge-bump sound live there. The motion lives in
+`lib/focus/bump.ts`: B-14's spring (about 14 px toward the press, an overshoot of about 6, settled
+in about 150 ms; transform only; the item stays still) played on the zone's focus ring (`.ring`) or,
+for a slider, its knob. Home keeps its own B-14 zones (the row, with its wrap; the drawer). **Zones
+now:** the Quick Menu's rows (top, bottom), the sliders (past 0 % / 100 %: the knob, also when a hold
+drives into an end, once), Power options (first, last), every dialog's buttons (left / right ends;
+up / down, the buttons being one row; a one-button message bumps every way), T0's copy question.
+**A new screen** adds its zone to `BUMP_TARGETS` and draws its focus as a `.ring`. Dialog buttons draw
+their focus as a ring overlay (the old outline's look), so the ring moves while the button stays.
+
+## The keyboard, rev. ba (alpha.34; supersedes Win + Esc)
+
+**Alt + ` everywhere** (the key under Esc, matched by its **position**, scan code 0x29, so it works on
+every layout: ` on US, ^ on German, ² on French): **a short press only**, come to AIONE (the game
+paused) or go back to it; no hold. Its press, repeats and release are taken whole (also when Alt is
+let go first) and never reach the game, AIONE or the held set; the press counts as a Guide press
+(D-037). Logged at start-up: `keyboard shortcut: Alt + ` …`. **Inside AIONE, Home:** short = Guide,
+held 0.5 s = the Quick Menu. Win + Esc, its hold, its Start-menu workaround and the Magnifier watch
+are removed (which also resolves D-053 by design).
+
+## T0's copy question on the shared dialog (alpha.34)
+
+The question ("Copy your AIONE data?") is drawn by `ConfirmDialog` (its details: the notice, the
+counts, the explanation, skipped entries, the source path; its hint line "A Select · B Not now"),
+with B-29's bump; its answers are unchanged (Copy and Don't copy final, B = Not now). The copy's
+progress and result steps keep their screen. **`--show-copy-question`** shows the question once as
+a **preview**: every answer is logged and nothing is copied or recorded.
 

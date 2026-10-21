@@ -1,5 +1,14 @@
 # Changelog
 
+## 4.0.0-alpha.34 — completing T2.2: the edge bump everywhere, Alt + `, the copy question
+
+- **B-29:** the edge bump built once in the shared focus system: the Quick Menu, the sliders' knob,
+  Power options, every dialog's buttons, the copy question (Home's row keeps its wrap).
+- **B-28 rev. ba:** Alt + ` (by position, any layout), a short press only; Home held inside AIONE
+  for the Quick Menu; Win + Esc removed (D-053 resolved by design).
+- **T0's copy question** on the shared dialog; `--show-copy-question` previews it.
+- **alpha.33 QA-3:** the import report's volume note added whenever it's missing.
+
 ## 4.0.0-alpha.33 — completing T2.2: Win + Esc held, Switch-like sliders, the text size
 
 - **D-053:** the whole Esc of a Win + Esc is swallowed (also when the Windows key is let go first);

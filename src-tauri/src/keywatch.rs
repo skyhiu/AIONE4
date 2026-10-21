@@ -8,28 +8,30 @@
 //! in front. Every key is passed on unchanged; nothing is blocked.
 #![cfg_attr(not(windows), allow(dead_code, unused_imports))]
 
-// ---------- B-28 (rev. ax): Win + Esc, the keyboard's Guide, everywhere ----------
-// (The hook that uses these is Windows-only.)
+// ---------- B-28 (rev. ba): Alt + `, the keyboard's Guide, everywhere (short press only) ----------
+// The key under Esc, matched by its POSITION (scan code 0x29), so it works on every keyboard layout
+// (` on US, ^ on German, ² on French). Supersedes Win + Esc (rev. ax / ay), its hold and its
+// Start-menu workaround.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{LazyLock, Mutex};
+use std::sync::Mutex;
+
+/// The key under Esc (its scan code, the same on every layout).
+pub const BACKTICK_SCAN: u32 = 0x29;
 
 type GuideFn = Box<dyn Fn() + Send + Sync>;
 type EmitFn = Box<dyn Fn(&'static str) + Send + Sync>;
 static HANDLERS: Mutex<Option<(GuideFn, EmitFn)>> = Mutex::new(None);
-static HOLD: LazyLock<Mutex<crate::transit::GuideHold>> =
-    LazyLock::new(|| Mutex::new(crate::transit::GuideHold::default()));
-/// Esc is down as Win + Esc (its repeats are ignored; its release decides).
-static ESC_DOWN: AtomicBool = AtomicBool::new(false);
-/// Windows' Magnifier uses Win + Esc (to close it): while it runs, the keys are left to Windows.
-static MAGNIFIER: AtomicBool = AtomicBool::new(false);
+/// The key is down as Alt + ` (its repeats and release are the shortcut's too).
+static TAKEN: AtomicBool = AtomicBool::new(false);
 
-/// D-053: is this Esc event Win + Esc's? (a Windows key held, or this Esc was already taken)
-pub fn esc_taken(win_held: bool, already_taken: bool) -> bool {
-    win_held || already_taken
+/// Is this key event Alt + `'s? The key under Esc with Alt held, or the rest of an Alt + ` already
+/// taken (its repeats and release, even if Alt is let go first): never reaching the game or AIONE.
+pub fn backtick_taken(scan: u32, alt_held: bool, already_taken: bool) -> bool {
+    scan == BACKTICK_SCAN && (alt_held || already_taken)
 }
 
-/// lib: what Win + Esc does (the same as the pad's Guide): come forward; send the UI a Guide event.
+/// lib: what Alt + ` does (a short Guide): come forward; or send the UI a Guide (back to the game).
 pub fn set_guide(
     guide: impl Fn() + Send + Sync + 'static,
     emit: impl Fn(&'static str) + Send + Sync + 'static,
@@ -39,111 +41,33 @@ pub fn set_guide(
     }
 }
 
-fn with_handlers(f: impl FnOnce(&GuideFn, &EmitFn)) {
+/// The press: a short Guide (no hold, rev. ba). From the background AIONE comes forward (the game
+/// paused); in front, the UI's Guide (back to the running game).
+fn shortcut_pressed() {
+    let background = !crate::foreground::aione_is_foreground();
+    // A Guide press for every Guide rule (D-037), recorded at the press.
+    crate::launch::note_guide();
+    crate::logging::info(
+        "input",
+        &format!(
+            "Alt + ` (the key under Esc): Guide{}",
+            if background {
+                " (AIONE comes forward)"
+            } else {
+                ""
+            }
+        ),
+    );
     if let Ok(h) = HANDLERS.lock() {
-        if let Some((g, e)) = h.as_ref() {
-            f(g, e);
-        }
-    }
-}
-
-/// The same outcomes as the pad's Guide (B-26): short → today's Guide; held → the Quick Menu.
-fn outcome(o: crate::transit::GuideOutcome, ms: u128) {
-    use crate::transit::GuideOutcome;
-    match o {
-        GuideOutcome::Short { background: true } => {
-            crate::logging::info("input", &format!("Win + Esc short ({ms} ms) (AIONE in the background: brings AIONE to the front)"));
-            with_handlers(|g, _| g());
-        }
-        GuideOutcome::Short { background: false } => {
-            crate::logging::info("input", &format!("Win + Esc short ({ms} ms): Guide"));
-            with_handlers(|_, e| {
-                e("down");
-                e("up");
-            });
-        }
-        GuideOutcome::Held { background } => {
-            let (kind, _, _) = crate::transit::current();
-            if !crate::transit::guide_allowed(kind) {
-                crate::logging::info(
-                    "input",
-                    &format!("Win + Esc held {ms} ms: ignored ({})", kind.name()),
-                );
-                return;
+        if let Some((guide, emit)) = h.as_ref() {
+            if background {
+                guide();
+            } else {
+                emit("down");
+                emit("up");
             }
-            crate::logging::info(
-                "input",
-                &format!(
-                    "Win + Esc held {ms} ms: Quick Menu{}",
-                    if background {
-                        " (AIONE comes forward)"
-                    } else {
-                        ""
-                    }
-                ),
-            );
-            with_handlers(|g, e| {
-                if background {
-                    g();
-                }
-                e("held");
-            });
         }
     }
-}
-
-#[cfg(windows)]
-fn esc_with_win(down: bool) {
-    use std::time::Instant;
-    if down {
-        if ESC_DOWN.swap(true, Ordering::SeqCst) {
-            return; // a repeat
-        }
-        let background = !crate::foreground::aione_is_foreground();
-        // D-053: a Guide press for every Guide rule (D-037's window swap), recorded at the press.
-        crate::launch::note_guide();
-        if let Ok(mut h) = HOLD.lock() {
-            h.down(Instant::now(), background);
-        }
-        cancel_start_menu();
-        std::thread::spawn(|| {
-            std::thread::sleep(crate::transit::GUIDE_HOLD + std::time::Duration::from_millis(20));
-            let o = HOLD.lock().ok().and_then(|mut h| h.tick(Instant::now()));
-            if let Some(o) = o {
-                outcome(o, crate::transit::GUIDE_HOLD.as_millis());
-            }
-        });
-    } else {
-        if !ESC_DOWN.swap(false, Ordering::SeqCst) {
-            return;
-        }
-        let o = HOLD.lock().ok().and_then(|mut h| h.up(Instant::now()));
-        if let Some(o) = o {
-            std::thread::spawn(move || outcome(o, 0));
-        }
-    }
-}
-
-/// The Windows key's release alone would open the Start menu: one unassigned key (0xE8) between
-/// keeps it closed. AIONE's synthetic input (D-047): logged, never counted as a press.
-#[cfg(windows)]
-fn cancel_start_menu() {
-    use windows::Win32::UI::Input::KeyboardAndMouse::{
-        SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VIRTUAL_KEY,
-    };
-    let key = |flags| INPUT {
-        r#type: INPUT_KEYBOARD,
-        Anonymous: INPUT_0 {
-            ki: KEYBDINPUT {
-                wVk: VIRTUAL_KEY(0xE8),
-                dwFlags: flags,
-                ..Default::default()
-            },
-        },
-    };
-    let inputs = [key(Default::default()), key(KEYEVENTF_KEYUP)];
-    unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
-    crate::logging::lifecycle(crate::logging::Level::Info, "foreground: synthetic input sent (the unassigned key 0xE8, so the Windows key doesn't open the Start menu)");
 }
 
 #[cfg(windows)]
@@ -151,27 +75,25 @@ pub fn start() {
     use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
     use windows::Win32::UI::WindowsAndMessaging::{
         CallNextHookEx, DispatchMessageW, GetMessageW, SetWindowsHookExW, TranslateMessage,
-        KBDLLHOOKSTRUCT, LLKHF_INJECTED, MSG, WH_KEYBOARD_LL, WM_KEYDOWN, WM_SYSKEYDOWN,
+        KBDLLHOOKSTRUCT, LLKHF_ALTDOWN, LLKHF_INJECTED, MSG, WH_KEYBOARD_LL, WM_KEYDOWN,
+        WM_SYSKEYDOWN,
     };
     unsafe extern "system" fn hook(code: i32, w: WPARAM, l: LPARAM) -> LRESULT {
         if code >= 0 {
             let k = unsafe { &*(l.0 as *const KBDLLHOOKSTRUCT) };
-            // B-28: Win + Esc (a real key, not AIONE's own), unless Magnifier runs.
-            if k.vkCode == 0x1B
-                && k.flags.0 & LLKHF_INJECTED.0 == 0
-                && !MAGNIFIER.load(Ordering::Relaxed)
-            {
-                use windows::Win32::UI::Input::KeyboardAndMouse::{
-                    GetAsyncKeyState, VK_LWIN, VK_RWIN,
-                };
-                let win = unsafe { GetAsyncKeyState(VK_LWIN.0 as i32) } < 0
-                    || unsafe { GetAsyncKeyState(VK_RWIN.0 as i32) } < 0;
+            // B-28 (rev. ba): Alt + ` (a real key, not a synthetic one), short press only.
+            if k.scanCode == BACKTICK_SCAN && k.flags.0 & LLKHF_INJECTED.0 == 0 {
+                let alt = k.flags.0 & LLKHF_ALTDOWN.0 != 0;
                 let down = w.0 as u32 == WM_KEYDOWN || w.0 as u32 == WM_SYSKEYDOWN;
-                // D-053 (rev. ay): once taken, the WHOLE Esc (press, repeats, release) is Win + Esc's,
-                // even if the Windows key is let go first; it never reaches AIONE as Esc (= B).
-                if esc_taken(win, ESC_DOWN.load(Ordering::SeqCst)) {
-                    esc_with_win(down);
-                    return LRESULT(1); // taken: never passed to the game or Windows
+                if backtick_taken(k.scanCode, alt, TAKEN.load(Ordering::SeqCst)) {
+                    if down {
+                        if !TAKEN.swap(true, Ordering::SeqCst) {
+                            std::thread::spawn(shortcut_pressed); // the hook must stay fast
+                        }
+                    } else {
+                        TAKEN.store(false, Ordering::SeqCst);
+                    }
+                    return LRESULT(1); // taken: never passed to the game, Windows or AIONE
                 }
             }
         }
@@ -197,26 +119,13 @@ pub fn start() {
         }
         unsafe { CallNextHookEx(None, code, w, l) }
     }
-    // B-28: whether Windows' Magnifier runs (it owns Win + Esc then), refreshed every 2 s.
-    std::thread::spawn(|| loop {
-        let running = crate::launch::process_names()
-            .iter()
-            .any(|n| n.eq_ignore_ascii_case("Magnify.exe"));
-        if MAGNIFIER.swap(running, Ordering::Relaxed) != running {
-            crate::logging::info(
-                "input",
-                if running {
-                    "Magnifier runs: Win + Esc is left to Windows"
-                } else {
-                    "Magnifier closed: Win + Esc is AIONE's Guide again"
-                },
-            );
-        }
-        std::thread::sleep(std::time::Duration::from_secs(2));
-    });
+    crate::logging::lifecycle(
+        crate::logging::Level::Info,
+        "keyboard shortcut: Alt + ` (the key under Esc, scan code 0x29, on any layout): a short press comes to AIONE (the game paused) or goes back",
+    );
     std::thread::spawn(|| {
         // SAFETY: a low-level hook with a static callback for AIONE's lifetime; it only observes,
-        // except Win + Esc (B-28), which it takes.
+        // except Alt + ` (B-28), which it takes.
         let h = unsafe { SetWindowsHookExW(WH_KEYBOARD_LL, Some(hook), None, 0) };
         if h.is_err() {
             crate::logging::lifecycle(
@@ -258,12 +167,14 @@ pub fn name(vk: u32) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    /// D-053: the Windows key let go before Esc: Esc's repeats and release are still taken.
+    /// B-28 rev. ba: Alt + ` (by position) is taken whole; ` alone and other keys are not.
     #[test]
-    fn the_whole_esc_of_win_esc_is_taken() {
-        assert!(super::esc_taken(true, false)); // Win + Esc pressed
-        assert!(super::esc_taken(false, true)); // Win let go first: the repeat / release still taken
-        assert!(!super::esc_taken(false, false)); // a plain Esc: AIONE's B
+    fn alt_backtick_is_taken_whole() {
+        use super::{backtick_taken, BACKTICK_SCAN};
+        assert!(backtick_taken(BACKTICK_SCAN, true, false)); // Alt + `
+        assert!(backtick_taken(BACKTICK_SCAN, false, true)); // Alt let go first: the rest still taken
+        assert!(!backtick_taken(BACKTICK_SCAN, false, false)); // ` alone: the game's (or AIONE's)
+        assert!(!backtick_taken(0x01, true, false)); // Alt + Esc: not ours
     }
 
     #[test]
