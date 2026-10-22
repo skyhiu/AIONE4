@@ -801,6 +801,7 @@ mod tests {
         use windows::Win32::Foundation::HWND;
         use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, SetForegroundWindow};
         let _one = crate::testfix::one_at_a_time();
+        let _limit = limit_lock();
         let busy = crate::testfix::Fixture::start(&["busy", "8000"]);
         let line = busy.line("hwnd=");
         let game = crate::testfix::field(&line, "hwnd") as isize;
@@ -841,7 +842,13 @@ mod tests {
     /// The step-limit tests share the abandoned-step counter: one at a time.
     fn limit_lock() -> std::sync::MutexGuard<'static, ()> {
         static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        LOCK.lock().unwrap_or_else(|e| e.into_inner())
+        let guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // A step abandoned by an earlier test may still be returning: start from a settled count.
+        let t0 = std::time::Instant::now();
+        while super::abandoned_steps() > 0 && t0.elapsed() < std::time::Duration::from_secs(10) {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        guard
     }
 
     /// D-057: a step that returns in time gives its result.
