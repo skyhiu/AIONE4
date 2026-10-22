@@ -163,7 +163,9 @@ pub fn close(w: isize) {
     let _ = unsafe { DestroyWindow(windows::Win32::Foundation::HWND(w as *mut _)) };
 }
 
-/// A GitHub notice line (shown as an annotation of the CI run): the measured evidence.
+/// A GitHub notice line (shown as an annotation of the CI run): the measured evidence. It starts
+/// on a new line: with `--nocapture` the test runner leaves "test … " open, and GitHub reads
+/// workflow commands only at a line's start.
 pub fn notice(title: &str, text: &str) {
-    println!("::notice title={title}::{text}");
+    println!("\n::notice title={title}::{text}");
 }
