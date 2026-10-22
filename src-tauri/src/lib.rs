@@ -19,6 +19,8 @@ pub mod paths;
 pub mod pause;
 pub mod settings;
 pub mod status;
+#[cfg(all(test, windows))]
+mod testfix;
 pub mod tiles;
 pub mod transit;
 pub mod version;

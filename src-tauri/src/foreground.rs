@@ -281,6 +281,12 @@ mod win {
     }
 
     pub fn bring_to_front(raw: isize) -> ForegroundReport {
+        bring_to_front_with(raw, false)
+    }
+
+    /// `skip_direct`: tests start at the second method, as on a PC where Windows refuses the
+    /// direct way (D-057's case).
+    pub(super) fn bring_to_front_with(raw: isize, skip_direct: bool) -> ForegroundReport {
         let h = hwnd(raw);
         let mut attempts = Vec::new();
         // SAFETY: Win32 calls on our own window handle; results are checked.
@@ -307,11 +313,13 @@ mod win {
             }
 
             // 1. direct
-            let _ = SetForegroundWindow(h);
-            if is_foreground(h) {
-                return done("direct", attempts);
+            if !skip_direct {
+                let _ = SetForegroundWindow(h);
+                if is_foreground(h) {
+                    return done("direct", attempts);
+                }
+                attempts.push("direct=denied".into());
             }
-            attempts.push("direct=denied".into());
 
             // 2. attach to the foreground thread's input queue
             let mut fg_pid = 0u32;
@@ -607,6 +615,55 @@ mod tests {
         assert!(
             focus_wording(false, "Chrome_WidgetWin_1", "msedge.exe (pid 7)")
                 .starts_with("another program")
+        );
+    }
+
+    /// D-057 (A14.2, the reported cause): a busy game window in front (its thread answers nothing
+    /// for 8 s, like Minecraft at work) and Windows refusing the direct way: bringing AIONE to the
+    /// front must come back within about 2 s, never wait for the game. Real windows and processes
+    /// (`examples/window_fixture.rs busy`); AIONE's stand-in window lives on a thread with a message
+    /// queue, as AIONE's main thread.
+    #[cfg(windows)]
+    #[test]
+    fn d057_bringing_aione_forward_never_waits_on_a_busy_game() {
+        use std::time::{Duration, Instant};
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, SetForegroundWindow};
+        let _one = crate::testfix::one_at_a_time();
+        let busy = crate::testfix::Fixture::start(&["busy", "8000"]);
+        let line = busy.line("hwnd=");
+        let game = crate::testfix::field(&line, "hwnd") as isize;
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let own = crate::testfix::own_window();
+            crate::testfix::pump(Duration::from_millis(100));
+            // The busy game is the window in front (as Minecraft was).
+            // SAFETY: plain calls on window handles.
+            let in_front = unsafe {
+                let _ = SetForegroundWindow(HWND(game as *mut _));
+                GetForegroundWindow().0 as isize == game
+            };
+            let t0 = Instant::now();
+            let report = super::win::bring_to_front_with(own, true);
+            let took = t0.elapsed();
+            let _ = tx.send((took, report.summary(), in_front));
+            crate::testfix::pump(Duration::from_millis(100));
+            crate::testfix::close(own);
+        });
+        let (took, summary, in_front) = rx
+            .recv_timeout(Duration::from_secs(30))
+            .expect("bringing AIONE forward never came back (30 s)");
+        crate::testfix::notice(
+            "D-057 proof",
+            &format!(
+                "busy game in front: {in_front}; bringing AIONE forward took {} ms: {summary}",
+                took.as_millis()
+            ),
+        );
+        assert!(
+            took < Duration::from_millis(2500),
+            "bringing AIONE forward waited {} ms on the busy game (in front: {in_front}): {summary}",
+            took.as_millis()
         );
     }
 

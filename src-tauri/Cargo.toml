@@ -2,7 +2,7 @@
 name = "aione4"
 # Mirrors package.json (the one place the version is set). build.rs fails the build if
 # they differ, and the UI and logs read it from the core.
-version = "4.0.0-alpha.35"
+version = "4.0.0-alpha.36"
 description = "AIONE 4: a fullscreen, controller-first game launcher for Windows"
 authors = ["skyhiu"]
 edition = "2021"

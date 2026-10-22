@@ -101,6 +101,13 @@ jobs:
         if: ${{ !cancelled() && steps.npmci.outcome == 'success' }}
         run: node scripts/ci-run.mjs "Rust tests" --cwd src-tauri -- cargo test --locked
 
+      # A14.3: the tests that use real Windows windows and processes (the fixture program
+      # examples/window_fixture.rs), run again with their output shown: each prints its
+      # measurement as a notice, readable through the API (check-runs -> annotations).
+      - name: Windows proofs (real windows and processes)
+        if: ${{ !cancelled() && steps.npmci.outcome == 'success' }}
+        run: node scripts/ci-run.mjs "Windows proofs" --cwd src-tauri -- cargo test --locked --lib d05 -- --nocapture --test-threads=1
+
       - name: Playwright browser
         id: browser
         if: ${{ !cancelled() && steps.npmci.outcome == 'success' }}

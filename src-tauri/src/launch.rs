@@ -997,7 +997,8 @@ fn hand_over(r: &Running, what: &str) -> Result<String, String> {
     }
     let target = r
         .pid
-        .and_then(main_window_of)
+        .and_then(game_window)
+        .map(|(w, _)| w)
         .or(r.window.filter(|w| window_alive(*w)));
     let Some(main) = target else {
         let m = format!(
@@ -1063,6 +1064,11 @@ fn hand_over(r: &Running, what: &str) -> Result<String, String> {
     } else {
         Err(m)
     }
+}
+
+/// D-058: the game's main window, found again each time, with the process it belongs to.
+fn game_window(pid: u32) -> Option<(isize, u32)> {
+    main_window_of(pid).map(|w| (w, pid))
 }
 
 fn alive(r: &Running) -> bool {
@@ -2380,5 +2386,39 @@ mod tests {
         assert!(follow_gives_up_chain(s(6), s(10), false, false));
         // Nothing of the chain alive: empty.
         assert!(chain_of(&procs, 555).is_empty());
+    }
+
+    /// D-058 (A14.2, the reported cause): a launcher (like Minecraft's `javaw.exe`) whose own window
+    /// hides while the game it started (a child process) shows the big window: the return must find
+    /// the child's window, not "no window". Real processes and windows
+    /// (`examples/window_fixture.rs launcher` → `game`).
+    #[cfg(windows)]
+    #[test]
+    fn d058_the_return_finds_the_game_the_launcher_started() {
+        let _one = crate::testfix::one_at_a_time();
+        let launcher = crate::testfix::Fixture::start(&["launcher"]);
+        let line = launcher.line("launcher=");
+        let launcher_window = crate::testfix::field(&line, "launcher") as isize;
+        let game_pid = crate::testfix::field(&line, "game_pid") as u32;
+        // The game's window takes a moment to appear.
+        let t0 = Instant::now();
+        let mut found = None;
+        while t0.elapsed() < Duration::from_secs(10) {
+            found = super::game_window(launcher.pid());
+            if found.is_some_and(|(_, p)| p == game_pid) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        crate::testfix::notice(
+            "D-058 proof",
+            &format!(
+                "launcher pid {} (window {launcher_window}, hidden), game pid {game_pid}: found {found:?}",
+                launcher.pid()
+            ),
+        );
+        let (w, p) = found.expect("no window of the launcher's process tree found");
+        assert_eq!(p, game_pid, "the window found isn't the game's");
+        assert_ne!(w, launcher_window);
     }
 }
