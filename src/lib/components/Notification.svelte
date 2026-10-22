@@ -34,7 +34,8 @@
 <style>
   .notice {
     position: fixed;
-    top: calc(36 * var(--hdr));
+    /* Centred on the header's row (its items centre at 105 px, StatusHeader); the card is 92 tall. */
+    top: calc(105 * var(--hdr) - 46 * var(--ui));
     left: calc(60 * var(--px));
     z-index: 60;
     display: flex;
@@ -46,6 +47,7 @@
     background: var(--color-surface);
     color: var(--color-text);
     box-shadow: 0 calc(6 * var(--ui)) calc(22 * var(--ui)) rgba(0, 0, 0, 0.18);
+    border: calc(1 * var(--ui)) solid transparent;
     pointer-events: none;
     animation: notice-in var(--motion-medium, 220ms) var(--ease-out, cubic-bezier(0.2, 0.8, 0.2, 1)) both;
   }
@@ -57,7 +59,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: calc(38 * var(--ui));
+    font-size: calc(44 * var(--ui));
     background: var(--color-soft);
     color: var(--color-hover);
   }
@@ -79,6 +81,10 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  /* The dark preset: the shadow doesn't show on #2D2D2D; a quiet outline separates the card. */
+  :global(:root[data-preset='dark']) .notice {
+    border-color: var(--color-divider);
   }
   @keyframes notice-in {
     from {

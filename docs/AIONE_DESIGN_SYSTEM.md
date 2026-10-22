@@ -284,12 +284,14 @@ scales text; tiles follow the window only).
 
 ## Notifications (alpha.36, T2.3) — current
 
-- **Place:** top-left, in the Home header's empty spot (left 60 px, top 36 px at 1080 p; the header's
-  half-rate scale for the top), above Home, below every dialog (z 60; dialogs hold notices anyway).
+- **Place:** top-left, in the Home header's empty spot: left 60 px, centred on the header's row
+  (105 px at 1080 p, the header's half-rate scale), above Home, below every dialog (z 60; dialogs
+  hold notices anyway).
 - **Card:** the surface colour, radius 20, soft shadow (0 6 22, 18 % black), padding 16 / 28 / 16 / 18;
+  in the dark preset a 1 px outline in the divider colour (#6E6E6E), since the shadow doesn't show;
   at most 760 wide (text ellipsized). All sizes follow Interface Scale (`--ui`).
 - **Badge:** a 60 px circle in the soft accent fill (`--color-soft`) with a Material Symbols Rounded
-  icon (38 px) in the hover accent (`--color-hover`): light #B5005A on #FFC2E0 (about 4.3:1), dark
+  icon (44 px) in the hover accent (`--color-hover`): light #B5005A on #FFC2E0 (about 4.3:1), dark
   #FF69B4 on #480024 (about 6:1). Icons: `sports_esports` (a game ended), `videogame_asset` /
   `videogame_asset_off` (a controller), `battery_alert` (a battery).
 - **Text:** the title at the footer's size (`--text-label`), the detail a step smaller (`--text-md`) in
