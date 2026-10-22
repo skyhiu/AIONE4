@@ -87,21 +87,32 @@ pub fn field(line: &str, key: &str) -> i64 {
         .unwrap_or_else(|| panic!("no {key}= in \"{line}\""))
 }
 
+/// The stand-in window's procedure: Windows' default for every message.
+unsafe extern "system" fn default_proc(
+    h: windows::Win32::Foundation::HWND,
+    msg: u32,
+    wp: windows::Win32::Foundation::WPARAM,
+    lp: windows::Win32::Foundation::LPARAM,
+) -> windows::Win32::Foundation::LRESULT {
+    // SAFETY: passes the message on unchanged.
+    unsafe { windows::Win32::UI::WindowsAndMessaging::DefWindowProcW(h, msg, wp, lp) }
+}
+
 /// A stand-in for AIONE's window: a visible window owned by the calling thread (which then has a
 /// message queue, as AIONE's main thread has).
 pub fn own_window() -> isize {
     use windows::core::w;
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DefWindowProcW, RegisterClassW, WINDOW_EX_STYLE, WNDCLASSW,
-        WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+        CreateWindowExW, RegisterClassW, WINDOW_EX_STYLE, WNDCLASSW, WS_OVERLAPPEDWINDOW,
+        WS_VISIBLE,
     };
     // SAFETY: a plain window of the test process, with the default window procedure.
     unsafe {
         let instance = GetModuleHandleW(None).expect("module handle");
         let class = w!("AIONE4TestOwnWindow");
         let wc = WNDCLASSW {
-            lpfnWndProc: Some(DefWindowProcW),
+            lpfnWndProc: Some(default_proc),
             hInstance: instance.into(),
             lpszClassName: class,
             ..Default::default()
