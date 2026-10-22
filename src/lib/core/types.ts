@@ -74,7 +74,7 @@ export interface PcStatus {
 }
 
 /** A normalized controller event from the Rust core (XInput). */
-export type PadEventKind = 'down' | 'up' | 'repeat' | 'held' | 'connected' | 'disconnected';
+export type PadEventKind = 'down' | 'up' | 'repeat' | 'held' | 'connected' | 'disconnected' | 'battery';
 
 export interface PadEvent {
   kind: PadEventKind;

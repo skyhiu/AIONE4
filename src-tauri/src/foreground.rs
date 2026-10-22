@@ -13,6 +13,14 @@
 //!
 //! If all fail, the taskbar button flashes and the log says so.
 //!
+//! **D-057 (alpha.36): never waits on a busy game.** Each step (the restore, and each method above)
+//! runs on its own short-lived thread with a time limit (`STEP_LIMIT`, 300 ms); a step that doesn't
+//! return in time is abandoned (logged) and the next method is tried. Before `attach-thread-input`,
+//! the window in front must answer a harmless message within `RESPONDS_LIMIT` (100 ms); if it
+//! doesn't (a busy game), that method is skipped. While an abandoned step is still stuck, no new
+//! attach is tried. Callers run `bring_to_front` off the main thread (the thread that delivers input
+//! to AIONE's page), so input never waits on it.
+//!
 //! The start-up guard (`start_guard`) listens for foreground changes (a WinEvent hook, no
 //! polling) for a short time after start. If another program takes the foreground and the
 //! user is not switching (Alt / Win / a mouse button not held), AIONE takes it back, at most
@@ -27,7 +35,79 @@
 //! foreground window, so pad input in the background is logged but not acted on (except Guide).
 
 use serde::Serialize;
-use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::{Duration, Instant};
+
+/// D-057: the time limit for one step of bringing a window to the front.
+pub const STEP_LIMIT: Duration = Duration::from_millis(300);
+/// D-057: how long the window in front gets to answer before `attach-thread-input` is used.
+pub const RESPONDS_LIMIT: Duration = Duration::from_millis(100);
+/// D-057: steps abandoned after their time limit that haven't returned yet.
+static ABANDONED: AtomicUsize = AtomicUsize::new(0);
+
+/// D-057: how many abandoned steps are still stuck (no new attach while one is).
+pub fn abandoned_steps() -> usize {
+    ABANDONED.load(Ordering::SeqCst)
+}
+
+/// D-057: runs `step` on its own thread and waits at most `limit` for it. `Some(result)` when it
+/// returned in time; `None` when it didn't (the step is abandoned: it keeps running on its thread,
+/// is counted in `abandoned_steps()` until it returns, and its late return is logged) or when its
+/// thread couldn't start. The caller never waits longer than `limit`.
+pub fn run_limited<T: Send + 'static>(
+    what: &'static str,
+    limit: Duration,
+    step: impl FnOnce() -> T + Send + 'static,
+) -> Option<T> {
+    // (the result, abandoned)
+    let shared = Arc::new((Mutex::new((None::<T>, false)), Condvar::new()));
+    let theirs = Arc::clone(&shared);
+    let t0 = Instant::now();
+    let spawned = std::thread::Builder::new()
+        .name("aione-foreground-step".into())
+        .spawn(move || {
+            let out = step();
+            let (lock, cv) = &*theirs;
+            if let Ok(mut g) = lock.lock() {
+                if g.1 {
+                    // Abandoned earlier: nobody waits for it any more.
+                    ABANDONED.fetch_sub(1, Ordering::SeqCst);
+                    crate::logging::lifecycle(
+                        crate::logging::Level::Info,
+                        &format!(
+                            "foreground: the abandoned {what} step returned after {} ms",
+                            t0.elapsed().as_millis()
+                        ),
+                    );
+                } else {
+                    g.0 = Some(out);
+                    cv.notify_all();
+                }
+            }
+        });
+    if spawned.is_err() {
+        crate::logging::lifecycle(
+            crate::logging::Level::Warn,
+            &format!("foreground: the {what} step couldn't start a thread: skipped"),
+        );
+        return None;
+    }
+    let (lock, cv) = &*shared;
+    let guard = lock.lock().ok()?;
+    let (mut g, _) = cv
+        .wait_timeout_while(guard, limit, |g| g.0.is_none())
+        .ok()?;
+    match g.0.take() {
+        Some(out) => Some(out),
+        None => {
+            // Under the lock: the step can't finish unnoticed in between.
+            g.1 = true;
+            ABANDONED.fetch_add(1, Ordering::SeqCst);
+            None
+        }
+    }
+}
 
 /// AIONE's main window handle (0 until the window exists).
 static MAIN_HWND: AtomicIsize = AtomicIsize::new(0);
@@ -180,7 +260,7 @@ mod win {
     use std::sync::Mutex;
     use std::time::{Duration, Instant};
     use windows::core::PWSTR;
-    use windows::Win32::Foundation::{CloseHandle, HWND};
+    use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, WPARAM};
     use windows::Win32::System::Threading::{
         AttachThreadInput, GetCurrentProcessId, GetCurrentThreadId, OpenProcess,
         QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
@@ -192,10 +272,11 @@ mod win {
     };
     use windows::Win32::UI::WindowsAndMessaging::{
         BringWindowToTop, FlashWindowEx, GetAncestor, GetClassNameW, GetForegroundWindow,
-        GetGUIThreadInfo, GetWindowThreadProcessId, IsIconic, SetForegroundWindow, SetWindowPos,
-        ShowWindow, EVENT_SYSTEM_FOREGROUND, FLASHWINFO, FLASHW_ALL, FLASHW_TIMERNOFG, GA_ROOT,
-        GUITHREADINFO, HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW,
-        SW_RESTORE, WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS,
+        GetGUIThreadInfo, GetWindowThreadProcessId, IsIconic, PeekMessageW, SendMessageTimeoutW,
+        SetForegroundWindow, SetWindowPos, ShowWindow, EVENT_SYSTEM_FOREGROUND, FLASHWINFO,
+        FLASHW_ALL, FLASHW_TIMERNOFG, GA_ROOT, GUITHREADINFO, HWND_NOTOPMOST, HWND_TOPMOST, MSG,
+        PM_NOREMOVE, SMTO_ABORTIFHUNG, SMTO_ERRORONEXIT, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW,
+        SW_RESTORE, WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS, WM_NULL,
     };
 
     fn hwnd(raw: isize) -> HWND {
@@ -280,6 +361,59 @@ mod win {
         super::focus_wording(inside_aione, &class, &program)
     }
 
+    /// D-057: whether the window answers a harmless message (WM_NULL) within `limit`; a busy or
+    /// hung window's thread doesn't, and attaching to it would wait on it.
+    pub fn responds(raw: isize, limit: Duration) -> bool {
+        let mut result = 0usize;
+        // SAFETY: WM_NULL does nothing; SMTO_ABORTIFHUNG returns at once for a hung window and
+        // the time limit bounds the wait otherwise.
+        let r = unsafe {
+            SendMessageTimeoutW(
+                hwnd(raw),
+                WM_NULL,
+                WPARAM(0),
+                LPARAM(0),
+                SMTO_ABORTIFHUNG | SMTO_ERRORONEXIT,
+                limit.as_millis() as u32,
+                Some(&mut result as *mut usize),
+            )
+        };
+        r.0 != 0
+    }
+
+    /// Makes sure the calling thread has a message queue (AttachThreadInput needs one).
+    fn ensure_queue() {
+        let mut msg = MSG::default();
+        // SAFETY: peeks without removing anything; creates this thread's queue.
+        let _ = unsafe { PeekMessageW(&mut msg, None, 0, 0, PM_NOREMOVE) };
+    }
+
+    /// One step under its time limit; its line in the attempts, and whether AIONE is in front.
+    fn limited(
+        attempts: &mut Vec<String>,
+        name: &'static str,
+        target: isize,
+        step: impl FnOnce() -> String + Send + 'static,
+    ) -> bool {
+        let t0 = Instant::now();
+        match super::run_limited(name, super::STEP_LIMIT, step) {
+            Some(note) => {
+                if is_foreground(hwnd(target)) {
+                    return true;
+                }
+                attempts.push(note);
+                false
+            }
+            None => {
+                attempts.push(format!(
+                    "{name}=abandoned after {} ms (didn't return in time)",
+                    t0.elapsed().as_millis()
+                ));
+                is_foreground(hwnd(target))
+            }
+        }
+    }
+
     pub fn bring_to_front(raw: isize) -> ForegroundReport {
         bring_to_front_with(raw, false)
     }
@@ -289,66 +423,94 @@ mod win {
     pub(super) fn bring_to_front_with(raw: isize, skip_direct: bool) -> ForegroundReport {
         let h = hwnd(raw);
         let mut attempts = Vec::new();
-        // SAFETY: Win32 calls on our own window handle; results are checked.
-        unsafe {
-            let before = GetForegroundWindow();
-            let previous = describe_window(before);
-            let done = |method: &str, attempts: Vec<String>| ForegroundReport {
-                ok: true,
-                method: method.into(),
-                attempts,
-                previous: previous.clone(),
-            };
-            // D-038 (rev. ak): a minimized window is restored first, and "already" never counts
-            // while it is minimized (Windows can keep a minimized window as the active one).
-            let was_minimized = IsIconic(h).as_bool();
-            if was_minimized {
-                let _ = ShowWindow(h, SW_RESTORE);
-                attempts.push("minimized: true → restored".to_string());
-            } else {
-                attempts.push("minimized: false".to_string());
-            }
-            if before == h && !was_minimized {
-                return done("already", attempts);
-            }
+        // SAFETY: plain queries.
+        let before = unsafe { GetForegroundWindow() };
+        let previous = describe_window(before);
+        let done = |method: &str, attempts: Vec<String>| ForegroundReport {
+            ok: true,
+            method: method.into(),
+            attempts,
+            previous: previous.clone(),
+        };
+        // D-038 (rev. ak): a minimized window is restored first, and "already" never counts
+        // while it is minimized (Windows can keep a minimized window as the active one).
+        // SAFETY: plain query.
+        let was_minimized = unsafe { IsIconic(h) }.as_bool();
+        if was_minimized {
+            // D-057: restoring a window of a busy program could wait on it: time-limited.
+            let restored = super::run_limited("restore", super::STEP_LIMIT, move || {
+                // SAFETY: the window handle is only passed through.
+                unsafe { ShowWindow(hwnd(raw), SW_RESTORE) }.as_bool()
+            });
+            attempts.push(match restored {
+                Some(_) => "minimized: true → restored".to_string(),
+                None => "minimized: true → restore abandoned after 300 ms".to_string(),
+            });
+        } else {
+            attempts.push("minimized: false".to_string());
+        }
+        if before == h && !was_minimized {
+            return done("already", attempts);
+        }
 
-            // 1. direct
-            if !skip_direct {
-                let _ = SetForegroundWindow(h);
-                if is_foreground(h) {
-                    return done("direct", attempts);
-                }
-                attempts.push("direct=denied".into());
-            }
+        // 1. direct
+        if !skip_direct
+            && limited(&mut attempts, "direct", raw, move || {
+                // SAFETY: Win32 call on a window handle; the result is checked by the caller.
+                let _ = unsafe { SetForegroundWindow(hwnd(raw)) };
+                "direct=denied".into()
+            })
+        {
+            return done("direct", attempts);
+        }
 
-            // 2. attach to the foreground thread's input queue
-            let mut fg_pid = 0u32;
-            let fg_thread = GetWindowThreadProcessId(GetForegroundWindow(), Some(&mut fg_pid));
-            let me = GetCurrentThreadId();
-            // D-039 (rev. al): never attach to (and so wait on) a suspended thread.
-            if crate::pause::is_paused(fg_pid) {
-                attempts.push("attach-thread-input=skipped (the thread in front is paused)".into());
-            } else if crate::launch::game_is_young(fg_pid) {
-                // D-043: a game in its first seconds: its input thread is busy; don't wait on it.
-                attempts.push(
-                    "attach-thread-input=skipped (the game started less than 3 s ago)".into(),
-                );
-            } else if fg_thread != 0 && fg_thread != me {
+        // 2. attach to the foreground thread's input queue
+        // SAFETY: plain queries.
+        let fg = unsafe { GetForegroundWindow() };
+        let mut fg_pid = 0u32;
+        let fg_thread = unsafe { GetWindowThreadProcessId(fg, Some(&mut fg_pid)) };
+        let fg_raw = fg.0 as isize;
+        let own_pid = unsafe { GetCurrentProcessId() };
+        // D-039 (rev. al): never attach to (and so wait on) a suspended thread.
+        if crate::pause::is_paused(fg_pid) {
+            attempts.push("attach-thread-input=skipped (the thread in front is paused)".into());
+        } else if crate::launch::game_is_young(fg_pid) {
+            // D-043: a game in its first seconds: its input thread is busy; don't wait on it.
+            attempts
+                .push("attach-thread-input=skipped (the game started less than 3 s ago)".into());
+        } else if super::abandoned_steps() > 0 {
+            // D-057: an earlier step is still stuck: never stack another wait on top of it.
+            attempts.push(
+                "attach-thread-input=skipped (an earlier step is still waiting on a busy window)"
+                    .into(),
+            );
+        } else if fg_thread == 0 || fg_pid == own_pid {
+            attempts.push("attach-thread-input=skipped".into());
+        } else if !responds(fg_raw, super::RESPONDS_LIMIT) {
+            // D-057: the window in front is busy (didn't answer in 100 ms): attaching would wait.
+            attempts.push(format!(
+                "attach-thread-input=skipped (the window in front didn't answer within {} ms)",
+                super::RESPONDS_LIMIT.as_millis()
+            ));
+        } else if limited(&mut attempts, "attach-thread-input", raw, move || {
+            ensure_queue();
+            // SAFETY: attach / detach this step's own thread; the handle is only passed through.
+            unsafe {
+                let me = GetCurrentThreadId();
                 let attached = AttachThreadInput(me, fg_thread, true).as_bool();
-                let _ = BringWindowToTop(h);
-                let _ = SetForegroundWindow(h);
+                let _ = BringWindowToTop(hwnd(raw));
+                let _ = SetForegroundWindow(hwnd(raw));
                 if attached {
                     let _ = AttachThreadInput(me, fg_thread, false);
                 }
-                if is_foreground(h) {
-                    return done("attach-thread-input", attempts);
-                }
-                attempts.push(format!("attach-thread-input=denied(attached={attached})"));
-            } else {
-                attempts.push("attach-thread-input=skipped".into());
+                format!("attach-thread-input=denied(attached={attached})")
             }
+        }) {
+            return done("attach-thread-input", attempts);
+        }
 
-            // 3. one harmless input event, then try again
+        // 3. one harmless input event, then try again
+        if limited(&mut attempts, "input-event", raw, move || {
             let input = INPUT {
                 r#type: INPUT_MOUSE,
                 Anonymous: INPUT_0 {
@@ -362,43 +524,49 @@ mod win {
                     },
                 },
             };
-            let sent = SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
+            // SAFETY: one well-formed INPUT with its size.
+            let sent = unsafe { SendInput(&[input], std::mem::size_of::<INPUT>() as i32) };
             // D-047 (B-22 rev. ap): AIONE's only synthetic input (never a key; never a press of yours).
             crate::logging::lifecycle(
                 crate::logging::Level::Info,
                 "foreground: synthetic input sent (a zero-distance mouse move)",
             );
-            let _ = SetForegroundWindow(h);
-            if is_foreground(h) {
-                return done("input-event", attempts);
-            }
-            attempts.push(format!("input-event=denied(sent={sent})"));
+            // SAFETY: the window handle is only passed through.
+            let _ = unsafe { SetForegroundWindow(hwnd(raw)) };
+            format!("input-event=denied(sent={sent})")
+        }) {
+            return done("input-event", attempts);
+        }
 
-            // 4. topmost pulse: on and off again at once (never left topmost)
+        // 4. topmost pulse: on and off again at once (never left topmost)
+        if limited(&mut attempts, "topmost-pulse", raw, move || {
             let flags = SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW;
-            let _ = SetWindowPos(h, Some(HWND_TOPMOST), 0, 0, 0, 0, flags);
-            let _ = SetForegroundWindow(h);
-            let _ = SetWindowPos(h, Some(HWND_NOTOPMOST), 0, 0, 0, 0, flags);
-            if is_foreground(h) {
-                return done("topmost-pulse", attempts);
+            // SAFETY: the window handle is only passed through; topmost is removed at once.
+            unsafe {
+                let _ = SetWindowPos(hwnd(raw), Some(HWND_TOPMOST), 0, 0, 0, 0, flags);
+                let _ = SetForegroundWindow(hwnd(raw));
+                let _ = SetWindowPos(hwnd(raw), Some(HWND_NOTOPMOST), 0, 0, 0, 0, flags);
             }
-            attempts.push("topmost-pulse=denied".into());
+            "topmost-pulse=denied".into()
+        }) {
+            return done("topmost-pulse", attempts);
+        }
 
-            let info = FLASHWINFO {
-                cbSize: std::mem::size_of::<FLASHWINFO>() as u32,
-                hwnd: h,
-                dwFlags: FLASHW_ALL | FLASHW_TIMERNOFG,
-                uCount: 0,
-                dwTimeout: 0,
-            };
-            let _ = FlashWindowEx(&info);
-            attempts.push("taskbar flashed".into());
-            ForegroundReport {
-                ok: false,
-                method: "denied".into(),
-                attempts,
-                previous,
-            }
+        let info = FLASHWINFO {
+            cbSize: std::mem::size_of::<FLASHWINFO>() as u32,
+            hwnd: h,
+            dwFlags: FLASHW_ALL | FLASHW_TIMERNOFG,
+            uCount: 0,
+            dwTimeout: 0,
+        };
+        // SAFETY: a well-formed FLASHWINFO.
+        let _ = unsafe { FlashWindowEx(&info) };
+        attempts.push("taskbar flashed".into());
+        ForegroundReport {
+            ok: false,
+            method: "denied".into(),
+            attempts,
+            previous,
         }
     }
 
@@ -543,11 +711,14 @@ mod win {
             (g.own, true)
         };
         if reclaim {
-            let report = bring_to_front(own);
-            logging::lifecycle(
-                if report.ok { Level::Info } else { Level::Warn },
-                &format!("foreground (guard): {}", report.summary()),
-            );
+            // D-057: this callback runs on the main thread: the attempt runs on its own thread.
+            std::thread::spawn(move || {
+                let report = bring_to_front(own);
+                logging::lifecycle(
+                    if report.ok { Level::Info } else { Level::Warn },
+                    &format!("foreground (guard): {}", report.summary()),
+                );
+            });
         }
     }
 }
@@ -665,6 +836,132 @@ mod tests {
             "bringing AIONE forward waited {} ms on the busy game (in front: {in_front}): {summary}",
             took.as_millis()
         );
+    }
+
+    /// The step-limit tests share the abandoned-step counter: one at a time.
+    fn limit_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// D-057: a step that returns in time gives its result.
+    #[test]
+    fn a_quick_step_gives_its_result() {
+        let _one = limit_lock();
+        assert_eq!(super::run_limited("test", super::STEP_LIMIT, || 7), Some(7));
+    }
+
+    /// D-057: a step that doesn't return in time is abandoned at its limit (the caller never
+    /// waits longer), counted while it's stuck, and uncounted when it finally returns.
+    #[test]
+    fn a_slow_step_is_abandoned_at_its_limit() {
+        use std::time::{Duration, Instant};
+        let _one = limit_lock();
+        let before = super::abandoned_steps();
+        let t0 = Instant::now();
+        let out = super::run_limited("test", Duration::from_millis(200), || {
+            std::thread::sleep(Duration::from_millis(1200));
+            1
+        });
+        let waited = t0.elapsed();
+        assert_eq!(out, None);
+        assert!(waited >= Duration::from_millis(200), "gave up too early");
+        assert!(waited < Duration::from_millis(700), "waited {waited:?}");
+        assert_eq!(super::abandoned_steps(), before + 1);
+        let t1 = Instant::now();
+        while super::abandoned_steps() > before && t1.elapsed() < Duration::from_secs(5) {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert_eq!(
+            super::abandoned_steps(),
+            before,
+            "still counted after it returned"
+        );
+    }
+
+    /// D-057, the real mechanism: a busy window (another process whose window thread answers
+    /// nothing) is seen as not answering within the 100 ms limit; a window whose thread answers
+    /// is seen as answering.
+    #[cfg(windows)]
+    #[test]
+    fn d057_a_busy_window_is_seen_as_not_answering() {
+        use std::time::{Duration, Instant};
+        let _one = crate::testfix::one_at_a_time();
+        let busy = crate::testfix::Fixture::start(&["busy", "6000"]);
+        let game = crate::testfix::field(&busy.line("hwnd="), "hwnd") as isize;
+        let t0 = Instant::now();
+        let answered = super::win::responds(game, super::RESPONDS_LIMIT);
+        let took = t0.elapsed();
+        // A window whose thread keeps answering (AIONE's stand-in on its own thread).
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let own = crate::testfix::own_window();
+            let _ = tx.send(own);
+            crate::testfix::pump(Duration::from_secs(2));
+            crate::testfix::close(own);
+        });
+        let own = rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("stand-in window");
+        let own_answered = super::win::responds(own, super::RESPONDS_LIMIT);
+        crate::testfix::notice(
+            "D-057 proof (the answer check)",
+            &format!(
+                "busy window answered: {answered} (checked in {} ms); answering window answered: {own_answered}",
+                took.as_millis()
+            ),
+        );
+        assert!(!answered, "the busy window was taken as answering");
+        assert!(took < Duration::from_millis(500), "the check took {took:?}");
+        assert!(own_answered, "a window that answers was taken as busy");
+    }
+
+    /// D-057, the real mechanism: a step stuck in a call that waits on a busy window (a sent
+    /// message, as the attach waits) is abandoned at its 300 ms limit; it's counted until the
+    /// busy program goes away and the call returns.
+    #[cfg(windows)]
+    #[test]
+    fn d057_a_step_stuck_on_a_busy_window_is_abandoned_in_time() {
+        use std::time::{Duration, Instant};
+        use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+        use windows::Win32::UI::WindowsAndMessaging::{SendMessageW, WM_NULL};
+        let _one = crate::testfix::one_at_a_time();
+        let _limit = limit_lock();
+        let before = super::abandoned_steps();
+        let busy = crate::testfix::Fixture::start(&["busy", "6000"]);
+        let game = crate::testfix::field(&busy.line("hwnd="), "hwnd") as isize;
+        let t0 = Instant::now();
+        let out = super::run_limited("test", super::STEP_LIMIT, move || {
+            // SAFETY: WM_NULL does nothing; this waits until the busy window answers.
+            unsafe {
+                SendMessageW(
+                    HWND(game as *mut _),
+                    WM_NULL,
+                    Some(WPARAM(0)),
+                    Some(LPARAM(0)),
+                )
+            };
+        });
+        let waited = t0.elapsed();
+        crate::testfix::notice(
+            "D-057 proof (the step limit)",
+            &format!(
+                "a step waiting on the busy window was abandoned after {} ms",
+                waited.as_millis()
+            ),
+        );
+        assert!(
+            out.is_none(),
+            "the step returned although the window was busy"
+        );
+        assert!(waited < Duration::from_millis(600), "waited {waited:?}");
+        assert_eq!(super::abandoned_steps(), before + 1);
+        drop(busy); // the busy program ends: the stuck call returns
+        let t1 = Instant::now();
+        while super::abandoned_steps() > before && t1.elapsed() < Duration::from_secs(10) {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert_eq!(super::abandoned_steps(), before);
     }
 
     #[test]

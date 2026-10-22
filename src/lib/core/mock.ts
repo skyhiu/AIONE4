@@ -50,6 +50,10 @@ export interface MockControl {
   pad(control: string, kind?: PadEventKind, pad?: number): void;
   connect(pad?: number): void;
   disconnect(pad?: number): void;
+  /** T2.3: a controller's battery word from the core ("low", "empty", "full", "wired", …). */
+  battery(word: string, pad?: number): void;
+  /** T2.3: a new PC status from the core (the header and the battery notice). */
+  status(s: PcStatus): void;
   decisions: boolean[];
   logs: string[];
   /** performance.now() of each log line (same index as logs). */
@@ -396,6 +400,14 @@ export function createMock(search: string): { core: Core; control: MockControl }
     disconnect(pad = 0) {
       if (connected.has(pad)) emit('disconnected', '', pad);
     },
+    battery(word, pad = 0) {
+      if (!connected.has(pad)) emit('connected', '', pad);
+      emit('battery', word, pad);
+    },
+    status(st) {
+      statusHandlers.forEach((f) => f(st));
+    },
+
     launches: [],
     closes: [],
     returns: [],

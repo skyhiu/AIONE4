@@ -330,9 +330,12 @@ async fn cancel_start(app: AppHandle, id: String) -> Result<String, String> {
 }
 
 /// T1.3 (B-7): A or Guide on the running game brings it back to the front.
+/// D-057: off the main thread (a sync command would run on it and hold up input).
 #[tauri::command]
-fn return_to_game(id: String) -> Result<String, String> {
-    launch::return_to_game(&id)
+async fn return_to_game(id: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || launch::return_to_game(&id))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// B-22: the UI enters an input-locking state (the core owns it, its limit and its log).
@@ -498,9 +501,12 @@ fn note_key(key: String, down: bool) {
 }
 
 /// D-037 (rev. ak): the window-swap hand-back (the game only, a visible window, no step-aside).
+/// D-057: off the main thread, like `return_to_game`.
 #[tauri::command]
-fn hand_back(id: String) -> Result<String, String> {
-    launch::hand_back(&id)
+async fn hand_back(id: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || launch::hand_back(&id))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// D-037: milliseconds since the last Guide press (the UI tells a window swap from Guide).
@@ -786,8 +792,10 @@ fn restart_app(app: AppHandle) -> Result<(), String> {
     }
 }
 
-/// Shows the main window (first time) and takes the foreground with focus (L-20). Runs on the
-/// main thread.
+/// Shows the main window (first time) and takes the foreground with focus (L-20).
+/// D-057: runs on its own thread, never on the main thread (which delivers the core's events,
+/// input included, to AIONE's page): a foreground attempt can never hold up input. Only the
+/// start-up guard's hook is installed on the main thread (it needs that thread's message loop).
 fn show_and_focus(app: &AppHandle, reason: &'static str) {
     let handle = app.clone();
     // D-043: one foreground attempt at a time; a later one is dropped (logged).
@@ -818,6 +826,16 @@ fn show_and_focus(app: &AppHandle, reason: &'static str) {
         let _ = window.unminimize();
         if let Err(e) = window.show() {
             logging::lifecycle(Level::Error, &format!("show failed: {e}"));
+        }
+        // D-057: from this thread, show() is only posted to the main thread; a getter waits for
+        // the main thread's answer, which comes after the show (handled in order), so the window
+        // is shown before the foreground sequence starts (L-20).
+        let shown = window.is_visible().unwrap_or(false);
+        if !shown {
+            logging::lifecycle(
+                Level::Warn,
+                &format!("foreground ({reason}): the window isn't visible yet after show()"),
+            );
         }
         #[cfg(windows)]
         let report = match window.hwnd() {
@@ -882,7 +900,9 @@ fn show_and_focus(app: &AppHandle, reason: &'static str) {
         #[cfg(windows)]
         if first {
             if let Ok(h) = window.hwnd() {
-                foreground::start_guard(h.0 as isize, GUARD_SECONDS);
+                let raw = h.0 as isize;
+                let _ =
+                    handle.run_on_main_thread(move || foreground::start_guard(raw, GUARD_SECONDS));
                 let later = handle.clone();
                 std::thread::spawn(move || {
                     std::thread::sleep(Duration::from_secs(GUARD_SECONDS));
@@ -891,10 +911,14 @@ fn show_and_focus(app: &AppHandle, reason: &'static str) {
             }
         }
     };
-    if let Err(e) = app.run_on_main_thread(run) {
+    if let Err(e) = std::thread::Builder::new()
+        .name("aione-foreground".into())
+        .spawn(run)
+    {
+        FG_BUSY.store(false, Ordering::SeqCst);
         logging::lifecycle(
             Level::Error,
-            &format!("could not reach the main thread: {e}"),
+            &format!("foreground ({reason}): could not start its thread: {e}"),
         );
     }
 }

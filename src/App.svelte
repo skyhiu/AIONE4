@@ -51,6 +51,8 @@
   import type { BootMedia } from './lib/core/types';
   import CopyDialog from './lib/components/CopyDialog.svelte';
   import ConfirmDialog from './lib/components/ConfirmDialog.svelte';
+  import Notification from './lib/components/Notification.svelte';
+  import * as notices from './lib/notify/notices';
 
   /** Mouse movement that counts as deliberate (A7): beyond this many CSS pixels. */
   const MOUSE_THRESHOLD_PX = 6;
@@ -583,6 +585,40 @@
   let qm = $state<{ row: number } | null>(null);
   /** Rev. ax: Power options (a short centered list), its focused item; null when closed. */
   let po = $state<number | null>(null);
+
+  // ---------- T2.3: notifications (a game ended, a controller, a battery low) ----------
+  let noticeQueue = $state(notices.emptyQueue());
+  let noticeTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Each controller's battery level last noticed (slot 1–4; reset at its connection). */
+  const padBatteryLast: Record<number, string | null> = {};
+  let pcBatteryLast: number | null = null;
+  /** AIONE's window has the keyboard focus (false while a game or another program is in front). */
+  let windowFocused = $state(true);
+  /** A notice never covers a dialog, and waits while AIONE is busy or behind a game. */
+  const noticeBlocked = $derived(
+    phase !== 'home' || dialogOpen || !!confirm || po !== null || veil || launching !== 'none' || !windowFocused,
+  );
+  function pumpNotices() {
+    const r = notices.step(noticeQueue, performance.now(), noticeBlocked);
+    noticeQueue = r.q;
+    for (const n of r.stale) core?.log('info', `notification dropped (it waited over ${notices.STALE_MS / 1000} s): ${notices.describe(n)}`);
+    if (r.shown) core?.log('info', `notification shown: ${notices.describe(r.shown)}`);
+    if (noticeTimer) clearTimeout(noticeTimer);
+    noticeTimer = null;
+    const due = notices.nextDue(noticeQueue, performance.now());
+    if (due !== null) noticeTimer = setTimeout(pumpNotices, due);
+  }
+  function notify(n: notices.Notice, why: string) {
+    const r = notices.push(noticeQueue, n);
+    noticeQueue = r.q;
+    for (const d of r.dropped) core?.log('info', `notification replaced or dropped (queue): ${notices.describe(d)}`);
+    core?.log('info', `notification queued (${why}): ${notices.describe(n)}${noticeBlocked ? ' (waits: AIONE is busy, behind a game, or a dialog is open)' : ''}`);
+    pumpNotices();
+  }
+  // A dialog closed, a launch ended, AIONE came back: a waiting notice may show now.
+  $effect(() => {
+    if (!noticeBlocked) untrack(() => pumpNotices());
+  });
   /** AIONE's own volume and mute, as the Quick Menu shows and changes them (B-24's store). */
   let uiVolume = $state(100);
   let uiMuted = $state(false);
@@ -1354,6 +1390,15 @@
         await c.onPad((ev) => {
           if (ev.kind === 'connected' || ev.kind === 'disconnected') {
             pads = applyPadConnection(pads, ev.pad + 1, ev.kind === 'connected', ev.seq);
+            padBatteryLast[ev.pad + 1] = null;
+            // T2.3: a controller already connected as AIONE starts isn't news (Home not shown yet).
+            if (phase === 'home') notify(notices.padConnection(ev.pad + 1, ev.kind === 'connected', performance.now()), `controller ${ev.pad + 1} ${ev.kind}`);
+            return;
+          }
+          if (ev.kind === 'battery') {
+            const r = notices.padBattery(ev.pad + 1, ev.control, padBatteryLast[ev.pad + 1] ?? null, performance.now());
+            padBatteryLast[ev.pad + 1] = r.last;
+            if (r.notice) notify(r.notice, `controller ${ev.pad + 1} battery ${ev.control}`);
             return;
           }
           const input = fromPadEvent(ev);
@@ -1364,7 +1409,12 @@
           flow = flowDone(flow, r);
           void reloadLibrary(c);
         }),
-        await c.onStatus((s) => (status = s)),
+        await c.onStatus((s) => {
+          status = s;
+          const r = notices.pcBattery(s.battery, pcBatteryLast, performance.now());
+          pcBatteryLast = r.last;
+          if (r.notice) notify(r.notice, `the PC's battery ${s.battery?.percent ?? '?'} %`);
+        }),
         // D-010: a copy made in the background is decoded first, then swapped in.
         await c.onTile((t) => (phase === 'home' ? swapTile(c, t) : pendingTiles.push(t))),
       );
@@ -1393,6 +1443,7 @@
             return;
           }
           returnHome(`"${e.name}" ended`);
+          notify(notices.gameEnded(e.name, e.minutes, performance.now()), 'the game ended');
           runningId = null;
           games = sortForHome(games);
           focusGame(id);
@@ -1663,8 +1714,12 @@
   onblur={() => {
     keys.releaseAll();
     presenter?.setForeground(false);
+    windowFocused = false;
   }}
-  onfocus={() => presenter?.setForeground(true)}
+  onfocus={() => {
+    presenter?.setForeground(true);
+    windowFocused = true;
+  }}
 />
 
 <!-- D-010: black (the html background) until the library is loaded; then Home. -->
@@ -1721,6 +1776,7 @@
     scale={(info?.interfaceScale ?? 100) / 100}
     extras={extrasOn ? ['titlefade', 'press', 'labelfade'] : []}
   />{/if}
+  <Notification notice={noticeQueue.showing} />
   {#if toast && phase === 'home'}
     <div class="toast" role="status" data-testid="toast">{toast}</div>
   {/if}

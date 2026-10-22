@@ -17,7 +17,7 @@ use std::sync::Mutex;
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct PadEvent {
-    /// "down" | "up" | "repeat" | "connected" | "disconnected"
+    /// "down" | "up" | "repeat" | "held" | "connected" | "disconnected" | "battery"
     pub kind: &'static str,
     pub control: &'static str,
     /// XInput slot 0–3.
@@ -25,6 +25,21 @@ pub struct PadEvent {
     pub seq: u64,
     /// D-008: when the core read it (Unix time in ms), so the UI can log the core → UI delay.
     pub at_ms: u64,
+}
+
+/// T2.3 notifications: a controller's battery as XInput reports it (XINPUT_BATTERY_INFORMATION):
+/// "wired", "unknown", or the level of a battery: "empty", "low", "medium", "full".
+pub fn battery_word(battery_type: u8, level: u8) -> &'static str {
+    match battery_type {
+        0x01 => "wired",
+        0x00 | 0xFF => "unknown",
+        _ => match level {
+            0 => "empty",
+            1 => "low",
+            2 => "medium",
+            _ => "full",
+        },
+    }
 }
 
 /// Unix time in milliseconds (the UI's `Date.now()` uses the same clock).
@@ -99,6 +114,19 @@ pub fn start(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// XInput's battery types: 0 disconnected, 1 wired, 2 alkaline, 3 NiMH, 0xFF unknown; levels
+    /// 0 empty … 3 full.
+    #[test]
+    fn battery_words() {
+        assert_eq!(battery_word(1, 0), "wired");
+        assert_eq!(battery_word(0, 3), "unknown");
+        assert_eq!(battery_word(0xFF, 1), "unknown");
+        assert_eq!(battery_word(2, 0), "empty");
+        assert_eq!(battery_word(3, 1), "low");
+        assert_eq!(battery_word(2, 2), "medium");
+        assert_eq!(battery_word(3, 3), "full");
+    }
 
     #[test]
     fn slots_snapshot_follows_connection_changes() {

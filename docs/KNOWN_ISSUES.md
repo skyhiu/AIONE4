@@ -34,6 +34,15 @@ an item Fixed and Verified.
 | QA-4 (T0 test): an autostart start is not marked | **Implemented, Unverified**: the entry runs `"<exe>" --from-autostart`; logged "started by Windows at sign-in". Unit test on the command. |
 | QA-5 (T0 retest): closing logged as "the user switched away" | **Implemented, Unverified**: exit stops the guard first ("AIONE is closing"); later foreground changes are ignored. Unit test on the guard's decision. Windows code compiles first in CI. |
 
+## 4.0.0-alpha.36
+
+| Item | Status |
+|---|---|
+| D-057 (High): a foreground attempt waited on a busy game and froze AIONE's input for 23 s | **Implemented, Unverified.** Cause **confirmed in the source**: the attempt ran on the main thread, which also delivers every input event to the page; that the attach step waits on a busy game is shown by CI's real-window test (alpha.36 handoff). Fix: each step time-limited (300 ms, abandoned and logged), the answer check (100 ms) before attaching, no attach while one is stuck, the attempt off the main thread. PC check: Guide 20 × during Minecraft and Balatro. |
+| D-058 (Medium): the return looked only at the launcher's process (Minecraft) | **Implemented, Unverified.** Cause **confirmed** (QA's lines and the source). The game's main window is found across its process tree and logged with its program; a counted game ends when its process has ended and no process it started shows a window; Close Software asks every window of the tree. CI: a real launcher process that hides its window while its child shows the game. PC check: Minecraft, Play, 10 returns. |
+| Notifications (T2.3) | **Implemented, Unverified.** A game ended, controller connected / disconnected, controller battery low / empty, the PC's battery at 20 % and 10 %. |
+| The right-stick pointer (B-12), foreground loss and regain polish | **Moved to alpha.37** (A2: the build's size). |
+
 ## 4.0.0-alpha.17
 
 | Item | Status |

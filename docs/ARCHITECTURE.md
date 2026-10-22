@@ -667,3 +667,46 @@ gain administrator rights silently** by asking the helper to allow and start it.
 
 Not built in alpha.35: it waits for the user's choice and is built in alpha.36.
 
+
+## Bringing a window to the front without waiting on a busy game (alpha.36, D-057)
+
+- `foreground::bring_to_front` runs each step (the restore, then *direct*, *attach-thread-input*,
+  *input-event*, *topmost-pulse*) through `foreground::run_limited`: its own short-lived thread and a
+  **300 ms** limit (`STEP_LIMIT`). A step that doesn't return is **abandoned**: the caller moves on,
+  the step is counted (`abandoned_steps()`) until it returns, and its late return is logged.
+- Before *attach-thread-input*, `responds()` sends the window in front a WM_NULL with
+  `SendMessageTimeout` (100 ms, abort if hung). A busy window doesn't answer: the attach is skipped
+  (logged `attach-thread-input=skipped (the window in front didn't answer within 100 ms)`). No new
+  attach while an abandoned step is still stuck. The D-039 (paused) and D-043 (young game) skips stay.
+- **Never on the main thread:** the main thread delivers the core's events (input included) to the
+  page. `show_and_focus` runs on its own thread (`aione-foreground`; only the start-up guard's hook is
+  installed on the main thread), the guard's retakes run on a thread, and `return_to_game` /
+  `hand_back` are async commands (`spawn_blocking`).
+- Worst case for one attempt: about 1.6 s (every step at its limit); the pause's 1 s watchdog still
+  applies.
+- Proof: `foreground.rs` tests with the real fixture program (`examples/window_fixture.rs busy`).
+
+## The game's process tree for the window, the end and the close (alpha.36, D-058)
+
+- `launch::game_window(pid)`: the windows of `pause::tree(pid)` (the same tree the pause and close
+  use), listed once in Windows' order (`windows_of`), chosen by `pick_window`: the largest visible
+  window, the higher one on a tie, else the highest minimized one. Used by the return
+  (`hand_over`), the window swap (`hand_back`) and the "still loading" check.
+- `alive()` for a **counted** game = `tree_alive()`: its process is alive, or a process it started
+  shows a window. Before it's counted (the launcher phase), only its own process counts (D-032's
+  follow is unchanged).
+- Close Software sends WM_CLOSE to every window of the tree and waits (3 s) while any process of the
+  tree is alive, then ends what's left (unchanged).
+
+## Notifications (alpha.36, T2.3)
+
+- Model: `src/lib/notify/notices.ts` (pure; unit-tested): a queue shown one at a time for 4 s; the
+  same subject (`key`) replaces a waiting notice; held while AIONE isn't free (not Home, a dialog,
+  Power options, the black veil, a launch / return / close, or AIONE's window not focused); controller
+  and battery notices dropped after waiting 30 s. One timer (the shown notice's end), no polling.
+- Sources: `aione://pad` `connected` / `disconnected` (only once Home is shown) and `battery` (the
+  core reads `XInputGetBatteryInformation` at the connection and every 60 s, sends the word only when
+  it changes: `empty` / `low` / `medium` / `full` / `wired` / `unknown`); `aione://status` (the PC's
+  battery: 20 % and 10 % while not charging); `aione://game-exited`.
+- View: `Notification.svelte` (top-left, never focusable, `pointer-events: none`). Log lines:
+  `notification queued (<why>): …`, `notification shown: …`, `notification dropped …`.

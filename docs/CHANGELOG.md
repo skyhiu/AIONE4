@@ -1,5 +1,21 @@
 # Changelog
 
+## 4.0.0-alpha.36 — T2.3 continued: D-057, D-058, notifications
+
+- **D-057:** bringing AIONE to the front never waits on a busy game: each step has a 300 ms limit
+  (abandoned and logged), the window in front must answer within 100 ms before attach-thread-input,
+  no new attach while one is stuck, and the whole attempt runs off the main thread (which delivers
+  input to the page). "Back to the game" and the window swap run off it too.
+- **D-058:** the game's main window is found across its process tree (Minecraft: the game in the
+  second `javaw.exe`), logged with its program; the game's end and Close Software count the tree.
+- **Notifications:** a game ended, a controller connected / disconnected, a controller's battery
+  low or empty (read from XInput once a minute), the PC's battery at 20 % and 10 %; one design,
+  one at a time, never over a dialog, never focusable.
+- **`docs/GLOSSARY.md`** (A14.17).
+- **Tests with real Windows windows and processes** (`examples/window_fixture.rs`): a busy game
+  window; a launcher that starts a child game window. Their measurements appear as CI notices.
+- Moved to alpha.37: the right-stick pointer (B-12), foreground loss and regain polish.
+
 ## 4.0.0-alpha.35 — T2.3 begins: Sleep Mode, plus the carried fixes
 
 - **D-056:** Alt + ` both ways (the hook reinstalled every 30 s; caught by the page too); ignored

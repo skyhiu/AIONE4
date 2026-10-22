@@ -905,9 +905,9 @@ pub fn hand_back(id: &str) -> Result<String, String> {
     }
     let pid = r
         .pid
-        .filter(|p| process_alive(*p))
+        .filter(|p| tree_alive(*p))
         .ok_or("its process has ended")?;
-    let w = main_window_of(pid).ok_or("no visible window of the game: no hand-back")?;
+    let (w, _) = game_window(pid).ok_or("no visible window of the game: no hand-back")?;
     let report = crate::foreground::bring_to_front(w);
     let m = format!("window swap: \"{}\": {}", r.name, report.summary());
     logging::lifecycle(Level::Info, &m);
@@ -989,20 +989,19 @@ pub fn return_to_game(id: &str) -> Result<String, String> {
 /// still refuses, AIONE steps aside: the game's window goes to the top (not activated) and AIONE
 /// minimizes itself, so Windows activates the game; the next Guide restores AIONE.
 fn hand_over(r: &Running, what: &str) -> Result<String, String> {
-    if r.pid.is_some_and(|p| !process_alive(p)) {
+    if r.pid.is_some() && !alive(r) {
         return Err(format!(
             "{what} \"{}\": its process has ended (no hand-over)",
             r.name
         ));
     }
-    let target = r
-        .pid
-        .and_then(game_window)
+    let found = r.pid.and_then(game_window);
+    let target = found
         .map(|(w, _)| w)
         .or(r.window.filter(|w| window_alive(*w)));
     let Some(main) = target else {
         let m = format!(
-            "{what} \"{}\": no window of {} found",
+            "{what} \"{}\": no window of {} or the programs it started found",
             r.name,
             r.exe.clone().unwrap_or_default()
         );
@@ -1014,9 +1013,21 @@ fn hand_over(r: &Running, what: &str) -> Result<String, String> {
     logging::lifecycle(
         Level::Info,
         &format!(
-            "{what} \"{}\": its window {}{}",
+            "{what} \"{}\": its window {} ({}){}",
             r.name,
             window_state(main),
+            match found {
+                Some((_, p)) => format!(
+                    "{}, process {p}{}",
+                    exe_of(p).unwrap_or_else(|| "unknown".into()),
+                    if Some(p) == r.pid {
+                        ""
+                    } else {
+                        ", started by the game's process"
+                    }
+                ),
+                None => "its last known window".into(),
+            },
             popup
                 .map(|p| format!("; its active pop-up {}", window_state(p)))
                 .unwrap_or_default()
@@ -1066,13 +1077,53 @@ fn hand_over(r: &Running, what: &str) -> Result<String, String> {
     }
 }
 
-/// D-058: the game's main window, found again each time, with the process it belongs to.
+/// D-058: one top-level window of the game's process tree, as Windows lists it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WindowSeen {
+    pub window: isize,
+    pub pid: u32,
+    pub area: i64,
+    pub minimized: bool,
+    /// Its place in Windows' window order (0 = on top: shown or activated most recently).
+    pub order: usize,
+}
+
+/// D-058: the game's main window among its tree's windows: the largest visible one, the one
+/// higher in Windows' window order (shown or activated more recently) when two are as large;
+/// else the highest minimized one. With its process.
+pub fn pick_window(seen: &[WindowSeen]) -> Option<(isize, u32)> {
+    let best = |minimized: bool| {
+        seen.iter()
+            .filter(|w| w.minimized == minimized)
+            .min_by_key(|w| {
+                (
+                    std::cmp::Reverse(if minimized { 0 } else { w.area }),
+                    w.order,
+                )
+            })
+            .map(|w| (w.window, w.pid))
+    };
+    best(false).or_else(|| best(true))
+}
+
+/// D-058: the game's main window, found again each time **across its process tree** (the
+/// counted process and every process it started, as the pause and the close see it), with the
+/// process it belongs to. Minecraft: the launcher's `javaw.exe` hides its window while the game
+/// it started (a second `javaw.exe`) shows the big one.
 fn game_window(pid: u32) -> Option<(isize, u32)> {
-    main_window_of(pid).map(|w| (w, pid))
+    let tree = crate::pause::tree(&process_list(), pid);
+    pick_window(&windows_of(&tree))
+}
+
+/// D-058: the game (once counted) lives while its process does, or while a process it started
+/// shows a window. A leftover helper without a window never keeps it running.
+fn tree_alive(pid: u32) -> bool {
+    process_alive(pid) || game_window(pid).is_some()
 }
 
 fn alive(r: &Running) -> bool {
     match r.pid {
+        Some(p) if r.counted_at.is_some() => tree_alive(p),
         Some(p) => process_alive(p),
         None => r.window.is_some_and(window_alive),
     }
@@ -1103,7 +1154,7 @@ fn watch(gen: u64, report: impl Fn(Event)) {
         // B-22 rev. ap: is the game still loading? (the same window, size and position, in front)
         if let Some((t0, changed, last)) = r.loading {
             let now = Instant::now();
-            let w = r.pid.and_then(main_window_of).unwrap_or(0);
+            let w = r.pid.and_then(game_window).map(|(w, _)| w).unwrap_or(0);
             let front = foreground_program()
                 .map(|(_, p, _)| Some(p) == r.pid)
                 .unwrap_or(false);
@@ -1525,23 +1576,26 @@ pub fn close_game(
         return Err("its process isn't known, so AIONE can't close it".into());
     };
     let t0 = Instant::now();
-    let n = close_windows_of(pid);
-    logging::lifecycle(
-        Level::Info,
-        &format!(
-            "close \"{}\": asked {n} window(s) of {} to close (as their ✕ would); up to 3 s",
-            r.name,
-            r.exe.clone().unwrap_or_default()
-        ),
-    );
     let tree_alive = |root: u32| {
         crate::pause::tree(&process_list(), root)
             .into_iter()
             .filter(|p| process_alive(*p))
             .count()
     };
+    // D-058: every window of the game's tree (Minecraft: the game the launcher started, too).
+    let tree = crate::pause::tree(&process_list(), pid);
+    let n: usize = tree.iter().map(|p| close_windows_of(*p)).sum();
+    logging::lifecycle(
+        Level::Info,
+        &format!(
+            "close \"{}\": asked {n} window(s) of {} and the programs it started ({} process(es)) to close (as their ✕ would); up to 3 s",
+            r.name,
+            r.exe.clone().unwrap_or_default(),
+            tree.len()
+        ),
+    );
     // About 3 s for the game to close itself (most games save their settings in that time).
-    while n > 0 && t0.elapsed() < CLOSE_GRACE && process_alive(pid) {
+    while n > 0 && t0.elapsed() < CLOSE_GRACE && tree_alive(pid) > 0 {
         std::thread::sleep(Duration::from_millis(100));
     }
     if !process_alive(pid) && tree_alive(pid) == 0 {
@@ -1775,6 +1829,51 @@ mod win {
         } else {
             None
         }
+    }
+
+    struct Seen {
+        pids: Vec<u32>,
+        out: Vec<super::WindowSeen>,
+        order: usize,
+    }
+
+    unsafe extern "system" fn seen_each(h: HWND, l: LPARAM) -> BOOL {
+        let s = unsafe { &mut *(l.0 as *mut Seen) };
+        let order = s.order;
+        s.order += 1;
+        let mut pid = 0u32;
+        unsafe { GetWindowThreadProcessId(h, Some(&mut pid)) };
+        let owned = unsafe { GetWindow(h, GW_OWNER) }.is_ok_and(|o| !o.is_invalid());
+        if !s.pids.contains(&pid) || owned || !unsafe { IsWindowVisible(h) }.as_bool() {
+            return BOOL(1);
+        }
+        let minimized = unsafe { IsIconic(h) }.as_bool();
+        let mut rc = RECT::default();
+        let area = if unsafe { GetWindowRect(h, &mut rc) }.is_ok() {
+            i64::from(rc.right - rc.left) * i64::from(rc.bottom - rc.top)
+        } else {
+            0
+        };
+        s.out.push(super::WindowSeen {
+            window: h.0 as isize,
+            pid,
+            area,
+            minimized,
+            order,
+        });
+        BOOL(1)
+    }
+
+    /// D-058: the visible top-level windows (not owned pop-ups) of these processes, in Windows'
+    /// window order (EnumWindows lists the top one first), the same rule as `main_window_of`.
+    pub fn windows_of(pids: &[u32]) -> Vec<super::WindowSeen> {
+        let mut s = Seen {
+            pids: pids.to_vec(),
+            out: Vec::new(),
+            order: 0,
+        };
+        let _ = unsafe { EnumWindows(Some(seen_each), LPARAM(&mut s as *mut Seen as isize)) };
+        s.out
     }
 
     /// The window's active pop-up (e.g. a "Quit?" question), if it has a visible one.
@@ -2071,7 +2170,7 @@ mod win {
 use win::{
     active_popup, close_windows_of, compat_layers, exe_of, foreground_program, keys_program,
     main_window_of, process_alive, process_list, shell_open, steam_root, step_aside,
-    token_elevated, top_window_of, window_alive, window_rect, window_state,
+    token_elevated, top_window_of, window_alive, window_rect, window_state, windows_of,
 };
 
 #[cfg(not(windows))]
@@ -2133,6 +2232,10 @@ fn steam_root() -> Option<std::path::PathBuf> {
 #[cfg(not(windows))]
 fn keys_program() -> Option<String> {
     None
+}
+#[cfg(not(windows))]
+fn windows_of(_pids: &[u32]) -> Vec<WindowSeen> {
+    Vec::new()
 }
 #[cfg(not(windows))]
 fn main_window_of(_pid: u32) -> Option<isize> {
@@ -2420,5 +2523,70 @@ mod tests {
         let (w, p) = found.expect("no window of the launcher's process tree found");
         assert_eq!(p, game_pid, "the window found isn't the game's");
         assert_ne!(w, launcher_window);
+    }
+
+    /// D-058: the largest visible window wins; on a tie the one higher in Windows' order (shown
+    /// more recently); a minimized window only when nothing visible is left.
+    #[test]
+    fn the_games_window_is_the_largest_visible_one_of_its_tree() {
+        let w = |window, pid, area, minimized, order| WindowSeen {
+            window,
+            pid,
+            area,
+            minimized,
+            order,
+        };
+        // Minecraft: the launcher's small window and the game's big one (the game higher).
+        let both = [
+            w(1, 14372, 424 * 127, false, 3),
+            w(2, 15904, 1920 * 1080, false, 0),
+        ];
+        assert_eq!(pick_window(&both), Some((2, 15904)));
+        // As large: the more recent (higher) one.
+        let tie = [w(1, 10, 500, false, 5), w(2, 11, 500, false, 1)];
+        assert_eq!(pick_window(&tie), Some((2, 11)));
+        // A visible window beats a larger minimized one.
+        let min = [w(1, 10, 9_000_000, true, 0), w(2, 11, 50_000, false, 4)];
+        assert_eq!(pick_window(&min), Some((2, 11)));
+        // Only minimized ones: the highest.
+        let only = [w(1, 10, 100, true, 7), w(2, 11, 900, true, 2)];
+        assert_eq!(pick_window(&only), Some((2, 11)));
+        assert_eq!(pick_window(&[]), None);
+    }
+
+    /// D-058, the real mechanism: when the game the launcher started ends, the launcher's window
+    /// comes back and is the game's window again (the tree still has a window: not the end yet).
+    #[cfg(windows)]
+    #[test]
+    fn d058_when_the_started_game_ends_the_launchers_window_is_found_again() {
+        let _one = crate::testfix::one_at_a_time();
+        let launcher = crate::testfix::Fixture::start(&["launcher"]);
+        let line = launcher.line("launcher=");
+        let launcher_window = crate::testfix::field(&line, "launcher") as isize;
+        let game_pid = crate::testfix::field(&line, "game_pid") as u32;
+        let t0 = Instant::now();
+        while game_window(launcher.pid()).is_none_or(|(_, p)| p != game_pid)
+            && t0.elapsed() < Duration::from_secs(10)
+        {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        // The game ends (killed, as a crash or a quit would end it).
+        assert!(terminate(game_pid), "couldn't end the fixture's game");
+        launcher.line("game_ended");
+        let t1 = Instant::now();
+        let mut found = None;
+        while t1.elapsed() < Duration::from_secs(5) {
+            found = game_window(launcher.pid());
+            if found.is_some_and(|(w, _)| w == launcher_window) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        crate::testfix::notice(
+            "D-058 proof (the game ended)",
+            &format!("after the started game ended: found {found:?}; the launcher's window is {launcher_window}; the tree still alive: {}", tree_alive(launcher.pid())),
+        );
+        assert_eq!(found, Some((launcher_window, launcher.pid())));
+        assert!(tree_alive(launcher.pid()));
     }
 }

@@ -40,10 +40,41 @@ struct XInputStateEx {
 
 type GetStateFn = unsafe extern "system" fn(u32, *mut XInputStateEx) -> u32;
 
+/// XINPUT_BATTERY_INFORMATION.
+#[repr(C)]
+#[derive(Default, Clone, Copy)]
+struct XInputBattery {
+    battery_type: u8,
+    battery_level: u8,
+}
+
+/// XInputGetBatteryInformation (xinput1_4 / xinput1_3; not in xinput9_1_0).
+type BatteryFn = unsafe extern "system" fn(u32, u8, *mut XInputBattery) -> u32;
+/// T2.3 notifications: a connected pad's battery is read at its connection, then once a minute.
+const BATTERY_EVERY: Duration = Duration::from_secs(60);
+
 const ERROR_SUCCESS: u32 = 0;
 const POLL_CONNECTED: Duration = Duration::from_millis(8);
 const POLL_IDLE: Duration = Duration::from_millis(250);
 const PROBE_EMPTY_SLOT: Duration = Duration::from_secs(1);
+
+/// XInputGetBatteryInformation from the loaded XInput, if it has it.
+fn load_battery() -> Option<BatteryFn> {
+    for dll in [w!("xinput1_4.dll"), w!("xinput1_3.dll")] {
+        // SAFETY: loading a system DLL by name; the handle is kept for the process lifetime.
+        let Ok(module) = (unsafe { LoadLibraryW(dll) }) else {
+            continue;
+        };
+        // SAFETY: GetProcAddress by name.
+        if let Some(f) = unsafe { GetProcAddress(module, s!("XInputGetBatteryInformation")) } {
+            // SAFETY: XInputGetBatteryInformation has the signature of BatteryFn.
+            return Some(unsafe {
+                std::mem::transmute::<unsafe extern "system" fn() -> isize, BatteryFn>(f)
+            });
+        }
+    }
+    None
+}
 
 fn load() -> Option<(GetStateFn, String)> {
     let dlls: [(PCWSTR, &str); 3] = [
@@ -92,16 +123,30 @@ pub fn start(emit: impl Fn(PadEvent) + Send + 'static, guide: impl Fn() + Send +
                 "input",
                 &format!("XInput ready: {how}; polling 8 ms while a pad is connected"),
             );
-            run(get_state, emit, guide);
+            let battery = load_battery();
+            if battery.is_none() {
+                logging::info(
+                    "input",
+                    "XInputGetBatteryInformation not available: no controller battery notices",
+                );
+            }
+            run(get_state, battery, emit, guide);
         });
     if let Err(e) = spawned {
         logging::error("input", &format!("could not start the input thread: {e}"));
     }
 }
 
-fn run(get_state: GetStateFn, emit: impl Fn(PadEvent), guide: impl Fn()) {
+fn run(
+    get_state: GetStateFn,
+    battery: Option<BatteryFn>,
+    emit: impl Fn(PadEvent),
+    guide: impl Fn(),
+) {
     let mut trackers: [PadTracker; 4] = Default::default();
     let mut connected = [false; 4];
+    // T2.3 notifications: each pad's last battery word and when it was read.
+    let mut battery_seen: [Option<(&'static str, Instant)>; 4] = [None; 4];
     let mut last_probe = [None::<Instant>; 4];
     // B-7: in the background only Guide acts; everything else is logged only.
     let gate = RefCell::new(BackgroundGate::default());
@@ -293,10 +338,29 @@ fn run(get_state: GetStateFn, emit: impl Fn(PadEvent), guide: impl Fn()) {
                 for e in trackers[i].update(&raw, now) {
                     out(&e, slot);
                 }
+                // T2.3 notifications: the battery, at the connection and then once a minute.
+                if let Some(get_battery) = battery {
+                    if battery_seen[i].is_none_or(|(_, t)| now.duration_since(t) >= BATTERY_EVERY) {
+                        let mut b = XInputBattery::default();
+                        // SAFETY: valid pointer; 0 = BATTERY_DEVTYPE_GAMEPAD.
+                        let rc = unsafe { get_battery(slot, 0, &mut b) };
+                        let word = if rc == ERROR_SUCCESS {
+                            super::battery_word(b.battery_type, b.battery_level)
+                        } else {
+                            "unknown"
+                        };
+                        if battery_seen[i].map(|(w, _)| w) != Some(word) {
+                            logging::info("input", &format!("pad {} battery: {word}", slot + 1));
+                            send("battery", word, slot, "");
+                        }
+                        battery_seen[i] = Some((word, now));
+                    }
+                }
             } else {
                 last_probe[i] = Some(now);
                 if connected[i] {
                     connected[i] = false;
+                    battery_seen[i] = None;
                     for e in trackers[i].release_all(now) {
                         out(&e, slot);
                     }

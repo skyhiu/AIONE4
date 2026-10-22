@@ -281,3 +281,18 @@ scales text; tiles follow the window only).
   gaps 7 / 53 px (16 / 63 px ink to ink, measured); text 2.23 rem (capitals about 27 px), regular;
   divider 2 px, `--color-footer-divider`.
 
+
+## Notifications (alpha.36, T2.3) — current
+
+- **Place:** top-left, in the Home header's empty spot (left 60 px, top 36 px at 1080 p; the header's
+  half-rate scale for the top), above Home, below every dialog (z 60; dialogs hold notices anyway).
+- **Card:** the surface colour, radius 20, soft shadow (0 6 22, 18 % black), padding 16 / 28 / 16 / 18;
+  at most 760 wide (text ellipsized). All sizes follow Interface Scale (`--ui`).
+- **Badge:** a 60 px circle in the soft accent fill (`--color-soft`) with a Material Symbols Rounded
+  icon (38 px) in the hover accent (`--color-hover`): light #B5005A on #FFC2E0 (about 4.3:1), dark
+  #FF69B4 on #480024 (about 6:1). Icons: `sports_esports` (a game ended), `videogame_asset` /
+  `videogame_asset_off` (a controller), `battery_alert` (a battery).
+- **Text:** the title at the footer's size (`--text-label`), the detail a step smaller (`--text-md`) in
+  the muted text colour.
+- **Motion:** in over 200 ms (fade and 16 px drop, ease-out, transform and opacity only); gone after
+  4 s with a 200 ms fade. One at a time.
