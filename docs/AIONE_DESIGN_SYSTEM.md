@@ -298,3 +298,24 @@ scales text; tiles follow the window only).
   the muted text colour.
 - **Motion:** in over 200 ms (fade and 16 px drop, ease-out, transform and opacity only); gone after
   4 s with a 200 ms fade. One at a time.
+
+
+## alpha.37 (A16, B-12) — current, superseding the sections above where they differ
+
+- **Fonts:** `--font-ui` is `'M PLUS Rounded 1c', sans-serif`: the bundled family only (no named
+  system font in any stack; the generic family is a last resort behind `font-display: block`).
+- **Icons:** Material Symbols Rounded only, everywhere. The **Quick Menu's** row icons are now the
+  font's `power_settings_new` (as the drawer's Power), `light_mode` (Brightness), `volume_up` /
+  `volume_off` (Volume, muted), in the same 38 px box, weight 300 (they were hand-drawn SVG).
+  The header battery's empty frame is `battery_android_frame_alert` (the font has no `_0`; below
+  about 8 % the header showed that name as text).
+- **Notification (revised):** Power Options' panel values: radius 12 and shadow 0 8 28 at 25 %
+  black (both presets; no outline). Icons: the header's own symbols: `sports_esports` for a
+  controller (dimmed, `--color-icon-dim`, when disconnected), `battery_android_frame_alert` for a
+  battery, `videogame_asset` for a game that ended; the badge, text and motion as above.
+- **The right-stick pointer (B-12):** Material Symbols Rounded `arrow_selector_tool`, filled
+  (FILL 1, weight 400, opsz 48), 48 px (Interface Scale), in the ring colour `--color-ring`
+  (#D9006C, both presets) with a 2.5 px white edge in the ring's band colour
+  (`--color-ring-gap`), so it reads over any art; the tip is the point. Above everything (z 2000),
+  never takes a click. Moves by transform only; fades in and out over `--motion-fast` (120 ms).
+  Speed: 1500 design px/s at full tilt, growing with the tilt squared.

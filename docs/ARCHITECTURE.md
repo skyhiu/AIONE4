@@ -710,3 +710,37 @@ Not built in alpha.35: it waits for the user's choice and is built in alpha.36.
   battery: 20 % and 10 % while not charging); `aione://game-exited`.
 - View: `Notification.svelte` (top-left, never focusable, `pointer-events: none`). Log lines:
   `notification queued (<why>): …`, `notification shown: …`, `notification dropped …`.
+
+## The right-stick pointer (alpha.37, B-12)
+
+- **Core** (`input/xinput.rs`, `input/mapping.rs::pointer_vector`): each poll, the right stick past
+  XInput's own dead zone (8689), scaled 0–1000 in its direction and stepped by 25, so a stick at
+  rest sends nothing. A `pointer` pad event (`pointer: [x, y]`, up positive) is sent only when the
+  step changes, and only while AIONE is in front (B-7); `[0, 0]` when let go. Logged at its start
+  and rest only (`pad N pointer moving (right stick)` / `at rest`).
+- **UI** (`App.svelte`, `lib/input/pointer.ts`, `lib/components/Pointer.svelte`): a
+  `requestAnimationFrame` loop **only while the stick is tilted** moves the pointer (transform);
+  after each move, `elementFromPoint` finds the nearest `[data-pointer]` mark (`tile:i`,
+  `drawer:i`, `qm:i`, `po:i`, `dialog:yes|no`) and the context that owns input takes it as its
+  focus (a covered context sits under a scrim, so it is never hit). A partly shown item waits
+  0.4 s (one timer while at rest). Hidden after 2 s at rest (one timer), on any other press or
+  key, on the mouse, or when AIONE loses the front. Log: `input pointer shown`, `input pointer ->
+  <what moved>`, `input pointer hidden (<why>)`.
+
+## Foreground loss and regain (alpha.37, A9)
+
+`onFrontLost` (the window's blur): held keys released, the Boot Up video paused (as before), the
+pointer hidden, the mouse hover cleared (A7), and Home's drag ended (`lostpointercapture`); logged
+`AIONE lost the front (<what was open>)`. `onFrontBack` (focus): the video resumed, the sound
+output resumed if Windows suspended it, waiting notices may show; logged `AIONE back in front
+(<what is open>), input mode …`. Open menus and dialogs stay as they were.
+
+## The A16 asset check (alpha.37)
+
+`scripts/asset-rules.mjs` (pure rules, tested in `tests/unit/asset-rules.test.ts`) run by
+`scripts/check-assets.mjs` over every UI source file: fonts (the design system's families and
+tokens only), emoji, icons (no drawn SVG outside the Window B logo files; every spelled-out
+Material Symbols name exists in the pinned font's list), images (Kenney's glyphs and the brand
+files only), sounds (the FilmCow family and the boot sounds only; nothing generated). Each finding
+is a GitHub annotation. `tests/ui/assets.spec.ts` checks the rendered page too (icons computed at
+runtime; the font of every text element).

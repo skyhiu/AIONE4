@@ -34,6 +34,17 @@ an item Fixed and Verified.
 | QA-4 (T0 test): an autostart start is not marked | **Implemented, Unverified**: the entry runs `"<exe>" --from-autostart`; logged "started by Windows at sign-in". Unit test on the command. |
 | QA-5 (T0 retest): closing logged as "the user switched away" | **Implemented, Unverified**: exit stops the guard first ("AIONE is closing"); later foreground changes are ignored. Unit test on the guard's decision. Windows code compiles first in CI. |
 
+## 4.0.0-alpha.37
+
+| Item | Status |
+|---|---|
+| A16: alpha.36's notifications and the UI against the user's assets | **Implemented, Unverified.** Notification icons and panel from existing assets and components; the Quick Menu's hand-drawn icons replaced by Material Symbols; named system fonts removed from the font stacks; `check:assets` enforces A16 in CI. |
+| The header battery under about 8 % showed the text "battery_android_frame_0" | **Implemented, Unverified.** Found by the A16 audit (the font has frames 1–6 only); reproduced by a failing unit test; now `battery_android_frame_alert`. |
+| The right-stick pointer (B-12) | **Implemented, Unverified.** UI tests in CI; the PC test decides. |
+| Foreground loss and regain (A9) | **Implemented, Unverified.** |
+| alpha.36 QA: "notification queued" logged after "shown" | **Implemented, Unverified.** A notice shown at once is one line. Cause (hypothesis): two UI log messages 1 ms apart can reach the core out of order. |
+| A notification sound | **Open, asked:** none exists in the FilmCow family (A16.3). |
+
 ## 4.0.0-alpha.36
 
 | Item | Status |

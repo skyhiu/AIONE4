@@ -17,7 +17,7 @@ use std::sync::Mutex;
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct PadEvent {
-    /// "down" | "up" | "repeat" | "held" | "connected" | "disconnected" | "battery"
+    /// "down" | "up" | "repeat" | "held" | "connected" | "disconnected" | "battery" | "pointer"
     pub kind: &'static str,
     pub control: &'static str,
     /// XInput slot 0–3.
@@ -25,6 +25,10 @@ pub struct PadEvent {
     pub seq: u64,
     /// D-008: when the core read it (Unix time in ms), so the UI can log the core → UI delay.
     pub at_ms: u64,
+    /// B-12 (reference A7): for "pointer" events, the right stick past its dead zone, each axis
+    /// -1000..=1000 (up positive); [0, 0] when it's let go. Absent for every other event.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pointer: Option<[i16; 2]>,
 }
 
 /// T2.3 notifications: a controller's battery as XInput reports it (XINPUT_BATTERY_INFORMATION):

@@ -60,7 +60,8 @@ ColorAlpha** (https://coloralpha.itch.io/50-menu-interface-sfx), licensed **CC B
   `MI_SFX 24.wav` (move), `MI_SFX 09.wav` (select), `MI_SFX 15.wav` (back), unchanged.
 - **Kenney Input Prompts 1.5** (CC0): `xbox_button_a.svg`, `xbox_button_b.svg`,
   `keyboard_enter.svg`, `keyboard_escape.svg`, unchanged (tinted by the app as a mask).
-- **Material Symbols Rounded** (Apache-2.0): the header icons.
+- **Material Symbols Rounded** (Apache-2.0): the header icons; from alpha.37 every icon in the app
+  (the drawer, the Quick Menu, notifications, the right-stick pointer), checked by `check:assets`.
 - **M PLUS Rounded 1c** (SIL OFL 1.1): Regular, Medium, Bold, the theme font.
 
 ## Logo and Boot Up proposals (4.0.0-alpha.4; delivered separately, not in the app)

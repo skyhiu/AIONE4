@@ -7,6 +7,7 @@
   import { onMount } from 'svelte';
   import { formatClock, msToNextMinute, systemUses12h, type ClockText } from '../clock';
   import type { PcStatus } from '../core/types';
+  import { batteryIcon } from './statusIcons';
 
   let {
     padConnected,
@@ -35,12 +36,6 @@
     return () => clearTimeout(timer);
   });
 
-  function batteryIcon(b: NonNullable<PcStatus['battery']>): string {
-    if (b.charging) return 'battery_android_frame_bolt';
-    if (b.percent === null) return 'battery_android_frame_question';
-    if (b.percent >= 95) return 'battery_android_frame_full';
-    return `battery_android_frame_${Math.max(0, Math.min(6, Math.round((b.percent / 100) * 6)))}`;
-  }
 
   // L-10 / KD-81: Material Symbols draw their glyphs at different visible heights. Each icon
   // gets an optical factor so its ink is as tall as the clock's capitals (measured at 1080 p:

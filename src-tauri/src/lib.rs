@@ -1204,6 +1204,7 @@ pub fn run() {
                             pad: 0,
                             seq: input::next_seq(),
                             at_ms: input::now_ms(),
+                            pointer: None,
                         };
                         let _ = kw_emit.emit(EVENT_PAD, ev);
                     },

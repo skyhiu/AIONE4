@@ -318,6 +318,7 @@
         onpointermove={onRowMove}
         onpointerup={onRowUp}
         onpointercancel={onRowUp}
+        onlostpointercapture={onRowUp}
         role="presentation"
       >
         {#each games as g, i (g.id)}
@@ -330,6 +331,7 @@
             aria-label={g.name}
             data-testid="tile"
             data-index={i}
+            data-pointer={`tile:${i}`}
             class:focused={!suspended && mode === 'pad' && home.zone === 'row' && home.focus === i}
             class:hovered={!suspended && mode === 'mouse' && (home.hover === i || home.armed === i)}
             class:pressed={pressed === i}
@@ -378,6 +380,7 @@
             class="tile empty"
             data-testid="empty-slot"
             data-index={i}
+            data-pointer={i < home.slots ? `tile:${i}` : undefined}
             class:focused={!suspended && mode === 'pad' && home.zone === 'row' && home.focus === i}
             class:hovered={!suspended && mode === 'mouse' && home.hover === i}
             onmouseenter={() => i < home.slots && onHover(i)}
@@ -421,6 +424,7 @@
             data-testid="drawer-button"
             data-id={item.id}
             data-index={i}
+            data-pointer={`drawer:${i}`}
             aria-label={item.label}
             tabindex="-1"
             onmouseenter={() => onDrawerHover(i)}

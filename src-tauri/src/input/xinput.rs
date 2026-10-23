@@ -3,7 +3,7 @@
 //! because only it reports the Guide button; otherwise `XInputGetState`.
 
 use super::gate::{BackgroundGate, Route, BACKGROUND_NOTE};
-use super::mapping::{Kind, PadOut, PadTracker, RawPad, CONTROLS};
+use super::mapping::{pointer_vector, Kind, PadOut, PadTracker, RawPad, CONTROLS};
 use super::{next_seq, PadEvent};
 use crate::logging;
 use std::cell::RefCell;
@@ -147,6 +147,8 @@ fn run(
     let mut connected = [false; 4];
     // T2.3 notifications: each pad's last battery word and when it was read.
     let mut battery_seen: [Option<(&'static str, Instant)>; 4] = [None; 4];
+    // B-12: each pad's last pointer vector sent ([0, 0] = at rest).
+    let mut pointer_last = [[0i16; 2]; 4];
     let mut last_probe = [None::<Instant>; 4];
     // B-7: in the background only Guide acts; everything else is logged only.
     let gate = RefCell::new(BackgroundGate::default());
@@ -159,6 +161,7 @@ fn run(
             pad,
             seq: next_seq(),
             at_ms: super::now_ms(),
+            pointer: None,
         };
         if kind == "connected" || kind == "disconnected" {
             super::record_connection(pad, kind == "connected", ev.seq);
@@ -338,6 +341,40 @@ fn run(
                 for e in trackers[i].update(&raw, now) {
                     out(&e, slot);
                 }
+                // B-12 (reference A7): the right stick drives AIONE's pointer, only while AIONE
+                // is in front (B-7: in the background nothing but Guide acts). Sent only when its
+                // step changes, so a stick at rest sends nothing.
+                let pointing = pointer_vector(raw.rx, raw.ry);
+                let v = if pointing != [0, 0] && !crate::foreground::aione_is_foreground() {
+                    [0, 0]
+                } else {
+                    pointing
+                };
+                if v != pointer_last[i] {
+                    if pointer_last[i] == [0, 0] || v == [0, 0] {
+                        logging::info(
+                            "input",
+                            &format!(
+                                "pad {} pointer {}",
+                                slot + 1,
+                                if v == [0, 0] {
+                                    "at rest"
+                                } else {
+                                    "moving (right stick)"
+                                }
+                            ),
+                        );
+                    }
+                    pointer_last[i] = v;
+                    emit(PadEvent {
+                        kind: "pointer",
+                        control: "RStick",
+                        pad: slot,
+                        seq: next_seq(),
+                        at_ms: super::now_ms(),
+                        pointer: Some(v),
+                    });
+                }
                 // T2.3 notifications: the battery, at the connection and then once a minute.
                 if let Some(get_battery) = battery {
                     if battery_seen[i].is_none_or(|(_, t)| now.duration_since(t) >= BATTERY_EVERY) {
@@ -361,6 +398,7 @@ fn run(
                 if connected[i] {
                     connected[i] = false;
                     battery_seen[i] = None;
+                    pointer_last[i] = [0, 0];
                     for e in trackers[i].release_all(now) {
                         out(&e, slot);
                     }

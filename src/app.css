@@ -86,7 +86,8 @@
   --color-scrim: rgb(0 0 0 / 0.42);
 
   /* Type: one family for the whole theme (reference A4). */
-  --font-ui: 'M PLUS Rounded 1c', 'Segoe UI', system-ui, sans-serif;
+  /* A16: the bundled family only (font-display: block); the generic family is a last resort. */
+  --font-ui: 'M PLUS Rounded 1c', sans-serif;
   --font-display: var(--font-ui);
   --font-icons: 'Material Symbols Rounded';
   /* Type scale at 1080 p, 100 % (rem = 16 --ui). */

@@ -19,7 +19,7 @@
 <div class="po" role="menu" aria-label="Power Options" data-testid="power-options" transition:scale={{ duration: 200, start: 0.96 }}>
   <h1>Power Options</h1>
   {#each POWER_ITEMS as item, i (item)}
-    <div class="item" class:focused={focus === i} data-testid="po-item" role="menuitem" tabindex="-1" onclick={() => onPick(i)} onkeydown={() => {}}>
+    <div class="item" class:focused={focus === i} data-testid="po-item" data-pointer={`po:${i}`} role="menuitem" tabindex="-1" onclick={() => onPick(i)} onkeydown={() => {}}>
       {item}
       <span class="ring" aria-hidden="true"><span class="ring-halo"></span><span class="ring-line"></span><span class="ring-line ring-alt"></span></span>
     </div>

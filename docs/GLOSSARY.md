@@ -38,3 +38,6 @@ added here in the same build.
 | **Sleep Mode** | Boot Down, then Windows sleeps; AIONE comes back on waking. | A9 |
 | **the Quick Menu** | The panel from the right edge on a held Guide: Power, Brightness, Volume, Theme. | B-26 (rev. ax) |
 | **Power options** | The short centred list: Sleep Mode, Restart PC, Turn Off PC, Restart AIONE, Close AIONE. | B-26 (rev. ax) |
+| **the right-stick pointer** | AIONE's own pointer (never the Windows cursor), moved by the right stick (a dead zone, then smooth acceleration); the item it rests on becomes the **focused item** of the context that owns input, and A activates it. An item only partly in view is focused after a 0.4 s rest, so a list scrolls step by step at its edge. Hidden after about 2 s at rest or by any other input; the focus stays. | B-12, reference A7 |
+| **foreground loss / regain** | Anything taking the front from AIONE (Alt-Tab, another program, a game). On loss AIONE releases held keys, hides the pointer, clears the mouse hover and ends a drag; on regain it resumes its sound output; open menus stay open; both logged with what was open. | A9, reference A9 |
+| **the user's assets** | The only fonts, icons, glyphs, sounds, logo and colours AIONE uses (`THIRD_PARTY_ASSETS.md`); `check:assets` fails CI on anything else. | A16 |

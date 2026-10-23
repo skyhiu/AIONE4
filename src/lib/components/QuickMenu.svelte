@@ -61,22 +61,19 @@
   <StatusHeader {padConnected} {status} {fixedTime} {...hour12 === undefined ? {} : { hour12 }} />
   <div class="rows">
     {#each QM_ROWS as name, i (name)}
-      <div class="item" class:focused={row === i} data-testid={`qm-${name.toLowerCase()}`} role="menuitem" tabindex="-1" onclick={() => onRow(i)} onkeydown={() => {}}>
+      <div class="item" class:focused={row === i} data-testid={`qm-${name.toLowerCase()}`} data-pointer={`qm:${i}`} role="menuitem" tabindex="-1" onclick={() => onRow(i)} onkeydown={() => {}}>
         {#if name === 'Power'}
-          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v9" class="stroke" /><path d="M6.3 6.8a8 8 0 1 0 11.4 0" class="stroke" /></svg>
+          <span class="icon" aria-hidden="true">power_settings_new</span>
           <span class="label">Power</span>
         {:else if name === 'Brightness'}
-          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1" class="stroke" /></svg>
+          <span class="icon" aria-hidden="true">light_mode</span>
           {#if canBrightness}
             <Slider value={brightness.value ?? 0} {glide} testid="qm-brightness-value" label="Brightness" />
           {:else}
             <span class="note" data-testid="qm-brightness-note">{brightness.reason ?? "Brightness can't be changed for this display"}</span>
           {/if}
         {:else if name === 'Volume'}
-          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M4 9v6h4l5 4V5L8 9H4z" />
-            {#if muted}<path d="M16 9l5 6M21 9l-5 6" class="stroke" />{:else}<path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12" class="stroke" />{/if}
-          </svg>
+          <span class="icon" aria-hidden="true" data-testid="qm-volume-icon">{muted ? 'volume_off' : 'volume_up'}</span>
           <span class="mute-state" data-testid="qm-volume-muted" data-muted={muted} hidden></span>
           <Slider value={muted ? 0 : volume} {glide} testid="qm-volume-value" label="Volume" />
         {:else}
@@ -143,17 +140,16 @@
   .explain {
     margin: calc(10 * var(--px, 1px)) calc(22 * var(--px, 1px)) calc(6 * var(--px, 1px));
   }
+  /* A16: Material Symbols Rounded (the app's .icon: weight 300, outlined), in the 38 px box the
+     drawn icons had. */
   .icon {
     width: calc(38 * var(--px, 1px));
     height: calc(38 * var(--px, 1px));
     flex: none;
-    fill: currentColor;
-  }
-  .icon .stroke {
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 2;
-    stroke-linecap: round;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: calc(38 * var(--px, 1px));
   }
   /* The B3 ring (the same markup and flash as Home's; app.css holds the keyframes). */
   .ring {

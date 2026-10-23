@@ -39,8 +39,12 @@
     hoverDrawer,
     moveDrawer,
     moveZone,
+    pointDrawer,
+    pointRow,
     type HomeState,
   } from './lib/home/model';
+  import Pointer from './lib/components/Pointer.svelte';
+  import { fullyInView, parseTarget, pointerStep, pointerVelocity, POINTER_EDGE_DWELL_MS, POINTER_HIDE_MS } from './lib/input/pointer';
   import Home from './lib/home/Home.svelte';
   import { BootPresenter, type Outcome } from './lib/boot/presenter';
   import { playBump } from './lib/focus/bump';
@@ -237,6 +241,8 @@
   }
 
   function setMode(next: 'pad' | 'mouse') {
+    // A7: switching to the mouse hides the right-stick pointer at once.
+    if (next === 'mouse' && ptr.shown) hidePointer('the mouse');
     if (next === inputMode) return;
     inputMode = next;
     if (next === 'pad') home = toPadMode(home);
@@ -246,6 +252,9 @@
   function handleInput(ev: InputEvent) {
     // B-22: the core owns the held set; keys only reach the UI, so they are reported to it.
     reportKey(ev);
+    // B-12 (A7): the D-pad, the left stick, a button or a key hides the pointer at once (focus stays).
+    // The right stick's own direction events (RStick…) never do: they come from the pointer.
+    if (ptr.shown && (ev.kind === 'down' || ev.kind === 'repeat') && !ev.control.startsWith('RStick')) hidePointer(`${ev.control} pressed`);
     // D-040 / B-18 rev. am: going back to the game, or closing it: input locked.
     if (launching === 'returning' && ev.kind === 'down' && toAction(ev) === 'back') {
       lockHow = 'escaped (B)';
@@ -581,6 +590,163 @@
     core?.log('info', `message: "${title}"${text ? `: ${text}` : ''}`);
   }
 
+  // ---------- B-12 (reference A7): the right-stick pointer ----------
+  // Moved by transform on animation frames only while the stick is tilted; the item under it
+  // becomes the focused item of the context that owns input (dialogs, Power Options, the Quick
+  // Menu, Home: a covered context is under a scrim, so nothing in it is ever hit). An item only
+  // partly in view is focused after a 0.4 s rest, so a list scrolls step by step at its edge.
+  let ptr = $state({ x: 0, y: 0, shown: false });
+  let ptrStick: [number, number] = [0, 0];
+  let ptrFrame = 0;
+  let ptrLast = 0;
+  let ptrHideTimer: ReturnType<typeof setTimeout> | null = null;
+  let ptrDwellTimer: ReturnType<typeof setTimeout> | null = null;
+  let ptrCandidate: { mark: string; since: number } | null = null;
+  let ptrApplied: string | null = null;
+  const ptrBlocked = () => phase !== 'home' || launching !== 'none' || veil;
+
+  function pointerStick(v: [number, number]) {
+    const moving = (v[0] !== 0 || v[1] !== 0) && !ptrBlocked();
+    ptrStick = moving ? v : [0, 0];
+    if (moving) {
+      if (ptrHideTimer) clearTimeout(ptrHideTimer);
+      ptrHideTimer = null;
+      if (!ptr.shown) showPointer();
+      if (!ptrFrame) {
+        ptrLast = performance.now();
+        ptrFrame = requestAnimationFrame(pointerFrame);
+      }
+    } else if (ptr.shown && !ptrHideTimer) {
+      ptrHideTimer = setTimeout(() => hidePointer('2 s without right-stick movement'), POINTER_HIDE_MS);
+    }
+  }
+
+  function showPointer() {
+    // It appears on the focused item (or the middle of the screen), in pad mode (A7).
+    setMode('pad');
+    const el = document.querySelector<HTMLElement>('.focused[data-pointer]');
+    const r = el?.getBoundingClientRect();
+    ptr = { x: r ? r.left + r.width / 2 : window.innerWidth / 2, y: r ? r.top + r.height / 2 : window.innerHeight / 2, shown: true };
+    ptrApplied = el?.dataset['pointer'] ?? null;
+    core?.log('info', `input pointer shown (right stick)${ptrApplied ? ` on ${ptrApplied}` : ''}`);
+  }
+
+  function hidePointer(why: string) {
+    if (ptrFrame) cancelAnimationFrame(ptrFrame);
+    ptrFrame = 0;
+    if (ptrHideTimer) clearTimeout(ptrHideTimer);
+    if (ptrDwellTimer) clearTimeout(ptrDwellTimer);
+    ptrHideTimer = null;
+    ptrDwellTimer = null;
+    ptrCandidate = null;
+    ptrStick = [0, 0];
+    if (!ptr.shown) return;
+    ptr = { ...ptr, shown: false };
+    core?.log('info', `input pointer hidden (${why}); the focus stays`);
+  }
+
+  function pointerFrame(now: number) {
+    const dt = now - ptrLast;
+    ptrLast = now;
+    const pos = pointerStep(ptr, pointerVelocity(ptrStick, window.innerHeight / 1080), dt, { width: window.innerWidth, height: window.innerHeight });
+    ptr = { ...ptr, x: pos.x, y: pos.y };
+    pointerHit(now);
+    ptrFrame = ptrStick[0] !== 0 || ptrStick[1] !== 0 ? requestAnimationFrame(pointerFrame) : 0;
+  }
+
+  /** What is under the pointer; a fully shown item is focused at once, a partly shown one after the dwell. */
+  function pointerHit(now: number) {
+    if (ptrBlocked()) return hidePointer('AIONE is busy');
+    const el = document.elementFromPoint(ptr.x, ptr.y)?.closest<HTMLElement>('[data-pointer]');
+    const mark = el?.dataset['pointer'] ?? null;
+    if (!el || !mark || mark === ptrApplied) {
+      ptrCandidate = null;
+      return;
+    }
+    if (fullyInView(el.getBoundingClientRect(), window.innerWidth, window.innerHeight)) return applyPointer(mark);
+    if (ptrCandidate?.mark !== mark) {
+      ptrCandidate = { mark, since: now };
+      if (ptrDwellTimer) clearTimeout(ptrDwellTimer);
+      // At rest no frame runs: one timer checks again when the dwell is over.
+      ptrDwellTimer = setTimeout(() => {
+        ptrDwellTimer = null;
+        if (ptr.shown) pointerHit(performance.now());
+      }, POINTER_EDGE_DWELL_MS + 10);
+    } else if (now - ptrCandidate.since >= POINTER_EDGE_DWELL_MS) applyPointer(mark);
+  }
+
+  /** The pointer rests on a marked item of the context that owns input: it becomes the focused item. */
+  function applyPointer(mark: string) {
+    const t = parseTarget(mark);
+    ptrCandidate = null;
+    if (!t) return;
+    ptrApplied = mark;
+    let what: string;
+    if (confirm) {
+      if (t.kind !== 'dialog' || confirm.single || confirm.focus === t.answer) return;
+      confirm = { ...confirm, focus: t.answer };
+      what = `question: focus ${t.answer === 'yes' ? confirm.yes : 'Cancel'}, ${play('drawerMove')}`;
+    } else if (flow.phase === 'ask') {
+      const f = t.kind === 'dialog' ? (t.answer === 'yes' ? BUTTON_COPY : BUTTON_SKIP) : null;
+      if (f === null || flow.focus === f) return;
+      flow = { ...flow, focus: f };
+      what = `copy question: focus moved, ${play('rowMove')}`;
+    } else if (dialogOpen) {
+      return;
+    } else if (po !== null) {
+      if (t.kind !== 'po' || po === t.index) return;
+      po = t.index;
+      what = `Power options: ${POWER_ITEMS[t.index]}, ${play('rowMove')}`;
+    } else if (qm) {
+      if (t.kind !== 'qm' || qm.row === t.index) return;
+      qm = { row: t.index };
+      what = `Quick Menu: ${QM_ROWS[t.index]}, ${play('rowMove')}`;
+    } else if (loadState === 'loaded' && t.kind === 'tile') {
+      const [next, moved] = pointRow(home, t.index);
+      if (!moved) return;
+      const scrolled = next.first !== home.first;
+      home = next;
+      what = `${where(home.focus)}${scrolled ? ' (row scrolls)' : ''}, ${play(scrolled ? 'rowScroll' : 'rowMove')}`;
+    } else if (loadState === 'loaded' && t.kind === 'drawer') {
+      const [next, moved] = pointDrawer(home, t.index);
+      if (!moved) return;
+      home = next;
+      what = `drawer ${DRAWER[home.drawer]?.label}, ${play('drawerMove')}`;
+    } else return;
+    core?.log('info', `input pointer -> ${what}`);
+    perf.action(`pointer -> ${what}`);
+  }
+
+  // ---------- A9: foreground loss and regain (whatever takes the front, AIONE comes back right) ----------
+  /** What is open, for the log (one interaction context owns input, A6). */
+  function contextNow(): string {
+    if (phase !== 'home') return phase === 'boot' ? 'Boot Up' : phase === 'bootdown' ? 'Boot Down' : 'starting';
+    if (launching !== 'none') return `a launch (${launching})`;
+    if (confirm) return `the question "${confirm.title}"`;
+    if (flow.phase !== 'hidden') return 'the copy question';
+    if (po !== null) return 'Power options';
+    if (qm) return `the Quick Menu (${QM_ROWS[qm.row]})`;
+    return loadState === 'loaded' ? (home.zone === 'drawer' ? `Home, drawer ${DRAWER[home.drawer]?.label}` : `Home, ${where(home.focus)}`) : 'Home';
+  }
+  function onFrontLost() {
+    keys.releaseAll();
+    presenter?.setForeground(false);
+    windowFocused = false;
+    // Nothing half-done is left behind: the pointer, the mouse hover (A7: nothing stays
+    // highlighted unless the mouse is over it when AIONE is back). Open menus stay open, as on
+    // Switch; a running game's pause is the core's (B-20).
+    hidePointer('AIONE lost the front');
+    if (inputMode === 'mouse') home = hoverDrawer(hoverTile(home, null), null);
+    core?.log('info', `AIONE lost the front (${contextNow()}): held keys released, pointer hidden, hover cleared`);
+  }
+  function onFrontBack() {
+    presenter?.setForeground(true);
+    windowFocused = true;
+    // Windows may suspend a background page's sound output: resume it before the next sound.
+    sounds.resume();
+    core?.log('info', `AIONE back in front (${contextNow()}), input mode ${inputMode}`);
+  }
+
   // ---------- B-26 (rev. ax): the Quick Menu and Power options (one interaction context each) ----------
   let qm = $state<{ row: number } | null>(null);
   /** Rev. ax: Power options (a short centered list), its focused item; null when closed. */
@@ -598,22 +764,27 @@
   const noticeBlocked = $derived(
     phase !== 'home' || dialogOpen || !!confirm || po !== null || veil || launching !== 'none' || !windowFocused,
   );
-  function pumpNotices() {
+  /** Advances the queue; returns the notice it showed, if any. `why` names a notice shown by the
+   *  same call that queued it: one line then (alpha.36 QA: "shown" and "queued" written as two
+   *  lines 1 ms apart reached the log in the wrong order). */
+  function pumpNotices(why?: { notice: notices.Notice; text: string }): notices.Notice | null {
     const r = notices.step(noticeQueue, performance.now(), noticeBlocked);
     noticeQueue = r.q;
     for (const n of r.stale) core?.log('info', `notification dropped (it waited over ${notices.STALE_MS / 1000} s): ${notices.describe(n)}`);
-    if (r.shown) core?.log('info', `notification shown: ${notices.describe(r.shown)}`);
+    if (r.shown) core?.log('info', `notification shown${r.shown === why?.notice ? ` (${why.text})` : ''}: ${notices.describe(r.shown)}`);
     if (noticeTimer) clearTimeout(noticeTimer);
     noticeTimer = null;
     const due = notices.nextDue(noticeQueue, performance.now());
-    if (due !== null) noticeTimer = setTimeout(pumpNotices, due);
+    if (due !== null) noticeTimer = setTimeout(() => pumpNotices(), due);
+    return r.shown;
   }
   function notify(n: notices.Notice, why: string) {
     const r = notices.push(noticeQueue, n);
     noticeQueue = r.q;
     for (const d of r.dropped) core?.log('info', `notification replaced or dropped (queue): ${notices.describe(d)}`);
-    core?.log('info', `notification queued (${why}): ${notices.describe(n)}${noticeBlocked ? ' (waits: AIONE is busy, behind a game, or a dialog is open)' : ''}`);
-    pumpNotices();
+    if (pumpNotices({ notice: n, text: why }) === n) return;
+    const waits = noticeBlocked ? 'AIONE is busy, behind a game, or a dialog is open' : 'another notice is showing';
+    core?.log('info', `notification queued (${why}): ${notices.describe(n)} (waits: ${waits})`);
   }
   // A dialog closed, a launch ended, AIONE came back: a waiting notice may show now.
   $effect(() => {
@@ -1395,6 +1566,10 @@
             if (phase === 'home') notify(notices.padConnection(ev.pad + 1, ev.kind === 'connected', performance.now()), `controller ${ev.pad + 1} ${ev.kind}`);
             return;
           }
+          if (ev.kind === 'pointer') {
+            pointerStick(ev.pointer ?? [0, 0]);
+            return;
+          }
           if (ev.kind === 'battery') {
             const r = notices.padBattery(ev.pad + 1, ev.control, padBatteryLast[ev.pad + 1] ?? null, performance.now());
             padBatteryLast[ev.pad + 1] = r.last;
@@ -1711,15 +1886,8 @@
   onmousemove={onMouseMove}
   onresize={onResize}
   oncontextmenu={(e) => e.preventDefault()}
-  onblur={() => {
-    keys.releaseAll();
-    presenter?.setForeground(false);
-    windowFocused = false;
-  }}
-  onfocus={() => {
-    presenter?.setForeground(true);
-    windowFocused = true;
-  }}
+  onblur={onFrontLost}
+  onfocus={onFrontBack}
 />
 
 <!-- D-010: black (the html background) until the library is loaded; then Home. -->
@@ -1777,6 +1945,7 @@
     extras={extrasOn ? ['titlefade', 'press', 'labelfade'] : []}
   />{/if}
   <Notification notice={noticeQueue.showing} />
+  <Pointer x={ptr.x} y={ptr.y} shown={ptr.shown} />
   {#if toast && phase === 'home'}
     <div class="toast" role="status" data-testid="toast">{toast}</div>
   {/if}

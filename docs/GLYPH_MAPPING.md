@@ -46,4 +46,8 @@ Kenney's `_outline` variants exist for most files (for example for a pressed or 
 | Restart (T0 only) | `keyboard_ctrl.svg` + `keyboard_shift.svg` + `keyboard_r.svg` |
 | Mouse | `mouse_left.svg`, `mouse_right.svg`, `mouse_scroll.svg` |
 
+**The right-stick pointer (alpha.37):** Kenney's Vector sets have no pointer or hand, so the
+pointer is Material Symbols Rounded `arrow_selector_tool` (A16: the user's icon set). The table's
+right-stick glyphs remain for a future "RS Pointer" prompt.
+
 Licence: CC0 (`assets/glyphs/kenney-input-prompts/License.txt`).

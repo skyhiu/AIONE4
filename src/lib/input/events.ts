@@ -20,7 +20,7 @@ export interface InputEvent {
 
 /** Converts a core pad event to an input event; connect / disconnect and battery are not input. */
 export function fromPadEvent(ev: PadEvent): InputEvent | null {
-  if (ev.kind === 'connected' || ev.kind === 'disconnected' || ev.kind === 'battery') return null;
+  if (ev.kind === 'connected' || ev.kind === 'disconnected' || ev.kind === 'battery' || ev.kind === 'pointer') return null;
   return { source: 'controller', kind: ev.kind, control: ev.control, pad: ev.pad + 1, seq: ev.seq, atMs: ev.atMs };
 }
 

@@ -35,7 +35,11 @@ test.describe('T2.3 notifications (mocked core)', () => {
       await expect(page.getByTestId('notification-title')).toHaveText('Controller connected');
       await expect(page.getByTestId('notification-title')).toHaveText('Controller disconnected', { timeout: 6000 });
       const l = await logs(page);
-      expect(l.some((x) => x.includes('notification shown: "Controller connected" (Controller 2)'))).toBe(true);
+      // alpha.37 (alpha.36 QA): a notice shown at once is ONE log line (two could arrive swapped).
+      expect(l.some((x) => x.includes('notification shown (controller 2 connected): "Controller connected" (Controller 2)'))).toBe(true);
+      expect(l.some((x) => x.includes('notification queued (controller 2 connected)'))).toBe(false);
+      // The disconnect waited for the first notice: queued, then shown later.
+      expect(l.some((x) => x.includes('notification queued (controller 2 disconnected)') && x.includes('another notice is showing'))).toBe(true);
     });
   }
 
@@ -84,6 +88,6 @@ test.describe('T2.3 notifications (mocked core)', () => {
     await status(10);
     await expect(page.getByTestId('notification-detail')).toHaveText('10 % left: connect the charger', { timeout: 6000 });
     const l = await logs(page);
-    expect(l.filter((x) => x.includes('notification queued') && x.includes("the PC's battery")).length).toBe(2);
+    expect(l.filter((x) => x.includes("(the PC's battery")).length).toBe(2);
   });
 });

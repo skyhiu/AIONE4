@@ -54,6 +54,8 @@ export interface MockControl {
   battery(word: string, pad?: number): void;
   /** T2.3: a new PC status from the core (the header and the battery notice). */
   status(s: PcStatus): void;
+  /** B-12: the right stick past its dead zone (-1000..1000, up positive); 0, 0 = let go. */
+  pointer(x: number, y: number, pad?: number): void;
   decisions: boolean[];
   logs: string[];
   /** performance.now() of each log line (same index as logs). */
@@ -163,7 +165,7 @@ function widePicture(i: number): string {
   g.fillRect(0, 0, 40, 430);
   g.fillRect(880, 0, 40, 430);
   g.fillStyle = '#ffffff';
-  g.font = 'bold 72px sans-serif';
+  g.font = 'bold 72px "M PLUS Rounded 1c"';
   g.fillText('WIDE PICTURE', 200, 240);
   const url = c.toDataURL('image/png');
   wideCache.set(i, url);
@@ -291,14 +293,14 @@ export function createMock(search: string): { core: Core; control: MockControl }
     }
   }
 
-  const emit = (kind: PadEventKind, control: string, pad: number) => {
+  const emit = (kind: PadEventKind, control: string, pad: number, pointer?: [number, number]) => {
     seq += 1;
     if (kind === 'connected' || kind === 'disconnected') {
       if (kind === 'connected') connected.add(pad);
       else connected.delete(pad);
       lastConnectionSeq = seq;
     }
-    const ev: PadEvent = { kind, control, pad, seq, atMs: Date.now() };
+    const ev: PadEvent = { kind, control, pad, seq, atMs: Date.now(), ...(pointer ? { pointer } : {}) };
     padHandlers.forEach((h) => h(ev));
   };
 
@@ -406,6 +408,10 @@ export function createMock(search: string): { core: Core; control: MockControl }
     },
     status(st) {
       statusHandlers.forEach((f) => f(st));
+    },
+    pointer(x, y, pad = 0) {
+      if (!connected.has(pad)) emit('connected', '', pad);
+      emit('pointer', 'RStick', pad, [x, y]);
     },
 
     launches: [],

@@ -13,12 +13,21 @@
 //   news); a game's end is shown when AIONE is free again, however long that took;
 // - notices are never focusable (passive, like Switch's), so B-29's edge bump doesn't apply.
 
-export type NoticeIcon = 'game' | 'pad' | 'padOff' | 'battery';
+/** A16: each notice's icon is a Material Symbols Rounded name (checked by `check:assets`); the
+ *  controller and battery ones are the header's own symbols (StatusHeader), so they read the same. */
+export const NOTICE_ICONS = {
+  game: 'videogame_asset',
+  pad: 'sports_esports',
+  battery: 'battery_android_frame_alert',
+} as const;
+export type NoticeIcon = (typeof NOTICE_ICONS)[keyof typeof NOTICE_ICONS];
 
 export interface Notice {
   /** The subject: a newer notice with the same key replaces a waiting one. */
   key: string;
   icon: NoticeIcon;
+  /** Drawn in the dimmed icon colour, as the header shows a missing controller. */
+  dim?: boolean;
   title: string;
   detail?: string;
   /** When it happened (ms, the app's clock). */
@@ -88,14 +97,15 @@ export function nextDue(q: NoticeQueue, now: number): number | null {
 export function gameEnded(name: string, minutes: number, at: number): Notice {
   const played =
     minutes >= 1 ? `Played ${Math.round(minutes)} min` : minutes > 0 ? 'Played less than a minute' : undefined;
-  return { key: `game:${name}`, icon: 'game', title: `${name} ended`, ...(played ? { detail: played } : {}), at, expires: false };
+  return { key: `game:${name}`, icon: NOTICE_ICONS.game, title: `${name} ended`, ...(played ? { detail: played } : {}), at, expires: false };
 }
 
 /** A controller connected or disconnected (slot 1–4). */
 export function padConnection(slot: number, connected: boolean, at: number): Notice {
   return {
     key: `pad:${slot}`,
-    icon: connected ? 'pad' : 'padOff',
+    icon: NOTICE_ICONS.pad,
+    ...(connected ? {} : { dim: true }),
     title: connected ? 'Controller connected' : 'Controller disconnected',
     detail: `Controller ${slot}`,
     at,
@@ -119,7 +129,7 @@ export function padBattery(
   return {
     notice: {
       key: `padbattery:${slot}`,
-      icon: 'battery',
+      icon: NOTICE_ICONS.battery,
       title: word === 'empty' ? 'Controller battery empty' : 'Controller battery low',
       detail: `Controller ${slot}: charge it or change its batteries`,
       at,
@@ -148,7 +158,7 @@ export function pcBattery(
   return {
     notice: {
       key: 'pcbattery',
-      icon: 'battery',
+      icon: NOTICE_ICONS.battery,
       title: 'Battery low',
       detail: `${battery.percent} % left: connect the charger`,
       at,

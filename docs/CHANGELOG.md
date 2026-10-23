@@ -1,5 +1,19 @@
 # Changelog
 
+## 4.0.0-alpha.37 — T2.3 completed: the right-stick pointer, foreground polish, A16
+
+- **A16:** the UI checked against the user's assets: the notification's icons and panel now reuse
+  the header's symbols and Power Options' panel; the Quick Menu's icons are Material Symbols
+  (were hand-drawn); no named system font in the font stacks. `check:assets` now fails CI on a
+  font, emoji, icon, glyph or sound outside the user's assets.
+- **The header battery** below about 8 % shows the empty-battery symbol (it showed the text
+  "battery_android_frame_0").
+- **The right-stick pointer (B-12):** moved by the right stick, focusing what it rests on in
+  every AIONE screen; hidden after about 2 s or by any other input.
+- **Foreground loss and regain (A9):** the pointer, hover and drags never left behind; the sound
+  output resumed; both logged with what was open.
+- A notice shown at once is logged as one line (alpha.36 QA).
+
 ## 4.0.0-alpha.36 — T2.3 continued: D-057, D-058, notifications
 
 - **D-057:** bringing AIONE to the front never waits on a busy game: each step has a 300 ms limit

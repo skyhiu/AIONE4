@@ -50,8 +50,8 @@
     {#if single}
       <button class="focusable focused" data-testid="confirm-ok" onclick={() => onAnswer(false)}>{yes}<span class="ring" aria-hidden="true"></span></button>
     {:else}
-      <button class="focusable" class:focused={focus === 'yes'} data-testid={yesTestid} onclick={() => onAnswer(true)}>{yes}<span class="ring" aria-hidden="true"></span></button>
-      <button class="focusable" class:focused={focus === 'no'} data-testid={noTestid} onclick={() => onAnswer(false)}>{no}<span class="ring" aria-hidden="true"></span></button>
+      <button class="focusable" class:focused={focus === 'yes'} data-testid={yesTestid} data-pointer="dialog:yes" onclick={() => onAnswer(true)}>{yes}<span class="ring" aria-hidden="true"></span></button>
+      <button class="focusable" class:focused={focus === 'no'} data-testid={noTestid} data-pointer="dialog:no" onclick={() => onAnswer(false)}>{no}<span class="ring" aria-hidden="true"></span></button>
     {/if}
   </div>
   {#if hints}<p class="hints" data-testid={hints.testid}>{hints.text}</p>{/if}

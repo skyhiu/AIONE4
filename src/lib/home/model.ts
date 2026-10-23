@@ -149,6 +149,19 @@ export function hoverTile(s: HomeState, index: number | null): HomeState {
   return { ...s, hover: index, focus: index, zone: 'row' };
 }
 
+/** B-12 (reference A7): the right-stick pointer rests on a slot: it becomes the focused item, in
+ *  the row (the row scrolls to keep it fully in view, as a move would). Returns whether it moved. */
+export function pointRow(s: HomeState, index: number): [HomeState, boolean] {
+  if (index < 0 || index >= s.slots || (s.zone === 'row' && s.focus === index)) return [s, false];
+  return [{ ...s, zone: 'row', focus: index, first: keepInView(s.first, index, s.visible, s.slots), armed: null, hover: null }, true];
+}
+
+/** B-12: the pointer rests on a drawer button: it becomes the focused one. */
+export function pointDrawer(s: HomeState, index: number): [HomeState, boolean] {
+  if (index < 0 || index >= DRAWER.length || (s.zone === 'drawer' && s.drawer === index)) return [s, false];
+  return [{ ...s, zone: 'drawer', drawer: index, drawerHover: null }, true];
+}
+
 export type ClickResult = 'select' | 'start';
 
 /** L-06: first click selects, second click on the selected tile starts. */

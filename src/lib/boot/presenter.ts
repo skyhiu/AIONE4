@@ -58,7 +58,7 @@ export class BootPresenter {
     private readonly host: HTMLElement,
     private readonly log: Log,
     // B-5 (rev. o): the brand name in M PLUS Rounded 1c everywhere.
-    private readonly fontFamily = "'M PLUS Rounded 1c', 'Segoe UI', sans-serif",
+    private readonly fontFamily = "'M PLUS Rounded 1c', sans-serif",
   ) {}
 
   /** A timer that belongs to the current presentation (D-016). */

@@ -74,7 +74,7 @@ export interface PcStatus {
 }
 
 /** A normalized controller event from the Rust core (XInput). */
-export type PadEventKind = 'down' | 'up' | 'repeat' | 'held' | 'connected' | 'disconnected' | 'battery';
+export type PadEventKind = 'down' | 'up' | 'repeat' | 'held' | 'connected' | 'disconnected' | 'battery' | 'pointer';
 
 export interface PadEvent {
   kind: PadEventKind;
@@ -86,6 +86,8 @@ export interface PadEvent {
   seq: number;
   /** D-008: when the core read it (Unix ms, same clock as Date.now()). */
   atMs: number;
+  /** B-12: 'pointer' events: the right stick past its dead zone, each axis -1000..1000 (up positive). */
+  pointer?: [number, number];
 }
 
 export interface LibraryCounts {

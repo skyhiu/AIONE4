@@ -16,6 +16,25 @@ pub struct RawPad {
     pub ry: i16,
 }
 
+/// B-12: XInput's own right-stick dead zone (XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE).
+pub const POINTER_DEAD_ZONE: f64 = 8689.0;
+/// B-12: the pointer's position steps (of 1000): small enough to feel smooth, large enough that a
+/// stick held still sends nothing (a resting stick's noise stays within one step).
+pub const POINTER_STEP: f64 = 25.0;
+
+/// B-12 (reference A7): the right stick as the pointer sees it: a radial dead zone, then the tilt
+/// from 0 to 1000 in its direction (up positive), in steps of `POINTER_STEP`.
+pub fn pointer_vector(rx: i16, ry: i16) -> [i16; 2] {
+    let (x, y) = (f64::from(rx), f64::from(ry));
+    let mag = (x * x + y * y).sqrt();
+    if mag <= POINTER_DEAD_ZONE {
+        return [0, 0];
+    }
+    let tilt = ((mag - POINTER_DEAD_ZONE) / (32767.0 - POINTER_DEAD_ZONE)).min(1.0) * 1000.0;
+    let q = |v: f64| ((v / POINTER_STEP).round() * POINTER_STEP) as i16;
+    [q(x / mag * tilt), q(y / mag * tilt)]
+}
+
 /// Every control AIONE knows, in a fixed order (index = bit in `PadTracker::held`).
 pub const CONTROLS: [&str; 25] = [
     "A",
@@ -567,5 +586,22 @@ mod tests {
         let now = Instant::now();
         assert_eq!(names(&t.release_all(now)), ["up A", "up DPadUp"]);
         assert!(t.release_all(now).is_empty());
+    }
+
+    /// B-12: the pointer's dead zone, its full tilt, its direction and its steps.
+    #[test]
+    fn pointer_vector_has_a_dead_zone_and_steps() {
+        assert_eq!(pointer_vector(0, 0), [0, 0]);
+        assert_eq!(pointer_vector(8000, 3000), [0, 0]); // inside the dead zone
+        assert_eq!(pointer_vector(32767, 0), [1000, 0]);
+        assert_eq!(pointer_vector(0, -32768), [0, -1000]);
+        assert_eq!(pointer_vector(-32768, 0), [-1000, 0]);
+        let [x, y] = pointer_vector(23170, 23170); // full tilt up-right
+        assert_eq!((x, y), (700, 700));
+        // Half tilt: about 500, on a step of 25.
+        let [hx, _] = pointer_vector(20728, 0);
+        assert!(hx % 25 == 0 && (475..=525).contains(&hx), "{hx}");
+        // A stick held still sends nothing new: neighbouring raw values give the same step.
+        assert_eq!(pointer_vector(20728, 0), pointer_vector(20760, 30));
     }
 }
