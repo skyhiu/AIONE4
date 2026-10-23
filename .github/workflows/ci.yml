@@ -194,7 +194,7 @@ jobs:
 
             // A11 (alpha.10 QA-1): a release only when APP CODE changed, named explicitly in
             // scripts/release-guard.cjs (src/, src-tauri/, assets/, index.html, package.json and its
-            // lockfile, the Vite and Svelte config). Compared over the whole push (before..after).
+            // lockfile, the Vite and Svelte config). Compared since the current release's commit (alpha.37).
             const { appFiles, shouldRelease } = require(`${process.env.GITHUB_WORKSPACE}/scripts/release-guard.cjs`);
             // A version that has no release yet always gets one (e.g. its app-code push failed CI
             // and the fix touched only tests).
@@ -206,13 +206,27 @@ jobs:
               releaseExists = false;
               core.notice(`${tag} has no release yet: publishing it.`);
             }
-            const before = context.payload.before;
+            // alpha.37 (CI #63–#65): "changed" is measured since the commit the current release was
+            // built from, not since the previous push: an app-code push whose run failed, followed by
+            // a test-only fix, still gets released (before, the release kept the older app code).
+            let before = context.payload.before;
+            if (releaseExists) {
+              try {
+                const ref = await github.rest.git.getRef({ owner, repo, ref: `tags/${tag}` });
+                let sha = ref.data.object.sha;
+                if (ref.data.object.type === 'tag') sha = (await github.rest.git.getTag({ owner, repo, tag_sha: sha })).data.object.sha;
+                core.info(`${tag} was built from ${sha.slice(0, 7)}: app code compared since then`);
+                before = sha;
+              } catch (e) {
+                if (e.status !== 404) throw e;
+              }
+            }
             if (releaseExists && before && !/^0+$/.test(before)) {
               const cmp = await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${before}...${context.sha}` });
               const files = (cmp.data.files ?? []).map((f) => f.filename);
               const app = appFiles(files);
               if (!shouldRelease(files, releaseExists)) {
-                core.notice(`No app code changed in this push (${files.length} files, e.g. ${files.slice(0, 3).join(', ')}): no release published; ${tag} stays as it was.`);
+                core.notice(`No app code changed since the release (${files.length} files, e.g. ${files.slice(0, 3).join(', ')}): no release published; ${tag} stays as it was.`);
                 return;
               }
               core.info(`App files changed in this push: ${app.length} (e.g. ${app.slice(0, 3).join(', ')})`);
