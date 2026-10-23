@@ -55,15 +55,22 @@ async function mash(page: Page, rnd: () => number, ms: number, controls = CONTRO
   return n;
 }
 
+const lastLogs = async (page: Page) => ((await page.evaluate(() => window.__aioneMock?.logs ?? [])) as string[]).slice(-14).map((l) => l.slice(0, 220));
+
 /** Sane: Home ('none') or the game in front ('ingame'), and no lock. */
 async function expectSane(page: Page, withinMs: number) {
-  // alpha.37: the poll returns the state itself, so a failure says which state was stuck.
-  await expect
-    .poll(async () => {
-      const s = await state(page);
-      return `launching=${s.launching} lock=${s.lock}`;
-    }, { timeout: withinMs })
-    .toMatch(/^launching=(none|ingame) lock=(none|dialog|quick-menu)$/);
+  // alpha.37: the poll returns the state itself, so a failure says which state was stuck, with
+  // AIONE's last log lines (what it did) to find the cause.
+  try {
+    await expect
+      .poll(async () => {
+        const s = await state(page);
+        return `launching=${s.launching} lock=${s.lock}`;
+      }, { timeout: withinMs })
+      .toMatch(/^launching=(none|ingame) lock=(none|dialog|quick-menu)$/);
+  } catch (e) {
+    throw new Error(`${(e as Error).message}\nAIONE's last log lines:\n${(await lastLogs(page)).join('\n')}`);
+  }
   // T2.2: a held Guide in the mashing may have opened the Quick Menu (or a message): close it
   // with B, as the user would, before the next step.
   for (let i = 0; i < 4; i++) {
@@ -119,7 +126,11 @@ for (const seed of SEEDS) {
       const before = (await page.evaluate(() => window.__aioneMock?.returns ?? [])).length;
       const t0 = Date.now();
       await press(page, 'A');
-      await expect.poll(async () => (await page.evaluate(() => window.__aioneMock?.returns ?? [])).length, { timeout: 2000 }).toBe(before + 1);
+      try {
+        await expect.poll(async () => (await page.evaluate(() => window.__aioneMock?.returns ?? [])).length, { timeout: 2000 }).toBe(before + 1);
+      } catch (e) {
+        throw new Error(`${(e as Error).message}\nAIONE's last log lines:\n${(await lastLogs(page)).join('\n')}`);
+      }
       expect(Date.now() - t0).toBeLessThan(1500);
       counts.push('media key + Alt, then a fast return');
     }
