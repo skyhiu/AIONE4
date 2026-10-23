@@ -707,6 +707,15 @@
       const scrolled = next.first !== home.first;
       home = next;
       what = `${where(home.focus)}${scrolled ? ' (row scrolls)' : ''}, ${play(scrolled ? 'rowScroll' : 'rowMove')}`;
+      // The row slid under a resting pointer: look again once it settles (the next tile may be
+      // the partly shown one, so resting at the edge keeps scrolling step by step).
+      if (scrolled) {
+        if (ptrDwellTimer) clearTimeout(ptrDwellTimer);
+        ptrDwellTimer = setTimeout(() => {
+          ptrDwellTimer = null;
+          if (ptr.shown) pointerHit(performance.now());
+        }, 220);
+      }
     } else if (loadState === 'loaded' && t.kind === 'drawer') {
       const [next, moved] = pointDrawer(home, t.index);
       if (!moved) return;
@@ -771,7 +780,9 @@
     const r = notices.step(noticeQueue, performance.now(), noticeBlocked);
     noticeQueue = r.q;
     for (const n of r.stale) core?.log('info', `notification dropped (it waited over ${notices.STALE_MS / 1000} s): ${notices.describe(n)}`);
-    if (r.shown) core?.log('info', `notification shown${r.shown === why?.notice ? ` (${why.text})` : ''}: ${notices.describe(r.shown)}`);
+    // The queue's notices are state proxies, never the object pushed: compare by subject and time.
+    const same = (a: notices.Notice | null, b: notices.Notice | undefined) => !!a && !!b && a.key === b.key && a.at === b.at;
+    if (r.shown) core?.log('info', `notification shown${same(r.shown, why?.notice) && why ? ` (${why.text})` : ''}: ${notices.describe(r.shown)}`);
     if (noticeTimer) clearTimeout(noticeTimer);
     noticeTimer = null;
     const due = notices.nextDue(noticeQueue, performance.now());
@@ -782,7 +793,8 @@
     const r = notices.push(noticeQueue, n);
     noticeQueue = r.q;
     for (const d of r.dropped) core?.log('info', `notification replaced or dropped (queue): ${notices.describe(d)}`);
-    if (pumpNotices({ notice: n, text: why }) === n) return;
+    const shown = pumpNotices({ notice: n, text: why });
+    if (shown && shown.key === n.key && shown.at === n.at) return;
     const waits = noticeBlocked ? 'AIONE is busy, behind a game, or a dialog is open' : 'another notice is showing';
     core?.log('info', `notification queued (${why}): ${notices.describe(n)} (waits: ${waits})`);
   }

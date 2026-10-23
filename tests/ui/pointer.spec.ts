@@ -87,7 +87,7 @@ test.describe('B-12: the right-stick pointer (mocked core)', () => {
     await stick(page, 1000, 0);
     await page.waitForTimeout(1300); // to the right edge, over the partly shown tile
     await stick(page, 0, 0);
-    await page.waitForTimeout(1300); // rests: about one step per 0.4 s
+    await page.waitForTimeout(1800); // rests: about one step per 0.6 s (the slide, then the dwell)
     const now = Number(await focusedTile(page));
     expect(now).toBeGreaterThan(4); // past the four fully shown tiles
     expect((await logs(page)).some((x) => x.includes('(row scrolls)'))).toBe(true);

@@ -57,10 +57,13 @@ async function mash(page: Page, rnd: () => number, ms: number, controls = CONTRO
 
 /** Sane: Home ('none') or the game in front ('ingame'), and no lock. */
 async function expectSane(page: Page, withinMs: number) {
-  await expect.poll(async () => {
-    const s = await state(page);
-    return (s.launching === 'none' || s.launching === 'ingame') && (s.lock === 'none' || s.lock === 'dialog' || s.lock === 'quick-menu');
-  }, { timeout: withinMs }).toBe(true);
+  // alpha.37: the poll returns the state itself, so a failure says which state was stuck.
+  await expect
+    .poll(async () => {
+      const s = await state(page);
+      return `launching=${s.launching} lock=${s.lock}`;
+    }, { timeout: withinMs })
+    .toMatch(/^launching=(none|ingame) lock=(none|dialog|quick-menu)$/);
   // T2.2: a held Guide in the mashing may have opened the Quick Menu (or a message): close it
   // with B, as the user would, before the next step.
   for (let i = 0; i < 4; i++) {
