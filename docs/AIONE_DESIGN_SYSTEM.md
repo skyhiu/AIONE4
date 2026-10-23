@@ -306,7 +306,8 @@ scales text; tiles follow the window only).
   system font in any stack; the generic family is a last resort behind `font-display: block`).
 - **Icons:** Material Symbols Rounded only, everywhere. The **Quick Menu's** row icons are now the
   font's `power_settings_new` (as the drawer's Power), `light_mode` (Brightness), `volume_up` /
-  `volume_off` (Volume, muted), in the same 38 px box, weight 300 (they were hand-drawn SVG).
+  `volume_off` (Volume, muted), 38 px, weight 300 (they were hand-drawn SVG), with optical factors
+  so all three carry the same ink (L-10): `light_mode` 1.18, the volume icons 1.3.
   The header battery's empty frame is `battery_android_frame_alert` (the font has no `_0`; below
   about 8 % the header showed that name as text).
 - **Notification (revised):** Power Options' panel values: radius 12 and shadow 0 8 28 at 25 %
@@ -314,8 +315,8 @@ scales text; tiles follow the window only).
   controller (dimmed, `--color-icon-dim`, when disconnected), `battery_android_frame_alert` for a
   battery, `videogame_asset` for a game that ended; the badge, text and motion as above.
 - **The right-stick pointer (B-12):** Material Symbols Rounded `arrow_selector_tool`, filled
-  (FILL 1, weight 400, opsz 48), 48 px (Interface Scale), in the ring colour `--color-ring`
-  (#D9006C, both presets) with a 2.5 px white edge in the ring's band colour
+  (FILL 1, weight 400, opsz 48), 64 px (Interface Scale), in the ring colour `--color-ring`
+  (#D9006C, both presets) with a 4 px white edge in the ring's band colour
   (`--color-ring-gap`), so it reads over any art; the tip is the point. Above everything (z 2000),
   never takes a click. Moves by transform only; fades in and out over `--motion-fast` (120 ms).
   Speed: 1500 design px/s at full tilt, growing with the tilt squared.

@@ -165,7 +165,7 @@ function widePicture(i: number): string {
   g.fillRect(0, 0, 40, 430);
   g.fillRect(880, 0, 40, 430);
   g.fillStyle = '#ffffff';
-  g.font = 'bold 72px "M PLUS Rounded 1c"';
+  g.font = 'bold 72px "M PLUS Rounded 1c", sans-serif';
   g.fillText('WIDE PICTURE', 200, 240);
   const url = c.toDataURL('image/png');
   wideCache.set(i, url);

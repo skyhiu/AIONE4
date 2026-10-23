@@ -66,14 +66,14 @@
           <span class="icon" aria-hidden="true">power_settings_new</span>
           <span class="label">Power</span>
         {:else if name === 'Brightness'}
-          <span class="icon" aria-hidden="true">light_mode</span>
+          <span class="icon" style:--optical="1.18" aria-hidden="true">light_mode</span>
           {#if canBrightness}
             <Slider value={brightness.value ?? 0} {glide} testid="qm-brightness-value" label="Brightness" />
           {:else}
             <span class="note" data-testid="qm-brightness-note">{brightness.reason ?? "Brightness can't be changed for this display"}</span>
           {/if}
         {:else if name === 'Volume'}
-          <span class="icon" aria-hidden="true" data-testid="qm-volume-icon">{muted ? 'volume_off' : 'volume_up'}</span>
+          <span class="icon" style:--optical="1.3" aria-hidden="true" data-testid="qm-volume-icon">{muted ? 'volume_off' : 'volume_up'}</span>
           <span class="mute-state" data-testid="qm-volume-muted" data-muted={muted} hidden></span>
           <Slider value={muted ? 0 : volume} {glide} testid="qm-volume-value" label="Volume" />
         {:else}
@@ -149,7 +149,9 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: calc(38 * var(--px, 1px));
+    /* L-10 / KD-81 (as the header): an optical factor per glyph so the three carry the same ink
+       (measured on the alpha.37 CI screenshot: the sun and the speaker drew smaller than power). */
+    font-size: calc(38 * var(--px, 1px) * var(--optical, 1));
   }
   /* The B3 ring (the same markup and flash as Home's; app.css holds the keyframes). */
   .ring {
