@@ -315,8 +315,9 @@ scales text; tiles follow the window only).
   controller (dimmed, `--color-icon-dim`, when disconnected), `battery_android_frame_alert` for a
   battery, `videogame_asset` for a game that ended; the badge, text and motion as above.
 - **The right-stick pointer (B-12):** Material Symbols Rounded `arrow_selector_tool`, filled
-  (FILL 1, weight 400, opsz 48), 64 px (Interface Scale), in the ring colour `--color-ring`
-  (#D9006C, both presets) with a 4 px white edge in the ring's band colour
-  (`--color-ring-gap`), so it reads over any art; the tip is the point. Above everything (z 2000),
+  (FILL 1, opsz 48), 64 px (Interface Scale): the ring colour `--color-ring` (#D9006C, both
+  presets) at weight 300, on a white copy of the same glyph at weight 700 (`--color-ring-gap`),
+  which shows as a white edge so it reads over any art (`-webkit-text-stroke` doesn't draw on the
+  icon font); the tip is the point. Above everything (z 2000),
   never takes a click. Moves by transform only; fades in and out over `--motion-fast` (120 ms).
   Speed: 1500 design px/s at full tilt, growing with the tilt squared.
