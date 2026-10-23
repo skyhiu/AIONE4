@@ -69,7 +69,7 @@ async function expectSane(page: Page, withinMs: number) {
       }, { timeout: withinMs })
       .toMatch(/^launching=(none|ingame) lock=(none|dialog|quick-menu)$/);
   } catch (e) {
-    throw new Error(`${(e as Error).message}\nAIONE's last log lines:\n${(await lastLogs(page)).join('\n')}`);
+    throw new Error(`${(e as Error).message}\nAIONE's last log lines:\n${(await lastLogs(page)).join('\n')}`, { cause: e });
   }
   // T2.2: a held Guide in the mashing may have opened the Quick Menu (or a message): close it
   // with B, as the user would, before the next step.
@@ -129,7 +129,7 @@ for (const seed of SEEDS) {
       try {
         await expect.poll(async () => (await page.evaluate(() => window.__aioneMock?.returns ?? [])).length, { timeout: 2000 }).toBe(before + 1);
       } catch (e) {
-        throw new Error(`${(e as Error).message}\nAIONE's last log lines:\n${(await lastLogs(page)).join('\n')}`);
+        throw new Error(`${(e as Error).message}\nAIONE's last log lines:\n${(await lastLogs(page)).join('\n')}`, { cause: e });
       }
       expect(Date.now() - t0).toBeLessThan(1500);
       counts.push('media key + Alt, then a fast return');
